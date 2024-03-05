@@ -1,0 +1,4 @@
+Windows Registry Editor Version 5.0
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Panopto\Panopto Recorder]
+"WRDeleteWhenUploadComplete"="True"
