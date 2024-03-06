@@ -12,7 +12,7 @@ Where-Object {
 C:\ drive. 
 
 The Where-Object cmdlet filters the list of files and subfolders to only 
-include files that were last modified more than 30 days ago. 
+include files that were last modified more than 7 days ago. 
 
 Finally, the Remove-Item cmdlet deletes all files that match the filter criteria specified by the Where-Object 
 cmdlet, with the -Force flag to bypass any prompts for confirmation.
