@@ -1,7 +1,12 @@
 # Delete old Panopto Recorder files every 30 days
 
-Get-ChildItem -Path "C:\PanoptoRecorder" -Recurse | Where-Object 
-{ $_.LastWriteTime -lt (Get-Date).AddDays(-30) } | Remove-Item -Force -Recurse -Confirm:$false
+Get-ChildItem -Path "C:\PanoptoRecorder" -Recurse | 
+Where-Object {
+     $_.LastWriteTime -lt (Get-Date).AddDays(-7) -and 
+     $_.FullName -notmatch "C:\\PanoptoRecorder\\eventLogs" -and
+     $_.FullName -notmatch "C:\\PanoptoRecorder\\UCSUploads"
+    } | 
+    Remove-Item -Force -Recurse -Confirm:$false
 
 <#Get-ChildItem cmdlet specifies the path to the "PanoptoRecorder" folder in the 
 C:\ drive. 
