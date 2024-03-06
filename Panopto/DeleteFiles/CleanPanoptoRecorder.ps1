@@ -4,9 +4,9 @@ param(
     [int]$days = 7
 )
 
-Get-ChildItem -Path "C:\PanoptoRecorder" -Recurse | 
+Get-ChildItem -Path $path -Recurse | 
 Where-Object {
-     $_.LastWriteTime -lt (Get-Date).AddDays(-7) -and 
+     $_.LastWriteTime -lt (Get-Date).AddDays($days) -and 
      $_.FullName -notmatch "C:\\PanoptoRecorder\\eventLogs" -and
      $_.FullName -notmatch "C:\\PanoptoRecorder\\UCSUploads"
     } | 
