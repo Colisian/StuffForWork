@@ -1,4 +1,8 @@
 # Delete old Panopto Recorder files every 30 days
+param(
+    [string]$path = "C:\PanoptoRecorder",
+    [int]$days = 7
+)
 
 Get-ChildItem -Path "C:\PanoptoRecorder" -Recurse | 
 Where-Object {
