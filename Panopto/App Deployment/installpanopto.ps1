@@ -7,8 +7,7 @@
 $msiPath = "panoptorecorder.msi"
 
 # Installation arguments
-$msiArgs =  @("/i", $msiPath ,"/qn /l*v C:\PerfLogs\panoptoInstall.log", "PANOPTO_SERVER=umd.hosted.panopto.com")
-
+$msiArgs =  @("/i", $msiPath ,"/qn", "/l*v", "C:\PerfLogs\panoptoInstall.log", "PANOPTO_SERVER=umd.hosted.panopto.com")
 
 # Start the installation process
 $msiProcess = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
@@ -17,8 +16,12 @@ if ($msiProcess.ExitCode -eq 0) {
     <# Action to perform if the condition is true #>
     $RegFile = ".\panpotoregchanges.reg"
 
+    # Determine the correct cmd path for 64-bit execution
+    $cmdPath = if ([Environment]::Is64BitOperatingSystem) { "$env:windir\Sysnative\cmd.exe" } else { "cmd.exe" }
+
     # Import the registry changes
-    Start-Process -FilePath "regedit.exe" -ArgumentList "/s", $RegFile -Wait
+    Start-Process -FilePath $cmdPath -ArgumentList "/c reg import `"$RegFile`"" -Wait
+
 
     # Check if the registry changes were imported successfully
     if ($LASTEXITCODE -eq 0) {
