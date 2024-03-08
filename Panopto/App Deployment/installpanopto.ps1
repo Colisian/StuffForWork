@@ -19,7 +19,6 @@ if ($msiProcess.ExitCode -eq 0) {
     # Import the registry changes
     reg import $RegFile /reg:64
 
-
     # Check if the registry changes were imported successfully
     if ($LASTEXITCODE -eq 0) {
         <# Action to perform if the condition is true #>
