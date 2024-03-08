@@ -6,7 +6,7 @@
 
 $msiPath = "panoptorecorder.msi"
 
-# Installation arguments
+# Installation arguments put in an array
 $msiArgs =  @("/i", $msiPath ,"/qn", "/l*v", "C:\PerfLogs\panoptoInstall.log", "PANOPTO_SERVER=umd.hosted.panopto.com")
 
 # Start the installation process
@@ -14,7 +14,7 @@ $msiProcess = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait
 
 if ($msiProcess.ExitCode -eq 0) {
     <# Action to perform if the condition is true #>
-    $RegFile = ".\panpotoregchanges.reg"
+    $RegFile = "panpotoregchanges.reg"
 
     # Import the registry changes
     reg import $RegFile /reg:64
