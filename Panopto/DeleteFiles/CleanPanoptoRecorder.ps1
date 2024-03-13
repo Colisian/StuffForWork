@@ -1,4 +1,4 @@
-# Delete old Panopto Recorder files every 30 days
+# Delete old Panopto Recorder files that are older than 7 days
 param(
     [string]$path = "C:\PanoptoRecorder",
     [int]$days = 7
