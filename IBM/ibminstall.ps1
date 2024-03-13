@@ -1,11 +1,10 @@
+# powershell.exe -executionpolicy bypass -file .\ibmspss.ps1 
+
 $msiPath = ".\ibmspss.msi"
 $licenseServer = "athos@umd.edu"
-$msiArgs =  @(
-    "/i", 
-    "`"$msiPath`"", 
-    "/qn", 
-    "COMPANYNAME=`"University of Maryland`"", 
-    "SPSSLICENSE=`"Network`"",
-    "LSHOST=`"$licenseServer`""
-)
+$msiArgs =  @(msiexec /i "ibmspss.msi" /qn COMPANYNAME="Univeristy of Maryland"
+SPSSLICENSE="Network" 
+LSHOST="$licenseServer" 
+SPSS_COMMUTE_MAX_LIFE="30")
+
 Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru

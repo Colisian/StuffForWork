@@ -14,10 +14,13 @@ $msiProcess = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait
 
 if ($msiProcess.ExitCode -eq 0) {
     <# Action to perform if the condition is true #>
-    $RegFile = "panoptoregchanges.reg"
+    $RegFile = ".\panoptoregchanges.reg"
 
-    # Import the registry changes
-    reg import $RegFile /reg:64
+     # Determine the correct cmd path for 64-bit execution
+     $cmdPath = if ([Environment]::Is64BitOperatingSystem) { "$env:windir\Sysnative\cmd.exe" } else { "cmd.exe" }
+    
+     # Import the registry changes using the determined cmd path for 64-bit context
+     Start-Process -FilePath $cmdPath -ArgumentList "/c reg import `"$RegFile`"" -Wait
 
     # Check if the registry changes were imported successfully
     if ($LASTEXITCODE -eq 0) {
