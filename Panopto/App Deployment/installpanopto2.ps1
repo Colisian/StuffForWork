@@ -1,8 +1,9 @@
 
 #run the following command to install the Panopto Recorder
-# powershell.exe -executionpolicy bypass -file .\installpanopto.ps1 
+# powershell.exe -executionpolicy bypass -file .\installpanopto2.ps1 
 # to run the script
 # INstallation command for Panopto Recorder MSI
+#!!! THIS SCRIPT IS WORKING !!!
 
 $msiPath = "panoptorecorder.msi"
 
