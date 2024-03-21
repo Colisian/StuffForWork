@@ -11,5 +11,5 @@ $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
 #Create task
-Register-ScheduledTask -TaskName "ClearPanoptoRecorderFiles" -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal
+Register-ScheduledTask -TaskName "CleanPanoptoRecorderFiles" -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal
 
