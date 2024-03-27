@@ -1,6 +1,6 @@
 # Get all user profiles, exluding system profiles
-$userProfiles = Get-WmiObject -Class Win32_UserProfile | Where-Object { -not $_.Special  } -and 
-$_.LocalPath.split('\')[-1] -ne "CSPAdmin"
+$userProfiles = Get-WmiObject -Class Win32_UserProfile | Where-Object { -not $_.Special -and 
+$_.LocalPath.split('\')[-1] -ne "CSPAdmin" }
 
 # Iterate through each user profile
 foreach ($profile in $userProfiles) {
