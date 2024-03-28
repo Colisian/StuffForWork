@@ -1,3 +1,6 @@
+# powershell.exe -executionpolicy bypass -file .\DeleteUserProfile.ps1 
+
+
 # Get all user profiles, exluding system profiles
 $userProfiles = Get-WmiObject -Class Win32_UserProfile | Where-Object { -not $_.Special -and 
 $_.LocalPath.split('\')[-1] -ne "CSPAdmin" }
