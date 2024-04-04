@@ -2,9 +2,7 @@
 
 $msiPath = ".\ibmspss.msi"
 $licenseServer = "athos@umd.edu"
-$msiArgs =  @(msiexec /i "ibmspss.msi" /qn COMPANYNAME="Univeristy of Maryland"
-SPSSLICENSE="Network" 
-LSHOST="$licenseServer" 
+$msiArgs =  @(msiexec /i "ibmspss.msi" /qn SPSSLICENSE="Network"  LSHOST= $licenseServer 
 SPSS_COMMUTE_MAX_LIFE="30")
 
 Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
