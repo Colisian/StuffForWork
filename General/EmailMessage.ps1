@@ -10,7 +10,7 @@ $EmailFrom = "cmcleod1@umd.edu"
 $SMTPServer = "smtp.gmail.com"
 $SMTPPort = 587
 $Username = "cmcleod1@umd.edu"
-$Password = "mzil wfmw gqhv wyae"  # This is the 16-character app password generated 
+$Password = "mzilwfmwgqhvwyae"  # This is the 16-character app password generated 
 
 #Funaction to send an email using Gmail SMTP server
 
