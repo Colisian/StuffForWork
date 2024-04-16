@@ -50,7 +50,7 @@ if ($disk.Free -lt $threshold) {
     $subjectText = "Low Disk Space Alert on $($env:COMPUTERNAME)"
 
     # Sending the email
-    Send-Email -To $emailTo -From $emailFrom -Body $bodyText -Subject $subjectText -SMTPServer $smtpServer -SMTPPort $smtpPort -Username $username -Password $appPassword
+    Send-Email -To $emailTo -From $emailFrom -Body $bodyText -Subject $subjectText -SMTPServer $smtpServer -SMTPPort $smtpPort -Username $username -Password $Password
     Write-Host "Email sent successfully!"
 } else {
     Write-Host "Disk space is above the threshold. No email sent."
