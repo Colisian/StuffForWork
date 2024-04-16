@@ -27,11 +27,13 @@ param (
     [Parameter(Mandatory=$true)][string]$Password
 
 )
-
+# Create a secure password
 $SecurePassword = $Password | ConvertTo-SecureString -AsPlainText -Force
+
+# Create a PSCredential object
 $SMTPCredential = New-Object System.Management.Automation.PSCredential ($Username, $SecurePassword)
 
-
+# Create a hashtable for the email message
 $MailMessage = @{
     To = $To
     From = $From
