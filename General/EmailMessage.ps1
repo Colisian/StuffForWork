@@ -10,7 +10,7 @@ $Body = "Your device is running low on disk space."
 $SMTPServer = "smtp.gmail.com"
 $SMTPPort = 587
 $Username = "cmcleod1@umd.edu"
-$Password = "your-app-password"  # This is the 16-character app password generated earlier
+$Password = "mzil wfmw gqhv wyae"  # This is the 16-character app password generated 
 
 $SMTPInfo = @{
     To = $EmailTo
