@@ -1,6 +1,7 @@
 
 #variables
-$threshold = 200GB
+$thresholdGB = 200
+$threshold = $thresholdGB * 1GB
 $disk = Get-PSDrive -Name "C"  
 
 
