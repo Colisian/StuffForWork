@@ -58,5 +58,5 @@ if ($disk.Free -lt $threshold) {
     Write-Host "Email sent successfully!"
 } else {
     Write-Host "Disk space is above the threshold. No email sent."
-    Write-Host "Free space: $(($disk.Free / 1GB).ToString('N2')) GB"
+    Write-Host "Free space: $freeSpaceGB ."
 }
