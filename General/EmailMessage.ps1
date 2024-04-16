@@ -47,7 +47,7 @@ Send-MailMessage @MailMessage
 }
 # Check if free space is below the threshold
 if ($disk.Free -lt $threshold) {
-    $bodyText = "Warning: The drive $($disk.Name) on $($env:COMPUTERNAME) is running low on disk space. `nFree space left: $(($disk.Free / 1GB).ToString('N2')) GB out of $($threshold) GB threshold."
+    $bodyText = "Warning: The drive $($disk.Name) on $($env:COMPUTERNAME) is running low on disk space. `nFree space left: $(($disk.Free / 1GB).ToString('N2')) GB out of $($threshold / 1GB) GB threshold."
     $subjectText = "Low Disk Space Alert on $($env:COMPUTERNAME)"
 
     # Sending the email
