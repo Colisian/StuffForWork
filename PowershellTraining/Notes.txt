@@ -1,3 +1,6 @@
+From Microsofts Introduction to PowerShell course.
+
+
 A cmdlet (pronounced "command-let") is a compiled command. A cmdlet can be developed in .NET or .NET Core and invoked as a command within PowerShell. 
 Thousands of cmdlets are available in your PowerShell installation. 
 The challenge lies in discovering what the cmdlets are and what they can do for you.
@@ -27,3 +30,27 @@ You can also run an alias help command to invoke Get-Help but improve the readin
 Get-Member: 
 When you call a command, the response is an object that contains many properties. 
 Run the Get-Member core cmdlet to drill down into that response and learn more about it.
+
+
+-Noun: The -Noun flag targets the part of the command name that's related to the noun. 
+That is, it targets everything after the hyphen (-). Here's a typical search for a command name:
+
+Get-Command -Noun File*
+
+Output:
+
+CommandType     Name                                               Version    Source
+-----------     ----                                               -------    ------
+Cmdlet          Get-FileHash                                       7.0.0.0    Microsoft.PowerShell.Utility
+Cmdlet          Out-File                                           7.0.0.0    Microsoft.PowerShell.Utility
+Cmdlet          Unblock-File                                       7.0.0.0    Microsoft.PowerShell.Utility
+
+The cmdlets Get-FileHash, Out-File, and Unblock-File all match your query. Now, you have a manageable response. 
+To further filter the response, add the -Verb parameter to your query.
+
+Get-Command -Verb Get -Noun File*
+
+Output:
+CommandType     Name                                               Version    Source
+-----------     ----                                               -------    ------
+Cmdlet          Get-FileHash                                       7.0.0.0    Microsoft.PowerShell.Utilit
