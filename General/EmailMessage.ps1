@@ -27,11 +27,13 @@ param (
     [Parameter(Mandatory=$true)][string]$Password
 
 )
-
+# Create a secure password
 $SecurePassword = $Password | ConvertTo-SecureString -AsPlainText -Force
+
+# Create a PSCredential object
 $SMTPCredential = New-Object System.Management.Automation.PSCredential ($Username, $SecurePassword)
 
-
+# Create a hashtable for the email message
 $MailMessage = @{
     To = $To
     From = $From
@@ -47,7 +49,10 @@ Send-MailMessage @MailMessage
 }
 # Check if free space is below the threshold
 if ($disk.Free -lt $threshold) {
-    $bodyText = "Warning: The drive $($disk.Name) on $($env:COMPUTERNAME) is running low on disk space. `nFree space left: $(($disk.Free / 1GB).ToString('N2')) GB out of $($threshold / 1GB) GB threshold."
+    $freeSpaceGB = [math]::Round($disk.Free / 1GB, 2)
+    $thresholdGB = [math]::Round($threshold / 1GB, 2)
+
+    $bodyText = "Warning: The drive $($disk.Name) on $($env:COMPUTERNAME) is running low on disk space. Free space: $freeSpaceGB GB of threshold: $thresholdGB GB."
     $subjectText = "Low Disk Space Alert on $($env:COMPUTERNAME)"
 
     # Sending the email
@@ -55,5 +60,5 @@ if ($disk.Free -lt $threshold) {
     Write-Host "Email sent successfully!"
 } else {
     Write-Host "Disk space is above the threshold. No email sent."
-    Write-Host "Free space: $(($disk.Free / 1GB).ToString('N2')) GB"
+    Write-Host "Free space: $freeSpaceGB ."
 }
