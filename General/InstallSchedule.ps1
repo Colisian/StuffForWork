@@ -6,7 +6,7 @@ if (-not (Test-Path $targetDir)) {
     New-Item -Path $targetDir -ItemType Directory
 }
 
-#Copy the EmailMessage.ps1 script to the destination directory
+#Copy the EmailMessage.ps1 script to the destination directory (relative to the location where the package is unpacked)
 $sourceScript = ".\EmailMessage.ps1"
 
 #Define destination path
