@@ -1,6 +1,23 @@
+#Define destination directory
+$targetDir = "C:\Program Files\DiskSpaceMonitor"
+
+#Make sure directory exits or create it
+if (-not (Test-Path $targetDir)) {
+    New-Item -Path $targetDir -ItemType Directory
+}
+
+#Copy the EmailMessage.ps1 script to the destination directory
+$sourceScript = ".\EmailMessage.ps1"
+
+#Define destination path
+$destinationPath = Join-Path -Path $targetDir -ChildPath "EmailMessage.ps1"
+
+#Copy script to the target directory
+Copy-Item -Path $sourceScript -Destination $destinationPath -Force 
+
 
 #Task variables 
-$scriptPath = "C:\Users\cmcle\Documents\PowerShellScripts\General\EmailMessage.ps1"
+$scriptPath = $destinationPath
 $taskName = "Disk Space Monitor"
 $taskDescription = "Task to monitor disk space and send an email if it falls below a certain threshold"
 $triggerTime = New-TimeSpan -Hours 24
