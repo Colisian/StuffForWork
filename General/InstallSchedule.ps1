@@ -20,11 +20,8 @@ Copy-Item -Path $sourceScript -Destination $destinationPath -Force
 $scriptPath = $destinationPath
 $taskName = "Disk Space Monitor"
 $taskDescription = "Task to monitor disk space and send an email if it falls below a certain threshold"
-$triggerTime = New-TimeSpan -Hours 24
-
 # Creating a new daily task trigger
 $trigger = New-ScheduledTaskTrigger -Daily -At "3:00 AM"
-
 # Creating a new action to run the script
 $action = New-ScheduledTaskAction -Execute "Powershell.exe" -Argument "-File `"$scriptPath`""
 
