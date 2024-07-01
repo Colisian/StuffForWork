@@ -1,5 +1,6 @@
 #define registry path
-$regpath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+$regpathSystem = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+$regpathUser = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 
 if (Test-Path $regpath) {
     # Check if registry key exists 
