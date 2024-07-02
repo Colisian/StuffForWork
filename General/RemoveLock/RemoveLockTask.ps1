@@ -1,5 +1,5 @@
 
-$targetDirectory = "C:\PerfLogs\RemoveLock"
+$targetDirectory = "C:\Scripts"
 
 # Ensure the target directory exists
 if (-not (Test-Path $targetDirectory)) {
