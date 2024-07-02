@@ -18,6 +18,7 @@ $taskname = "Disable Lock Workstation"
 $scriptPath = $destinationPath
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $action = New-ScheduledTaskAction -Execute "Powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$scriptPath`""
+$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\INTERACTIVE" -LogonType Interactive -RunLevel Highest
 
-Register-ScheduledTask -TaskName $taskname -Action $action -Trigger $trigger  -Principal $principal
+Register-ScheduledTask -TaskName $taskname -Action $action -Trigger $trigger -Settings $Settings  -Principal $principal
