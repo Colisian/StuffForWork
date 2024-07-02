@@ -1,11 +1,13 @@
 @echo off
 
-
-Rem Ensure Perf Logs folder exists
-
-if not exist "C:\PerfLogs" (
-   mkdir "C:\PerfLogs"
+REM Ensure the Scripts directory exists
+if not exist "C:\Scripts" (
+    mkdir "C:\Scripts"
 )
+
+REM Copy the PowerShell scripts to the Scripts directory
+copy "RemoveLock.ps1" "C:\Scripts\RemoveLock.ps1"
+copy "RemoveLockTask.ps1" "C:\Scripts\RemoveLockTask.ps1"
 
 copy "RemoveLock.ps1" "C:\PerfLogs\RemoveLock.ps1"
 
