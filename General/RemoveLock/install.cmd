@@ -1,13 +1,16 @@
 @echo off
 
+
 Rem Ensure Perf Logs folder exists
 
 if not exist "C:\PerfLogs" (
    mkdir "C:\PerfLogs"
 )
 
-REM Run the PowerShell script
-Powershell.exe -ExecutionPolicy Bypass -File "RemoveLock.ps1"
+copy "RemoveLock.ps1" "C:\PerfLogs\RemoveLock.ps1"
+
+REM Run the PowerShell script for the scheduled task
+Powershell.exe -ExecutionPolicy Bypass -File "RemoveLockTask.ps1"
 
 if %ERRORLEVEL% EQU 0 (
     echo Script ran successfully
