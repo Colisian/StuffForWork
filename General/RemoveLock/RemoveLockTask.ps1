@@ -1,3 +1,5 @@
+Set-ExecutionPolicy RemoteSigned -Scope Process -Force
+
 $taskname = "Disable Lock Workstation"
 $scriptPath = "C:\Scripts\RemoveLock.ps1"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
