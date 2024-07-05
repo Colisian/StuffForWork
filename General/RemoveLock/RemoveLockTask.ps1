@@ -1,7 +1,7 @@
 Set-ExecutionPolicy RemoteSigned -Scope Process -Force
 
 $taskname = "Disable Lock Workstation"
-$scriptPath = "C:\Scripts\RemoveLock.ps1"
+$scriptPath = "C:\Program Files\Scripts\RemoveLock.ps1"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $action = New-ScheduledTaskAction -Execute "Powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$scriptPath`""
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
