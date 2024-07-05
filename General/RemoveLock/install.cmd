@@ -1,15 +1,14 @@
 @echo off
 
 REM Ensure the Scripts directory exists
-if not exist "C:\Scripts" (
-    mkdir "C:\Scripts"
+if not exist "C:\Program Files\Scripts" (
+    mkdir "C:\Program Files\Scripts"
 )
 
 REM Copy the PowerShell scripts to the Scripts directory
-copy "RemoveLock.ps1" "C:\Scripts\RemoveLock.ps1"
-copy "RemoveLockTask.ps1" "C:\Scripts\RemoveLockTask.ps1"
+copy "RemoveLock.ps1" "C:\Program Files\Scripts\RemoveLock.ps1"
+copy "RemoveLockTask.ps1" "C:\Program Files\Scripts\RemoveLockTask.ps1"
 
-copy "RemoveLock.ps1" "C:\PerfLogs\RemoveLock.ps1"
 
 REM Run the PowerShell script for the scheduled task
 Powershell.exe -ExecutionPolicy Bypass -File "RemoveLockTask.ps1"
