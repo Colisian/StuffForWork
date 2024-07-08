@@ -1,3 +1,4 @@
+#Setting the execution policy to bypass
 Set-ExecutionPolicy RemoteSigned -Scope Process -Force
 
 $taskname = "Disable Lock Workstation"
