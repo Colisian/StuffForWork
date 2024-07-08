@@ -32,4 +32,4 @@ Get-ChildItem 'HKU:\' | ForEach-Object{
 
 # If you want to apply this to new users who log on, you can also set it in the Default User profile
 $defaultUserRegPath = "HKU\.DEFAULT\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
-Set-RegistryValue -path $defaultUserRegPath -Name "DisableLockWorkstation" -Value 1
+Set-RegistryValue -path $defaultUserRegPath -Name "DisableLockWorkstation" -Value 1  
