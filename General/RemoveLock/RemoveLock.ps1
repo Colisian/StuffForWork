@@ -29,17 +29,17 @@ Set-RegistryValue -Path $regpathUser -Name "DisableLockWorkstation" -Value 1
 
 #Apply to all user profiles
 try{
-    $hkuDrive = Get-PSDrive -Name HKU -ErrorAction Stop
-Get-ChildItem 'HKU:\' | ForEach-Object{
+    $userSIDs = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList" | ForEach-Object { $_.PSChildName }
+    foreach ($userSID in $userSIDs){
     try {
-        $userRegPath = "HKU:\$($_.PSChildName)\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+        $userRegPath = "Registry::HKey_USERS\$userSID\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
         Set-RegistryValue -Path $userRegPath -Name "DisableLockWorkstation" -Value 1
     } catch {
-        Write-Output "Error: $($_.PSChildName)"
+        Write-Output "Error applying to User Profile ${userSID}: $($_.Exception.Message)"
     }
 }
 } catch {
-    Write-Output "Error accessing HKU value: $_"
+     Write-Output "Error applying to User Profile ${userSID}: $($_.Exception.Message)"
 }
 
 try{
