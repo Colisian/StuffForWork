@@ -32,6 +32,3 @@ Remove-RegistryValue -path $regpathUser -name "DisableLockWorkstation"
 # Remove the disable lock screen value to enable Lock workstation at Default User Level
 Remove-RegistryValue -path $defaultUserRegPath -name "DisableLockWorkstation"
 
-# If you want to apply this to new users who log on, remove it from the Default User profile
-$defaultUserRegPath = "HKU\.DEFAULT\Software\Microsoft\Windows\CurrentVersion\Policies\System"
-Remove-RegistryValue -path $defaultUserRegPath -name "DisableLockWorkstation"
