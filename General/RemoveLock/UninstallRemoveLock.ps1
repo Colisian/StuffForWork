@@ -1,7 +1,7 @@
 #define registry path
 $regpathSystem = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 $regpathUser = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
-$defaultUserRegPath = "HKU\$($_.PSChildName)\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+$defaultUserRegPath = "Registry::HKEY_USERS\.DEFAULT\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 
 # Function to remove registry value
 function Remove-ItemProperty{
