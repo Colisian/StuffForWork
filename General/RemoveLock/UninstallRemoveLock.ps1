@@ -32,3 +32,16 @@ Remove-RegistryValue -path $regpathUser -name "DisableLockWorkstation"
 # Remove the disable lock screen value to enable Lock workstation at Default User Level
 Remove-RegistryValue -path $defaultUserRegPath -name "DisableLockWorkstation"
 
+try{
+   foreach ($userSID in $userSIDs){
+    try {
+        $userRegPath = "Registry::HKEY_USERS\$userSID\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+        Remove-RegistryValue -path $userRegPath -name "DisableLockWorkstation"
+    } catch {
+        Write-Output "Error applying to User Profile ${userSID}: $($_.Exception.Message)"
+        }
+
+    } 
+} catch {
+    Write-Output "Error applying to User Profile ${userSID}: $($_.Exception.Message)"
+}

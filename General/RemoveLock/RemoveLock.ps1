@@ -37,8 +37,8 @@ try{
         Set-RegistryValue -Path $userRegPath -Name "DisableLockWorkstation" -Value 1
     } catch {
         Write-Output "Error applying to User Profile ${userSID}: $($_.Exception.Message)"
+        }
     }
-}
 } catch {
      Write-Output "Error applying to User Profile ${userSID}: $($_.Exception.Message)"
 }
