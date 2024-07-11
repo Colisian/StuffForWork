@@ -3,7 +3,7 @@ $regpathSystem = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Syste
 $regpathUser = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 $defaultUserRegPath = "Registry::HKEY_USERS\.DEFAULT\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 
-# Function to set regirsty value
+#Function to set regirsty value
 function Set-RegistryValue{
     param (
         [string]$path,
@@ -44,7 +44,7 @@ try{
 }
 
 try{
-# If you want to apply this to new users who log on, you can also set it in the Default User profile
+#apply to new users who log on and set it in the Default User profile
 
 Set-RegistryValue -path $defaultUserRegPath -Name "DisableLockWorkstation" -Value 1 
 } catch {
