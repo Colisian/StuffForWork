@@ -2,7 +2,7 @@
 @echo off
 
 REM Copy the PowerShell scripts to the Scripts directory
-copy "UninstallRemoveLock.ps1" "C:\Program Files\Scipts\UninstallRemoveLock.ps1"
+copy "UninstallRemoveLock.ps1" "C:\Program Files\Scripts\UninstallRemoveLock.ps1"
 
 REM Run the PowerShell script to remove the DisableLockWorkstation registry entry
 PowerShell.exe -ExecutionPolicy Bypass -File "UninstallRemoveLock.ps1"

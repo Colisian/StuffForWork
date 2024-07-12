@@ -10,12 +10,12 @@ function Remove-ItemProperty{
         [string]$name
     )
 
-if (Test-Path $regpath) {
+if (Test-Path $path) {
     # Check if registry key exists 
     $property = Get-ItemProperty -Path $path -Name $name -ErrorAction SilentlyContinue
-    if ($property) {
+    if ($null -ne $property) {
         # Remove the DisableLockWorkstation
-        Remove-ItemProperty -Path $regpath -Name "DisableLockWorkstation" -Force
+        Remove-ItemProperty -Path $path -Name "DisableLockWorkstation" -Force
         Write-Output "RemoveLock has been uninstalled successfully."
     } else {
         Write-Output "DisableLockWorkstation does not exist. RemoveLock is not installed"
@@ -33,6 +33,7 @@ Remove-RegistryValue -path $regpathUser -name "DisableLockWorkstation"
 Remove-RegistryValue -path $defaultUserRegPath -name "DisableLockWorkstation"
 
 try{
+    $userSIDs = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList" | ForEach-Object { $_.PSChildName }
    foreach ($userSID in $userSIDs){
     try {
         $userRegPath = "Registry::HKEY_USERS\$userSID\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
