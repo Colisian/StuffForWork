@@ -5,3 +5,5 @@
 *.pfm
 *.pfb
 *.ttf
+/Fonts_Rick/*
+!/Fonts_Rick/
