@@ -11,7 +11,7 @@ if (-not (Test-Path $logFolder)){
     New-Item -Path $logFolder -ItemType Directory -Force
 }
 #Log exectuion details
-$logEntry = "Script executed on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') 'r'n"
+$logEntry = "Script executed on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') "
 Add-Content -Path $logFile -Value $logEntry
 # Check if the registry path exists
 if (-not (Test-Path $regPath)){
@@ -25,5 +25,5 @@ $gpRegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Cre
 Set-ItemProperty -Path $gpRegPath -Name "Disabled" -Value 1
 
 #log the disabling of GlobalProtect
-Add-Content -Path $logFile -Value "GlobalProtect VPN disabled as Sign-in option. 'r'n"
+Add-Content -Path $logFile -Value "GlobalProtect VPN disabled as Sign-in option."
 
