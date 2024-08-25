@@ -1,5 +1,5 @@
 
 @echo off
-powershell.exe -Executionpolicy bypass -File "%~dp0SetDomain.ps1"
-
-exit /b 0
+REM This command runs the PowerShell script with administrative privileges.
+Powershell.exe -ExecutionPolicy Bypass -File "SetDomain.ps1" 
+exit /B 0

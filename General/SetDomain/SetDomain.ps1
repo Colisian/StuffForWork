@@ -20,10 +20,5 @@ if (-not (Test-Path $regPath)){
 
 Set-ItemProperty -Path $regPath -Name $regName -Value $regValue -Force
 
-# Disable GlobalProtect VPN as Sign-in option
-$gpRegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{25CA8579-1BD8-469c-B9FC-6AC45A161C18}\"
-Set-ItemProperty -Path $gpRegPath -Name "Disabled" -Value 1
 
-#log the disabling of GlobalProtect
-Add-Content -Path $logFile -Value "GlobalProtect VPN disabled as Sign-in option."
 
