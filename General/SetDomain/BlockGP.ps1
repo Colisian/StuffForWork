@@ -1,5 +1,5 @@
 $logFolder = "C:\Scripts"
-$logFile = "$logFolder\ScriptExecutionLog.txt"
+$logFile = "$logFolder\GP.txt"
 $gpRegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{25CA8579-1BD8-469c-B9FC-6AC45A161C18}\"
 $regName = "Disabled"
 $regValue = 1
