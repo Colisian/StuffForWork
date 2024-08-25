@@ -17,8 +17,8 @@ Add-Content -Path $logFile -Value $logEntry
 try {
     Set-ItemProperty -Path $gpRegPath -Name $regName -Value $regValue -ErrorAction Stop
     # If the command succeeds, log the result
-    Add-Content -Path $logFile -Value "GlobalProtect sign-in option disabled." + "`r`n"
+    Add-Content -Path $logFile -Value "GlobalProtect sign-in option disabled." 
 } catch {
     # If the command fails, log the failure
-    Add-Content -Path $logFile -Value "Failed to disable GlobalProtect sign-in option." + "`r`n"
+    Add-Content -Path $logFile -Value "Failed to disable GlobalProtect sign-in option."
 }
