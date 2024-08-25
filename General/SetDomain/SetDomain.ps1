@@ -10,4 +10,3 @@ if (-not (Test-Path $regPath)){
 }
 
 Set-ItemProperty -Path $regPath -Name $regName -Value $regValue -Force
-Set-ItemProperty -Path $regPath -Name "DontDisplayLastUserName" -Value 1 -Force
