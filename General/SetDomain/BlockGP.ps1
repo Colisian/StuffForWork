@@ -15,7 +15,7 @@ Add-Content -Path $logFile -Value $logEntry
 
 #Disable GlobalProtect VPN as Sign-in option
 try {
-    Set-ItemProperty -Path $gpRegPath -Name $regName -Value $regValue -ErrorAction Stop
+    Set-ItemProperty -Path $gpRegPath -Name $regName -Value $regValue 
     # If the command succeeds, log the result
     Add-Content -Path $logFile -Value "GlobalProtect sign-in option disabled." 
 } catch {
