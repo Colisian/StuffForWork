@@ -8,29 +8,24 @@ $logFile = "C:\Scripts\LoginTimes.txt"
 
 
 #Get all logon events from the Security log
-$logonEvents = Get-WinEvent -LogName Security -FilterHashtable @{
-    Id=4624
-} | Where-Object {
-
-    if($_.TimeCreated){
-
+$logonEvents = Get-WinEvent -LogName Security  | Where-Object{
+    #filter for logoff events
+    $_.Id -eq 4634 -and $_.TimeCreated -ne $null -and
+    $_.TimeCreated.ToLocalTime() -ge $startDate -and
+    $_.TimeCreated.ToLocalTime() -le $endDate
     
-    $eventTime = $_.TimeCreated.ToLocalTime()
-    $eventTime -ge $startDate -and $eventTime -le $endDate
-    }
 }
     # Prepare the header for the text file 
-    "Username, Logon Time" | Out-File -FilePath $logFile -Encoding utf8
+    "User SID, Username, Logon Time" | Out-File -FilePath $logFile -Encoding utf8
 
     # Process and output the list of users who logged in within the data/time range to the file
     $logonEvents | ForEach-Object {
-        $userName = if ($_.Properties.Count -ge 6) {
-        ($_.Properties[5].Value -as [string]) -or "UnknownUser"
-       
-        } else {
-            "UnknownUser"
-        }
+        #Extract event details
+        $eventData = $_.Properties
 
+        # Extract EventData fields by name
+    $userSid = $_.Properties[0].Value        # TargetUserSid
+    $userName = $_.Properties[1].Value       # TargetUserName
         
         $logonTime = if($_.TimeCreated){
 
@@ -39,7 +34,7 @@ $logonEvents = Get-WinEvent -LogName Security -FilterHashtable @{
             "UnknownTime"
         }
         # Format th output
-        $outputLine = "$userName, $logonTime"
+        $outputLine = "$userSID ,$userName, $logonTime"
 
         #Append the output to the text file
         $outputLine | Out-File -FilePath $logFile -Append -Encoding utf8
