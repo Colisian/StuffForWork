@@ -23,7 +23,7 @@ $logonEvents = Get-WinEvent -LogName Security  | Where-Object{
         #Extract event details
         $eventData = $_.Properties
 
-        # Extract EventData fields by name
+        # Extract EventData fields by how they show up name
     $userSid = $_.Properties[0].Value        # TargetUserSid
     $userName = $_.Properties[1].Value       # TargetUserName
         
