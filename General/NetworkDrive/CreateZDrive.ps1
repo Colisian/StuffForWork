@@ -25,7 +25,7 @@ function Create-ZDrive {
     #Set permissions on the user folder
     Try{
         $Acl = Get-Acl -Path $UserFolder
-        $User = $Domain\$UserID
+        $User = "$Domain\$UserID"
 
         #Grant Full Control to the user
         $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($User, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
