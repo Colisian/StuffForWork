@@ -44,3 +44,22 @@ function Create-ZDrive {
         Write-Host $_.Exception.Message
     }
 }
+
+#Interactive Input
+Write-Host "Enter UMD Directory ID to create Z Drive for new employees, separated by commas:"
+$Input = Read-Host "UMD Directory IDs"
+$UserIDs = $Input.split(",").Trim()
+
+# Loop through the list of user IDs and create Z Drive folders
+foreach ($UserID in $UserIDs) {
+    if ($UserID -ne "") {
+        Write-Host "Creating Z Drive for user: $UserID"
+        Create-ZDrive -UserID $UserID
+    } else {
+        Write-Host "Invalid User ID: $UserID"
+    }
+}
+
+#Stop logging
+Stop-Transcript
+Write-Host "Z Drive setup completed. Check the log file for details: $LogFile"
