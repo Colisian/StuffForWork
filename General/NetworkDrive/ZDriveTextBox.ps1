@@ -79,7 +79,6 @@ if ($UserInput -ne $null -and $UserInput -ne "") {
     $Domain = "AD"
     $LogFile = "C:\ZDriveSetupLog.txt"
 
-    # Start logging
     Start-Transcript -Path $LogFile -Append
 
     # Function to Create Z Drive Folder and Set Permissions
