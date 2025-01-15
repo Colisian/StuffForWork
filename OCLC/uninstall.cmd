@@ -1,5 +1,5 @@
-rem Microsoft Access Database Engine 2010 {90140000-00D1-0409-1000-0000000FF1CE}
-rem OCLC Connexion client {106AE75F-9EFC-4721-BB06-DB6683EB8DA9}
+:: Microsoft Access Database Engine 2010 {90140000-00D1-0409-1000-0000000FF1CE}
+:: OCLC Connexion client {106AE75F-9EFC-4721-BB06-DB6683EB8DA9}
 
 @echo off
 :: Uninstall OCLC Connexion client
