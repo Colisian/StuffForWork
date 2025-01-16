@@ -23,3 +23,21 @@ if (Test-Path $AccessDatabaseEngine) {
 } else {
     Write-Host "accessdatabaseengine_X64.exe not found at $AccessDatabaseEngine"
 }
+
+# Define paths
+$TargetExe = "C:\Program Files\OCLC\Connexion\Program\Connex.exe"
+$ShortcutPath = "C:\Users\Public\Desktop\Connexion.lnk"
+
+# Create the shortcut
+if (Test-Path -Path $TargetExe) {
+    $WScriptShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
+    $Shortcut.TargetPath = $TargetExe
+    $Shortcut.WorkingDirectory = "C:\Program Files\OCLC\Connexion\Program"
+    $Shortcut.WindowStyle = 1 # Normal window
+    $Shortcut.IconLocation = "$TargetExe, 0" # Use the app's icon
+    $Shortcut.Save()
+    Write-Host "Shortcut created successfully at $ShortcutPath"
+} else {
+    Write-Host "Executable not found at $TargetExe. Shortcut not created."
+}
