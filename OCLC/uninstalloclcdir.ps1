@@ -1,0 +1,1 @@
+Remove-Item -Path "C:\Program Files\OCLC" -Recurse -Force
