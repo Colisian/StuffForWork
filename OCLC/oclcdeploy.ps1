@@ -1,4 +1,4 @@
-# Define dynamic paths to installation files
+# Define dynamic paths
 $ConnexionMsi = Join-Path -Path $PSScriptRoot -ChildPath "Connexion.msi"
 $ComServiceMsi = Join-Path -Path $PSScriptRoot -ChildPath "OCLC.Connexion.ComServiceDeploy.msi"
 $AccessDatabaseEngine = Join-Path -Path $PSScriptRoot -ChildPath "accessdatabaseengine_X64.exe"
