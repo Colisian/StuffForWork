@@ -82,7 +82,7 @@ if ($UserInput -ne $null -and $UserInput -ne "") {
     Start-Transcript -Path $LogFile -Append
 
     # Function to Create Z Drive Folder and Set Permissions
-    function Create-ZDriveFolder {
+    function Create-ZDriveFolder { 
         param (
             [string]$UserID
         )

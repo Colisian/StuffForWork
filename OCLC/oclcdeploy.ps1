@@ -12,7 +12,7 @@ $AccessDatabaseEngine = Join-Path -Path $PSScriptRoot -ChildPath "accessdatabase
     Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$ComServiceMsi`" ALLUSERS=1 /qn /norestart" -Wait
 
 
-# Check and install AccessDatabaseEngine
+#Check and install AccessDatabaseEngine
 
     Start-Process -FilePath $AccessDatabaseEngine -ArgumentList "/quiet /norestart" -Wait
 
@@ -21,7 +21,7 @@ $AccessDatabaseEngine = Join-Path -Path $PSScriptRoot -ChildPath "accessdatabase
 $TargetExe = "C:\Program Files\OCLC\Connexion\Program\Connex.exe"
 $ShortcutPath = "C:\Users\Public\Desktop\Connexion.lnk"
 
-# Create the shortcut
+# force shortcut on public desktop
 if (Test-Path -Path $TargetExe) {
     $WScriptShell = New-Object -ComObject WScript.Shell
     $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
