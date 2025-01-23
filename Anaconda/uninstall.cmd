@@ -1,2 +1,2 @@
 @echo off
-rmdir /S /Q "C:\ProgramData\Anaconda3"
+powershell.exe -executionpolicy bypass -file ".\uninstallconda.ps1"

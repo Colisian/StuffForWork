@@ -1,0 +1,1 @@
+Start-Process -FilePath ".\Anaconda3\Uninstall-Anaconda3.exe" -ArgumentList "/S" -Wait
