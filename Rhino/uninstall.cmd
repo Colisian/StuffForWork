@@ -1,2 +1,3 @@
 @echo off
-start /wait "" "%~dp0rhino_en-us_8.15.25019.13001" -package -quiet LICENSE_METHOD=ZOO ZOO_SERVER=rhinolicenseserver.lib.umd.edu  INSTALLDIR="C:\Program Files\Rhino 8" SEND_STATISTICS=0 ENABLE_AUTOMATIC_UPDATES=1
+start /wait "" "%~dp0BurnOut.exe" /uninstall {851D74A0-D029-4AC7-9CBE-E50455C24237}
+exit /b %errorlevel%
