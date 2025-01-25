@@ -11,7 +11,7 @@ function Get-DirectorySize {
     )
     try {
         #Get total sie of all the files in the directory
-        $size =(Get-ChildItem -Path $Path -Recurse -ErrorAction Stop | Measure-Object -Property Length -Sum).Sum
+        $size =(Get-ChildItem -Path $Path -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
         #Convert the size to MB
         return [math]::Round($size / 1MB, 2)
     }
