@@ -3,7 +3,7 @@ $OutPutFile = "C:\Scripts\DiscoveryUsage.txt"
 $ErrorLogFile = "C:\Scripts\DiscoveryUsageError.txt"
 $TranscriptFile = "C:\Scripts\DiscoveryUsageTranscript.txt"
 
-Start-Transcript -Path $OutPutFile -Append
+Start-Transcript -Path $TranscriptFile -Append
 
 function Get-DirectorySize {
     param (
@@ -13,7 +13,7 @@ function Get-DirectorySize {
         #Get total sie of all the files in the directory
         $size =(Get-ChildItem -Path $Path -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
         #Convert the size to MB
-        return [math]::Round($size / 1MB, 2)
+        return if ($size) { [math]::Round($size / 1MB, 2) } else {0}
     }
     catch {
         Write-Host "Error calculating size for: $Path. $_"
