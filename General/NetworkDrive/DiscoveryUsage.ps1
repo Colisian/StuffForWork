@@ -11,9 +11,13 @@ function Get-DirectorySize {
     )
     try {
         #Get total sie of all the files in the directory
-        $size =(Get-ChildItem -Path $Path -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+        $size =(Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
         #Convert the size to MB
-        return if ($size) { [math]::Round($size / 1MB, 2) } else {0}
+        if ($size -is [double]) {
+            return [math]::round($size / 1MB, 2)
+        } else {
+            return = 0
+        }
     }
     catch {
         Write-Host "Error calculating size for: $Path. $_"
@@ -60,13 +64,17 @@ Get-ChildItem -Path $BasePath -Directory -ErrorAction SilentlyContinue | ForEach
 
     #Output the directory details
     $Output = "Directory: $Name, Size: $SizeMB MB, Last Write Time: $LastWriteTime"
+    
     Write-Host $Output
+    "" | Out-File -FilePath $OutputFile -Append
     $Output | Out-File -FilePath $OutPutFile -Append
+    "" | Out-File -FilePath $OutputFile -Append
 } catch {
     # Log the error to the error log file
     $ErrorMessage = "Error processing directory: $($_.FullName). $_"
     Write-Host $ErrorMessage -ForegroundColor Red
     $ErrorMessage | Out-File -FilePath $ErrorLogFile -Append
+    "" | Out-File -FilePath $ErrorLogFile -Append  # Add a blank line in error file
     # Continue processing other directories
     continue
 }
@@ -80,4 +88,10 @@ Get-ChildItem -Path $BasePath -Directory -ErrorAction SilentlyContinue | ForEach
 #Stop transcript
 Stop-Transcript
 
-Write-Host "Total Directories: $TotalDirectoryCount"
+# Display final results
+Write-Host "Total Directories: $TotalDirectoryCount" -ForegroundColor Yellow
+Write-Host ""  # Add space
+Write-Host "Directory Usage Report saved to: $OutputFile" -ForegroundColor Green
+Write-Host "Error log saved to: $ErrorLogFile" -ForegroundColor Yellow
+Write-Host "Transcript log saved to: $TranscriptFile" -ForegroundColor Cyan
+Write-Host ""  # Add space
