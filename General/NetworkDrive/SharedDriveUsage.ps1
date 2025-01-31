@@ -44,7 +44,7 @@ function Get-FolderSize {
 #Prepare output files
 if (Test-Path $CsvOutputFile) { Remove-Item $CsvOutputFile -Force }
 if (Test-Path $ErrorLogFile) { Remove-Item $ErrorLogFile -Force }
-"Department M Drive Error Log" | Out-File -FilePath $ErrorLogFile-Append
+"Department M Drive Error Log" | Out-File -FilePath $ErrorLogFile -Append
 "=========================" | Out-File -FilePath $ErrorLogFile -Append
 
 #Initialize the total directory count
@@ -54,9 +54,9 @@ $MDriveData = @()  # Array to store directory information
 #Get the Departments M Drive
 $Departments=Get-ChildItem -Path $BasePath -Directory -ErrorAction SilentlyContinue
 
-foreach($Departments in $Departments){
-    $DepartmentName = $Departments.Name
-    $DepartmentPath = $Departments.FullName
+foreach($Department in $Departments){
+    $DepartmentName = $Department.Name
+    $DepartmentPath = $Department.FullName
     Write-Host "Processing Department: $DepartmentName" -ForegroundColor Green
 
     #Get the size of the directory
@@ -86,7 +86,11 @@ foreach ($subDir in $subDirectories) {
 #Increment the total directory count
 $TotalDepartments++
 
-}# Export data to CSV file
+}
+
+# Export data to CSV file
+$MDriveData | Export-Csv -Path $CsvOutputFile -NoTypeInformation -Encoding UTF8
+
 
 # Display final results
 Write-Host ""
