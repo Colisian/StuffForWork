@@ -56,11 +56,11 @@ $Departments=Get-ChildItem -Path $BasePath -Directory -ErrorAction SilentlyConti
 
 foreach($Departments in $Departments){
     $DepartmentName = $Departments.Name
-    $DeparmentPath = $Departments.FullName
+    $DepartmentPath = $Departments.FullName
     Write-Host "Processing Department: $DepartmentName" -ForegroundColor Green
 
     #Get the size of the directory
-    $subDirectories = Get-ChildItem -Path $DeparmentPath -Directory -ErrorAction SilentlyContinue
+    $subDirectories = Get-ChildItem -Path $DepartmentPath -Directory -ErrorAction SilentlyContinue
 foreach ($subDir in $subDirectories) {
     $subDirName = $subDir.Name
     $subDirPath = $subDir.FullName
