@@ -9,7 +9,7 @@ if (Test-Path $installerPath) {
     # Construct the installation command
     $installCommand = "$installerPath /install /passive CID=$customerID"
 
-    # Execute the installation command
+    # Execute the installation commands
     try {
         Start-Process -FilePath $installerPath -ArgumentList "/install", "/passive", "CID=$customerID" -Wait -NoNewWindow
         Write-Host "CrowdStrike Falcon installation completed successfully."
