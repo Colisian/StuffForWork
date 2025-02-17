@@ -3,11 +3,11 @@ Start-Sleep -Seconds 20
 $publicDesktop = "C:\Users\Public\Desktop"
 
 $Shortcuts = @(
-    "Illiad Billing Manager.lnk",
+    "ILLiad Billing Manager.lnk",
     "Atlas SQL Alias Manager.lnk",
     "Electronic Delivery Utility.lnk",
-    "Illiad Customization Manager.lnk",
-    "Illiad Staff Manager.lnk"
+    "ILLiad Customization Manager.lnk",
+    "ILLiad Staff Manager.lnk"
 )
 
 foreach ($shortcut in $Shortcuts){
