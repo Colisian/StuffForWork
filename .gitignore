@@ -6,5 +6,15 @@
 *.pfb
 *.ttf
 *.exe
+*.dll
+*.INF
+*.IN_
+*.DL_
+*.CAT
+*.GP_
+*.ex_
+*.dat
+
+
 /Fonts_Rick/*
 !/Fonts_Rick/
