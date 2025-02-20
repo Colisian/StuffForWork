@@ -3,6 +3,8 @@ Start-Transcript -Path c:\windows\temp\printer_detection.log
 #Define list of printers to detect - Update this with the names of your printers
 $Printers = @(
                 'EPSON TM-T20'
+                'EPSON TM-T20II'
+
 )
 
 #Check every defined printer in the list to see if it's installed
