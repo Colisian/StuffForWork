@@ -12,7 +12,7 @@ $Shortcut = $WScriptShell.CreateShortcut($ShorcutPath)
 
 #Set the target and arguments for the shortcut
 $Shortcut.TargetPath = $FirefoxPath
-$Shorcut.IconLocation = "$FireFoxPath,0"
+$Shortcut.Arguments = $Url
 
 #Save
 $Shortcut.Save()
