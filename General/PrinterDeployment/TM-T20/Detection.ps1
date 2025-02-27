@@ -3,6 +3,7 @@ Start-Transcript -Path c:\windows\temp\printer_detection.log
 #Define list of printers to detect - Update this with the names of your printers
 $Printers = @(
                 'EPSON TM-T20II'
+                'EPSON TM-T20II Receipt5'
 
 )
 

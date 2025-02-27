@@ -49,23 +49,21 @@ foreach ($printer in $printers) {
         DriverName   = $Printer.DriverName
         Location     = $Printer.Location
         Name         = $Printer.Name
-        PortName     = $Printer.Name
+        PortName     = "USB001"
     }
 
     $PrinterPortOptions = @{
         ComputerName       = $env:COMPUTERNAME
-        Name               = $Printer.Name
-        PrinterHostAddress = $Printer.PortAddress
-        PortNumber         = '9100'
+        Name               = "USB001"
     }
 
 
     #Remove Printer and PrinterPort if it already exists 
-    if (Get-PrinterPort -ComputerName $env:COMPUTERNAME | Where-Object Name -EQ $printer.Name) {  
+    if (Get-PrinterPort -ComputerName $env:COMPUTERNAME | Where-Object Name -EQ "USB001") {  
         Write-Warning ("Port for Printer {0} already exists, removing existing port and printer first" -f $printer.Name)
         Remove-Printer -Name $printer.Name -ComputerName $env:COMPUTERNAME -Confirm:$false -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 10
-        Remove-PrinterPort -Name $printer.Name -ComputerName $env:COMPUTERNAME -Confirm:$false
+        Remove-PrinterPort -Name "USB001" -ComputerName $env:COMPUTERNAME -Confirm:$false
     }
 
     #Add Printer and PrinterPort
