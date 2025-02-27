@@ -49,14 +49,12 @@ foreach ($printer in $printers) {
         DriverName   = $Printer.DriverName
         Location     = $Printer.Location
         Name         = $Printer.Name
-        PortName     = $Printer.Name
+        PortName     = $Printer.PortAddress
     }
 
     $PrinterPortOptions = @{
         ComputerName       = $env:COMPUTERNAME
-        Name               = $Printer.Name
-        PrinterHostAddress = $Printer.PortAddress
-        PortNumber         = '9100'
+        Name               = $Printer.PortAddress
     }
 
     #Remove Printer and PrinterPort if it already exists 
