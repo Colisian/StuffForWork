@@ -4,7 +4,7 @@
 #>
 
 #Define the Username of the Account to Check
-$user = "sach"
+$user = "LibCirc"
 
 #Check the Password status of the Defined Username
 $usr = [ADSI]"WinNT://$env:ComputerName/$($user),user"
