@@ -15,13 +15,13 @@ $label.AutoSize = $true
 $label.Location = New-Object System.Drawing.Point(10,20)
 $form.Controls.Add($label)
 
-# Create a textbox for user input
+#Create a textbox for user input
 $textBox = New-Object System.Windows.Forms.TextBox
 $textBox.Location = New-Object System.Drawing.Point(10,50)
 $textBox.Width = 360
 $form.Controls.Add($textBox)
 
-# Create an OK button to submit input
+#Create an OK button to submit input
 $okButton = New-Object System.Windows.Forms.Button
 $okButton.Text = "OK"
 $okButton.Location = New-Object System.Drawing.Point(290,80)
@@ -35,10 +35,10 @@ $form.Controls.Add($okButton)
 # Show the form as a modal dialog
 $form.ShowDialog() | Out-Null
 
-# Retrieve the entered directory shortname
+#Retrieve the entered directory
 $userShortName = $form.Tag
 
-# Check if the user provided any input
+#Check if the user provided any input
 if ([string]::IsNullOrEmpty($userShortName)) {
     Write-Host "No input provided. Exiting."
     exit 1
@@ -53,9 +53,9 @@ $remoteDesktopGroup = [ADSI]"WinNT://$env:COMPUTERNAME/Remote Desktop Users,grou
 
 # Attempt to add the specified AzureAD user to the group
 try {
-    $remoteDesktopGroup.Add("WinNT://$azureUser")
-    Write-Host "Successfully added $azureUser to the Remote Desktop Users group."
+    Add-LocalGroupMember -Group "Remote Desktop Users" -Member $azureUser
+    Write-Host "Successfully added $azureUser to the Remote Desktop Users group." -ForegroundColor Green
 } catch {
-    Write-Host "Error adding $azureUser: $_" -ForegroundColor Red
+    Write-Host "Error adding $azureUser $_" -ForegroundColor Red
     exit 1
 }
