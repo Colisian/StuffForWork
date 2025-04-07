@@ -45,7 +45,7 @@ if ([string]::IsNullOrEmpty($userShortName)) {
 }
 
 # Construct the AzureAD account name
-$azureUser = "AzureAD\$userShortName"
+$azureUser = "$userShortName"
 Write-Host "Attempting to add $azureUser to the Remote Desktop Users group..."
 
 # Get the Remote Desktop Users group object using ADSI
