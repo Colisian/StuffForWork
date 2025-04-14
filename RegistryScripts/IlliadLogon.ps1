@@ -1,7 +1,7 @@
 #Define regirstry path and values
 $RegistryPath = "HKLM:\SOFTWARE\WOW6432Node\AtlasSystems\Illiad"
 $ValueNames = "LogonSettingsPath"
-$valueData = "C:\Program Files (x86)\Atlas Systems\Ares\Illiadlivelogon.dbc"
+$valueData = "C:\Program Files (x86)\Atlas Systems\Illiad\Illiadlivelogon.dbc"
 
 #Check if registry path exists
 if (-not (Test-Path $RegistryPath)) {
