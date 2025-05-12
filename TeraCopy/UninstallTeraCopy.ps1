@@ -1,0 +1,1 @@
+Get-WmiObject -Query "SELECT * FROM Win32_Product WHERE Name = 'TeraCopy'" | ForEach-Object { $_.Uninstall() }
