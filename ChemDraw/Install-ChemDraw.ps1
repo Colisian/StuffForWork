@@ -21,4 +21,4 @@ Start-Process -FilePath (Join-Path $activationDir 'Activate.exe') `
     -ArgumentList '23.0', 'IsInstaller', '/silent' `
     -Wait
 
-#MSI Uninstall Code
+#MSI Uninstall Code: msiexec /x "{8A0CD73D-AB37-4B90-98E8-3FDE4C765BB5}" /qn
