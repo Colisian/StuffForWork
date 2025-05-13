@@ -20,3 +20,5 @@ $activationDir = Join-Path $PSScriptRoot "Activation"
 Start-Process -FilePath (Join-Path $activationDir 'Activate.exe') `
     -ArgumentList '23.0', 'IsInstaller', '/silent' `
     -Wait
+
+#MSI Uninstall Code
