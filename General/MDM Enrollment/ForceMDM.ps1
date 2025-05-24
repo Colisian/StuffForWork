@@ -9,7 +9,7 @@ try {
     $props = @{
         AutoEnrollMDM        = @{ Type = 'DWORD';  Value = 1  }
         UseAADCredentialType = @{ Type = 'DWORD';  Value = 1  }
-        MDMApplicationID     = @{ Type = 'String'; Value = '' }
+        MDMApplicationId     = @{ Type = 'String'; Value = '' }
     }
 
     # Retrieve the current MDM enrollment settings
@@ -19,7 +19,7 @@ try {
         $prop   = $props[$name]
         $needSet = -not $existing -or (-not $existing.PSObject.Properties.Name.Contains($name))
         if ($name -eq 'MDMApplicationId' -and $existing) {
-            $needSet = $needSet -or ($existing.MDMApplicationId -ne '')
+            $needSet = $needSet -or ([string]::IsNullOrEmpty($existing.MDMApplicationId))
         }
         if ($needSet) {
             Set-ItemProperty -Path $mdmKey -Name $name -Value $prop.Value -Type $prop.Type -Force
