@@ -3,8 +3,11 @@ try {
     
     # Check if device is hybrid Azure AD joined
     $dsregStatus = dsregcmd /status
-    $isHybridJoined = ($dsregStatus | Select-String "AzureAdJoined\s*:\s*YES") -and 
-                      ($dsregStatus | Select-String "DomainJoined\s*:\s*YES")
+    $azureJoined = $null -ne ($dsregStatus | Select-String "AzureAdJoined\s*:\s*YES") 
+    $domainJoined =  $null -ne ($dsregStatus | Select-String "DomainJoined\s*:\s*YES")
+    $isHybridJoined = $azureJoined -and $domainJoined
+
+    
     
     if (-not $isHybridJoined) {
         Write-Warning "Device is not hybrid Azure AD joined. This script is designed for hybrid joined devices."
@@ -107,15 +110,52 @@ try {
     
     Write-Host "Fallback enrollment task '$taskName' scheduled for $runTime" -ForegroundColor Green
     
-    # Restart key services to ensure clean state
-    Write-Host "Restarting enrollment-related services..." -ForegroundColor Yellow
-    $servicesToRestart = @('DmEnrollmentSvc', 'DeviceManagementEnrollmentService')
-    foreach ($service in $servicesToRestart) {
-        $svc = Get-Service -Name $service -ErrorAction SilentlyContinue
-        if ($svc -and $svc.Status -eq 'Running') {
-            Restart-Service -Name $service -Force -ErrorAction SilentlyContinue
-            Write-Host "Restarted $service" -ForegroundColor Yellow
+    # Start/restart key services to ensure clean state
+    Write-Host "Starting/restarting enrollment-related services..." -ForegroundColor Yellow
+    $enrollmentServices = @('DmEnrollmentSvc', 'dmwappushservice')
+    
+    
+    foreach ($serviceName in $enrollmentServices) {
+        $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if ($svc) {
+            if ($svc.Status -eq 'Running') {
+                Write-Host "Restarting $serviceName..." -ForegroundColor Yellow
+                Restart-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+                Write-Host "Restarted $serviceName" -ForegroundColor Green
+            } else {
+                Write-Host "Starting $serviceName..." -ForegroundColor Yellow
+                Start-Service -Name $serviceName -ErrorAction SilentlyContinue
+                $svcCheck = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+                if ($svcCheck -and $svcCheck.Status -eq 'Running') {
+                    Write-Host "Started $serviceName" -ForegroundColor Green
+                } else {
+                    Write-Host "Failed to start $serviceName" -ForegroundColor Red
+                }
+            }
+        } else {
+            Write-Host "$serviceName not found" -ForegroundColor Red
         }
+    }
+    
+    # Trigger the "provisioning initiated session" task
+    Write-Host "Looking for provisioning initiated session tasks..." -ForegroundColor Yellow
+    $provisioningTasks = Get-ScheduledTask | Where-Object { 
+        $_.TaskName -like "*provisioning*initiated*session*" -or 
+        $_.TaskName -like "*Provisioning*Initiated*Session*" 
+    }
+    
+    if ($provisioningTasks) {
+        foreach ($task in $provisioningTasks) {
+            Write-Host "Found and starting task: $($task.TaskName) in path: $($task.TaskPath)" -ForegroundColor Yellow
+            try {
+                Start-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction Stop
+                Write-Host "Successfully started $($task.TaskName)" -ForegroundColor Green
+            } catch {
+                Write-Host "Failed to start $($task.TaskName): $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+    } else {
+        Write-Host "No 'provisioning initiated session' tasks found - this may be normal for some devices" -ForegroundColor Yellow
     }
     
     # Provide enrollment verification steps
