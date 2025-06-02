@@ -1,90 +1,95 @@
-
 param(
     [Parameter(Mandatory=$true)]
-    [string]$RootPath,
-    
+    [string] $RootPath,
+
     [Parameter(Mandatory=$false)]
-    [switch]$WhatIf,
-    
+    [switch] $WhatIf,
+
     [Parameter(Mandatory=$false)]
-    [string]$LogPath = ".\RemovePermissions_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    [string] $LogPath = ".\RemovePermissions_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 )
 
 function Write-Log {
-    param([string]$Message, [string]$Level = "INFO")
+    param(
+        [string] $Message,
+        [string] $Level = "INFO"
+    )
+
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "[$timestamp] [$Level] $Message"
+
+    # Colorize the console output
     Write-Host $logEntry -ForegroundColor $(
-        switch($Level) {
-            "ERROR" { "Red" }
+        switch ($Level) {
+            "ERROR"   { "Red" }
             "WARNING" { "Yellow" }
             "SUCCESS" { "Green" }
-            default { "White" }
+            default   { "White" }
         }
     )
+
+    # Append to log file
     Add-Content -Path $LogPath -Value $logEntry
 }
 
 function Remove-UserPermissions {
     param(
-        [string]$DirectoryPath,
-        [switch]$WhatIf
+        [string] $DirectoryPath,
+        [switch] $WhatIf
     )
-    
+
     try {
-        # Get current ACL
+        # Retrieve the existing ACL
         $acl = Get-Acl -Path $DirectoryPath
         $originalCount = $acl.Access.Count
-        
-        # Define accounts to preserve (adjust these as needed for your environment)
+
+        # Accounts we want to keep
         $preserveAccounts = @(
             'BUILTIN\Administrators',
             'NT AUTHORITY\SYSTEM',
             'CREATOR OWNER',
-            'BUILTIN\Backup Operators'
-            'LIBRFS001V\Administrators'      
+            'BUILTIN\Backup Operators',
+            'DOMAIN\Domain Admins',  # ← replace DOMAIN
+            'DOMAIN\IT Admins'       # ← replace DOMAIN
         )
-        
-        # Add your domain admin groups (replace DOMAIN with your actual domain)
-        $preserveAccounts += @(
-            'DOMAIN\Domain Admins',
-            'DOMAIN\IT Admins'  # Adjust to your actual admin groups
-        )
-        
-        # Create new ACL with only preserved accounts
+
+        # Build a fresh DirectorySecurity object
         $newAcl = New-Object System.Security.AccessControl.DirectorySecurity
-        
-        # Copy preserved permissions
+
         foreach ($ace in $acl.Access) {
+            $identityValue = $ace.IdentityReference.Value
             $keepPermission = $false
-            
+
             foreach ($preserveAccount in $preserveAccounts) {
-                if ($ace.IdentityReference.Value -like $preserveAccount -or 
-                    $ace.IdentityReference.Translate([System.Security.Principal.NTAccount]).Value -like $preserveAccount) {
+                if ($identityValue -like $preserveAccount) {
                     $keepPermission = $true
                     break
                 }
             }
-            
+
             if ($keepPermission) {
                 $newAcl.SetAccessRule($ace)
-                Write-Log "PRESERVING: $($ace.IdentityReference) - $($ace.FileSystemRights)" "INFO"
-            } else {
-                Write-Log "REMOVING: $($ace.IdentityReference) - $($ace.FileSystemRights)" "WARNING"
+                Write-Log "PRESERVING: $identityValue - $($ace.FileSystemRights)" "INFO"
+            }
+            else {
+                Write-Log "REMOVING:  $identityValue - $($ace.FileSystemRights)" "WARNING"
             }
         }
-        
-        # Preserve inheritance settings
+
+        # Preserve inheritance/protection flags
         $newAcl.SetAccessRuleProtection($acl.AreAccessRulesProtected, $true)
-        
+
         if ($WhatIf) {
-            Write-Log "WHAT-IF: Would remove $($originalCount - $newAcl.Access.Count) permission entries from $DirectoryPath" "INFO"
-        } else {
-            # Apply the new ACL
-            Set-Acl -Path $DirectoryPath -AclObject $newAcl
-            Write-Log "SUCCESS: Removed $($originalCount - $newAcl.Access.Count) permission entries from $DirectoryPath" "SUCCESS"
+            $removed = $originalCount - $newAcl.Access.Count
+            Write-Log "WHAT-IF: Would remove $removed permission entries from $DirectoryPath" "INFO"
         }
-        
+        else {
+            # Apply the filtered ACL
+            Set-Acl -Path $DirectoryPath -AclObject $newAcl
+            $removed = $originalCount - $newAcl.Access.Count
+            Write-Log "SUCCESS: Removed $removed permission entries from $DirectoryPath" "SUCCESS"
+        }
+
         return $true
     }
     catch {
@@ -93,31 +98,31 @@ function Remove-UserPermissions {
     }
 }
 
-# Main script execution
+# --- Main execution ---
+
 try {
     Write-Log "Starting permission removal process..." "INFO"
     Write-Log "Root Path: $RootPath" "INFO"
     Write-Log "WhatIf Mode: $WhatIf" "INFO"
     Write-Log "Log Path: $LogPath" "INFO"
-    
-    # Verify root path exists
+
     if (-not (Test-Path -Path $RootPath)) {
         throw "Root path '$RootPath' does not exist"
     }
-    
-    # Get all subdirectories (employee home folders)
+
+    # Gather all subdirectories under $RootPath
     $userDirectories = Get-ChildItem -Path $RootPath -Directory -ErrorAction SilentlyContinue
-    
+
     if ($userDirectories.Count -eq 0) {
         Write-Log "No subdirectories found in $RootPath" "WARNING"
         exit 0
     }
-    
+
     Write-Log "Found $($userDirectories.Count) user directories to process" "INFO"
-    
-    # Confirm before proceeding (unless in WhatIf mode)
+
     if (-not $WhatIf) {
-        Write-Host "`nWARNING: This will remove user permissions from $($userDirectories.Count) directories!" -ForegroundColor Red
+        Write-Host "`nWARNING: This will remove user permissions from $($userDirectories.Count) directories!" `
+            -ForegroundColor Red
         Write-Host "Press 'Y' to continue or any other key to exit: " -NoNewline -ForegroundColor Yellow
         $confirmation = Read-Host
         if ($confirmation -ne 'Y' -and $confirmation -ne 'y') {
@@ -125,29 +130,28 @@ try {
             exit 0
         }
     }
-    
+
     $successCount = 0
     $failureCount = 0
-    
-    # Process each user directory
+
     foreach ($directory in $userDirectories) {
         Write-Log "Processing: $($directory.FullName)" "INFO"
-        
         if (Remove-UserPermissions -DirectoryPath $directory.FullName -WhatIf:$WhatIf) {
             $successCount++
-        } else {
+        }
+        else {
             $failureCount++
         }
     }
-    
-    # Summary
+
     Write-Log "=== OPERATION COMPLETE ===" "INFO"
     Write-Log "Directories processed successfully: $successCount" "SUCCESS"
-    Write-Log "Directories with errors: $failureCount" "$(if($failureCount -gt 0){'ERROR'}else{'INFO'})"
+    Write-Log "Directories with errors: $failureCount" "$(if ($failureCount -gt 0) { 'ERROR' } else { 'INFO' })"
     Write-Log "Log file saved to: $LogPath" "INFO"
-    
+
     if ($WhatIf) {
-        Write-Host "`nTo execute the changes, run the script again without the -WhatIf parameter" -ForegroundColor Cyan
+        Write-Host "`nTo execute the changes, run the script again without the -WhatIf parameter" `
+            -ForegroundColor Cyan
     }
 }
 catch {
