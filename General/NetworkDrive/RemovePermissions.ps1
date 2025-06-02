@@ -42,6 +42,7 @@ function Remove-UserPermissions {
             'NT AUTHORITY\SYSTEM',
             'CREATOR OWNER',
             'BUILTIN\Backup Operators'
+            'LIBRFS001V\Administrators'      
         )
         
         # Add your domain admin groups (replace DOMAIN with your actual domain)
