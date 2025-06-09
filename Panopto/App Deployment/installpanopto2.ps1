@@ -14,7 +14,7 @@ $msiArgs =  @("/i", $msiPath ,"/qn", "/l*v", "C:\PerfLogs\panoptoInstall.log", "
 $msiProcess = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
 
 if ($msiProcess.ExitCode -eq 0) {
-    <# Action to perform if the condition is true #>
+    # Action to perform if the condition is true #
     $RegFile = ".\panoptoregchanges.reg"
 
      # Determine the correct cmd path for 64-bit execution
