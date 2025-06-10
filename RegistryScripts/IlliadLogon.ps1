@@ -3,7 +3,7 @@
 
 Write-Outut "Starting Illiad Logon Script"
 
-$destinationPath = "C:\Program Files (x86)\Atlas Systems\Illiad"
+$destinationPath = "C:\Program Files (x86)\Illiad"
 $sourceFolder = Join-Path -Path $PSScriptRoot -ChildPath "Files"
 $filename = "Illiadlivelogon.dbc"
 $sourceFile = Join-Path -Path $sourceFolder -ChildPath $filename
@@ -43,7 +43,7 @@ if (Test-Path -Path $destinationFile) {
 #Define regirstry path and values
 $RegistryPath = "HKLM:\SOFTWARE\WOW6432Node\AtlasSystems\Illiad"
 $ValueNames = "LogonSettingsPath"
-$valueData = "C:\Program Files (x86)\Atlas Systems\Illiad\Illiadlivelogon.dbc"
+$valueData = "C:\Program Files (x86)\Illiad\Illiadlivelogon.dbc"
 
 #Check if registry path exists
 if (-not (Test-Path $RegistryPath)) {

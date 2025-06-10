@@ -41,7 +41,7 @@ if (Test-Path -Path $destinationFile) {
 #Define regirstry path and values
 $RegistryPath = "HKLM:\SOFTWARE\WOW6432Node\AtlasSystems\Ares"
 $ValueNames = "LogonSettingsPath"
-$valueData = "C:\Program Files (x86)\Atlas Systems\Ares\Areslivelogon.dbc"
+$valueData = "C:\Program Files (x86)\Ares\Areslivelogon.dbc"
 
 #Check if registry path exists
 if (-not (Test-Path $RegistryPath)) {
