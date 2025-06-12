@@ -1,10 +1,11 @@
+
 # File copy section
 
-Write-Outut "Starting Ares Logon Script"
+Write-Outut "Starting Illiad Logon Script"
 
-$destinationPath = "C:\Program Files (x86)\Atlas Systems\Ares"
+$destinationPath = "C:\Program Files (x86)\Illiad"
 $sourceFolder = Join-Path -Path $PSScriptRoot -ChildPath "Files"
-$filename = "Areslivelogon.dbc"
+$filename = "Illiadlivelogon.dbc"
 $sourceFile = Join-Path -Path $sourceFolder -ChildPath $filename
 $destinationFile = Join-Path -Path $destinationPath -ChildPath $filename
 
@@ -38,10 +39,11 @@ if (Test-Path -Path $destinationFile) {
 }
 
 
+
 #Define regirstry path and values
-$RegistryPath = "HKLM:\SOFTWARE\WOW6432Node\AtlasSystems\Ares"
+$RegistryPath = "HKLM:\SOFTWARE\WOW6432Node\AtlasSystems\Illiad"
 $ValueNames = "LogonSettingsPath"
-$valueData = "C:\Program Files (x86)\Ares\Areslivelogon.dbc"
+$valueData = "C:\Program Files (x86)\Illiad\Illiadlivelogon.dbc"
 
 #Check if registry path exists
 if (-not (Test-Path $RegistryPath)) {
