@@ -1,5 +1,5 @@
 @echo off
 
-Start /wait "" "%~dp0unins000.exe" /S 
+Start /wait "" "%~dp0unins000.exe" /VerySilent 
 
 exit /b %errorlevel%%
