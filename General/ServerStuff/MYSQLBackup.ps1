@@ -10,11 +10,11 @@ if (-not (Test-Path $backupPath)) {
 
 # Get the current date and time for the backup filename
 $date = Get-Date -Format "yyyyMMdd_HHmmss"
-$backupFile = Join-Path $backupPath "$mysqlDatabase`_$date.sql"
+$backupFile = Join-Path $backupPath "${mysqlDatabase}_$date.sql"
 
 # Create the backup using mysqldump
 try {
-    & $mysqldumpPath --user=$mysqlUser --password=$mysqlPassword --databases $mysqlDatabase --result-file=$backupFile
+    $proc = Start-Process -FilePath $mysqldumpPath -ArgumentList "--user=$mysqlUser", "--password=$mysqlPassword", "--databases", "$mysqlDatabase", "--result-file=$backupFile" -PassThru -Wait
     Write-Host "MySQL backup created successfully: $backupFile" -ForegroundColor Green
 } catch {
     Write-Host "Error creating MySQL backup: $_" -ForegroundColor Red
