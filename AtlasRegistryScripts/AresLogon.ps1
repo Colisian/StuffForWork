@@ -2,7 +2,7 @@
 
 Write-Outut "Starting Ares Logon Script"
 
-$destinationPath = "C:\Program Files (x86)\Atlas Systems\Ares"
+$destinationPath = "C:\Program Files (x86)\Ares"
 $sourceFolder = Join-Path -Path $PSScriptRoot -ChildPath "Files"
 $filename = "Areslivelogon.dbc"
 $sourceFile = Join-Path -Path $sourceFolder -ChildPath $filename
@@ -15,6 +15,17 @@ if(-not (Test-path -Path $destinationPath)) {
     }
     catch {
         Write-Output "Failed to create destination folder: $_"
+    }
+}
+
+# Remove any existing file in the destination directory
+if (Test-Path -Path $destinationFile) {
+    Write-Output "Existing Areslivelogon.dbc found in destination. Removing it..."
+    try {
+        Remove-Item -Path $destinationFile -Force
+        Write-Output "Existing file removed."
+    } catch {
+        Write-Output "Failed to remove existing file: $_"
     }
 }
 
