@@ -1,6 +1,5 @@
 # File copy section
 
-Write-Outut "Starting Ares Logon Script"
 
 $destinationPath = "C:\Program Files (x86)\Ares"
 $sourceFolder = Join-Path -Path $PSScriptRoot -ChildPath "Files"
