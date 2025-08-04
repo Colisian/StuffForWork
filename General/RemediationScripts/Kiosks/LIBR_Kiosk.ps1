@@ -334,4 +334,4 @@ function set-autologon {
 }
 
 ### UPDATE USER AND PASS HERE: ##
-Set-Autologon -user "Libr" -pass "" -AutoLogonCount "0"
+Set-Autologon -user "" -pass "" -AutoLogonCount "0"
