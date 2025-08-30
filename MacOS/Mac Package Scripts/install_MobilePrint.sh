@@ -1,5 +1,8 @@
 #!/bin/bash
 set -e
+trap 'osascript -e "display dialog \"Installation failed. Please contact IT Support.\" buttons {\"OK\"} with icon stop"' ERR
+exec &> >(tee -a "$HOME/Desktop/MobilePrintInstall.log")
+
 echo "== Pharos Popup & MobilePrint Queues Installer =="
 
 # 1. Install Popup client (if needed)
