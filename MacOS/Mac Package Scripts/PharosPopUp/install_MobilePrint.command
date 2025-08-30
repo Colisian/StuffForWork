@@ -1,208 +1,249 @@
 #!/bin/bash
-# UMD Pharos Mobile Print Installer
-# Public Distribution Version - Compatible with all modern macOS versions
-# Created for UMD students to install mobile printing support
+# UMD Pharos Mobile Print Installer - PostScript Driver Version
+# Uses generic PostScript driver for better macOS integration
 
-set -e
-
-# Enhanced error handling with user-friendly messages
-trap 'osascript -e "display dialog \"Installation encountered an error. Please try again or contact IT Support at help@umd.edu for assistance.\" buttons {\"OK\"} with icon stop"' ERR
-
-# Create timestamped log file
 LOG_FILE="$HOME/Desktop/UMD_MobilePrint_Install_$(date +%Y%m%d_%H%M%S).log"
 exec &> >(tee -a "$LOG_FILE")
 
 echo "==========================================="
-echo "UMD Pharos Mobile Print Installer v2.0"
-echo "Compatible with macOS 10.14 and later"
+echo "UMD Pharos Mobile Print Installer v2.4"
+echo "PostScript Driver Edition"
 echo "==========================================="
 echo "Started: $(date)"
-echo "macOS Version: $(sw_vers -productVersion)"
-echo "User: $(whoami)"
-echo "Log: $LOG_FILE"
+echo "macOS: $(sw_vers -productVersion)"
 echo ""
 
-# Function to check system compatibility
-check_compatibility() {
-    echo "🔍 Checking system compatibility..."
-    
-    # Check macOS version
-    OS_VERSION=$(sw_vers -productVersion)
-    OS_MAJOR=$(echo $OS_VERSION | cut -d. -f1)
-    OS_MINOR=$(echo $OS_VERSION | cut -d. -f2)
-    
-    if [[ $OS_MAJOR -lt 10 ]] || [[ $OS_MAJOR -eq 10 && $OS_MINOR -lt 14 ]]; then
-        echo " This installer requires macOS 10.14 or later"
-        echo "   Your version: $OS_VERSION"
-        osascript -e 'display dialog "This installer requires macOS 10.14 (Mojave) or later. Please update your Mac or contact IT Support." buttons {"OK"} with icon stop'
-        exit 1
-    fi
-    
-    echo "macOS $OS_VERSION is supported"
-}
+# Check admin privileges
+echo "🔐 Checking administrator privileges..."
+if ! sudo -n true 2>/dev/null; then
+    osascript -e 'display dialog "Administrator privileges required. You will be prompted for your Mac password." buttons {"Continue"} with icon note' > /dev/null
+    sudo -v || exit 1
+fi
+echo "✅ Administrator access confirmed"
 
-# Function to check admin privileges
-check_admin() {
-    echo " Checking administrator privileges..."
-    
-    if ! sudo -n true 2>/dev/null; then
-        echo "ℹ Administrator privileges required for installation"
-        osascript -e 'display dialog "This installer needs administrator privileges to install printers.\n\nYou will be prompted for your Mac password." buttons {"Continue", "Cancel"} default button "Continue" with icon note' > /dev/null
-        
-        # Test sudo access
-        if ! sudo -v; then
-            echo " Administrator privileges required but not granted"
-            osascript -e 'display dialog "Installation cancelled. Administrator privileges are required to install printers." buttons {"OK"} with icon stop'
-            exit 1
-        fi
-    fi
-    
-    echo " Administrator privileges confirmed"
-}
-
-# Function to check network connectivity
-check_network() {
-    echo " Checking network connectivity..."
-    
-    if ping -c 1 -W 3000 LIBRPS406DV.AD.UMD.EDU &>/dev/null; then
-        echo " Can reach UMD Pharos server"
-    else
-        echo "  Cannot reach UMD Pharos server"
-        echo "   Make sure you're connected to:"
-        echo "   • UMD campus WiFi, or"
-        echo "   • UMD VPN if off-campus"
-        
-        osascript -e 'display dialog "Cannot reach the UMD print server.\n\nPlease ensure you are connected to:\n• UMD campus WiFi, or\n• UMD VPN if off-campus\n\nInstallation will continue, but printing may not work until connected." buttons {"Continue Anyway", "Cancel"} default button "Continue Anyway" with icon caution' > /dev/null
-    fi
-}
-
-# Run compatibility checks
-check_compatibility
-check_admin  
-check_network
-
+# Install Pharos client
 echo ""
-echo "Installing Pharos Popup Client..."
-
-# Install Pharos Popup Client
+echo "📦 Installing Pharos Popup Client..."
 POPUP_PKG="$(dirname "$0")/Popup.pkg"
 
 if [ ! -f "$POPUP_PKG" ]; then
-    echo " ERROR: Popup.pkg not found"
-    echo "   Expected location: $POPUP_PKG"
-    osascript -e 'display dialog "Installation files are missing. Please download a fresh copy from the UMD website." buttons {"OK"} with icon stop'
+    echo "❌ ERROR: Popup.pkg not found at $POPUP_PKG"
     exit 1
 fi
 
-# Check if already installed
 if [ -d "/Library/Application Support/Pharos" ] || [ -d "/Applications/Utilities/Pharos" ]; then
-    echo " Pharos client already installed, skipping..."
+    echo "ℹ️  Pharos client already installed"
 else
-    echo "   Installing from: $POPUP_PKG"
-    if sudo installer -pkg "$POPUP_PKG" -target / -verbose; then
-        echo "Pharos popup client installed successfully"
-    else
-        echo " Failed to install Pharos popup client"
-        exit 1
-    fi
+    echo "   Installing Pharos client..."
+    sudo installer -pkg "$POPUP_PKG" -target / && echo "✅ Pharos client installed"
 fi
 
+# Find the best PostScript PPD
 echo ""
-echo "  Configuring UMD Library Mobile Print Queues..."
+echo "🔍 Locating PostScript printer drivers..."
 
-# Define all UMD library printers with organized structure
-declare -A library_printers=(
-    ["Architecture Library"]="LIB-ArchMobileBW LIB-ArchMobileColor"
-    ["Art Library"]="LIB-ArtMobileBW LIB-ArtMobileColor"  
-    ["EPSL Library"]="LIB-EPSLMobileBW LIB-EPSLMobileColor"
-    ["Hornbake Library"]="LIB-HBKMobileBW LIB-HBKMobileColor"
-    ["Maryland Room"]="LIB-MarylandRoomMobileBW LIB-MarylandRoomMobileColor"
-    ["McKeldin Library"]="LIB-McKMobileBW LIB-McKMobileColor LIB-Mck2FMobileWideFormat"
-    ["PAL Library"]="LIB-PALMobileBW LIB-PALMobileColor"
+# Common PostScript PPD locations on macOS
+PPD_PATHS=(
+    "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/PrintCore.framework/Versions/A/Resources/Generic.ppd"
+    "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/PrintCore.framework/Versions/A/Resources/GenericPrinter.ppd"
+    "/System/Volumes/Data/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/PrintCore.framework/Versions/A/Resources/Generic.ppd"
+    "/usr/share/cups/model/postscript.ppd"
 )
+
+SELECTED_PPD=""
+for ppd_path in "${PPD_PATHS[@]}"; do
+    if [ -f "$ppd_path" ]; then
+        SELECTED_PPD="$ppd_path"
+        echo "✅ Found PostScript PPD: $ppd_path"
+        break
+    fi
+done
+
+if [ -z "$SELECTED_PPD" ]; then
+    echo "⚠️  No PostScript PPD found, will use alternative methods"
+fi
+
+# Install printers
+echo ""
+echo "🖨️  Installing UMD Library Printers with PostScript Support..."
 
 PHAROS_SERVER="LIBRPS406DV.AD.UMD.EDU"
 PHAROS_PORT="515"
-TOTAL_INSTALLED=0
-TOTAL_SKIPPED=0
-TOTAL_FAILED=0
+SUCCESS_COUNT=0
+SKIP_COUNT=0
+FAIL_COUNT=0
 
-# Install printers by library location
-for library in "${!library_printers[@]}"; do
-    echo ""
-    echo " $library:"
+install_printer() {
+    local name="$1"
+    local location="$2"
+    local type="$3"
+    local uri="popup://$PHAROS_SERVER:$PHAROS_PORT/$name"
+    local description="$location - $type"
     
-    for printer in ${library_printers[$library]}; do
-        printer_uri="popup://$PHAROS_SERVER:$PHAROS_PORT/$printer"
-        
-        # Determine printer type for description
-        if [[ $printer == *"BW"* ]]; then
-            printer_type="Black & White"
-        elif [[ $printer == *"Color"* ]]; then
-            printer_type="Color"
-        elif [[ $printer == *"WideFormat"* ]]; then
-            printer_type="Wide Format"
-        else
-            printer_type="Printer"
+    echo "   🔧 Installing: $name ($type)"
+    
+    if lpstat -p "$name" &>/dev/null; then
+        echo "      ⏭️ Already installed"
+        ((SKIP_COUNT++))
+        return 0
+    fi
+    
+    local success=false
+    
+    # Method 1: Use found PostScript PPD
+    if [ -n "$SELECTED_PPD" ]; then
+        if sudo lpadmin -p "$name" -E -v "$uri" -P "$SELECTED_PPD" -D "$description" 2>/dev/null; then
+            echo "      ✅ Success (PostScript PPD)"
+            success=true
         fi
-        
-        printer_description="$library - $printer_type"
-        
-        if lpstat -p "$printer" &>/dev/null; then
-            echo "     $printer: Already installed"
-            ((TOTAL_SKIPPED++))
-        else
-            echo "   🔧 Installing: $printer ($printer_type)"
-            
-            # Try multiple CUPS installation methods for maximum compatibility
-            if sudo /usr/sbin/lpadmin -p "$printer" -E -v "$printer_uri" -m everywhere -D "$printer_description" 2>/dev/null; then
-                echo "       Installed with IPP Everywhere driver"
-            elif sudo /usr/sbin/lpadmin -p "$printer" -E -v "$printer_uri" -m lsb/usr/cupsfilters/generic-pdf-to-ps.ppd -D "$printer_description" 2>/dev/null; then
-                echo "       Installed with generic PDF driver"  
-            elif sudo /usr/sbin/lpadmin -p "$printer" -E -v "$printer_uri" -D "$printer_description" 2>/dev/null; then
-                echo "       Installed with system default driver"
-            else
-                echo "       Failed to install $printer"
-                ((TOTAL_FAILED++))
-                continue
-            fi
-            
-            # Configure printer options
-            sudo /usr/sbin/lpadmin -p "$printer" -o printer-is-shared=false 2>/dev/null || true
-            sudo /usr/sbin/lpadmin -p "$printer" -o printer-error-policy=retry-job 2>/dev/null || true
-            
-            ((TOTAL_INSTALLED++))
+    fi
+    
+    # Method 2: Try built-in PostScript driver
+    if [ "$success" = false ]; then
+        if sudo lpadmin -p "$name" -E -v "$uri" -m postscript-color.ppd -D "$description" 2>/dev/null; then
+            echo "      ✅ Success (Color PostScript)"
+            success=true
+        elif sudo lpadmin -p "$name" -E -v "$uri" -m postscript.ppd -D "$description" 2>/dev/null; then
+            echo "      ✅ Success (PostScript)"
+            success=true
         fi
-    done
-done
+    fi
+    
+    # Method 3: Try generic PostScript model
+    if [ "$success" = false ]; then
+        if sudo lpadmin -p "$name" -E -v "$uri" -m "drv:///generic.drv/generic-ps.ppd" -D "$description" 2>/dev/null; then
+            echo "      ✅ Success (Generic PostScript)"
+            success=true
+        fi
+    fi
+    
+    # Method 4: PostScript with manufacturer
+    if [ "$success" = false ]; then
+        if sudo lpadmin -p "$name" -E -v "$uri" -m "lsb/usr/cupsfilters/generic.ppd" -D "$description" 2>/dev/null; then
+            echo "      ✅ Success (CUPS PostScript)"
+            success=true
+        fi
+    fi
+    
+    # Method 5: IPP Everywhere fallback
+    if [ "$success" = false ]; then
+        if sudo lpadmin -p "$name" -E -v "$uri" -m everywhere -D "$description" 2>/dev/null; then
+            echo "      ✅ Success (IPP Everywhere fallback)"
+            success=true
+        fi
+    fi
+    
+    # Method 6: Default driver fallback
+    if [ "$success" = false ]; then
+        if sudo lpadmin -p "$name" -E -v "$uri" -D "$description" 2>/dev/null; then
+            echo "      ✅ Success (Default driver)"
+            success=true
+        fi
+    fi
+    
+    if [ "$success" = false ]; then
+        echo "      ❌ All methods failed"
+        ((FAIL_COUNT++))
+        return 1
+    fi
+    
+    # Configure printer options for better integration
+    sudo lpadmin -p "$name" -o printer-is-shared=false 2>/dev/null || true
+    sudo lpadmin -p "$name" -o printer-error-policy=retry-job 2>/dev/null || true
+    sudo lpadmin -p "$name" -o printer-is-accepting-jobs=true 2>/dev/null || true
+    
+    # Set PostScript-specific options
+    sudo lpadmin -p "$name" -o printer-make-and-model="Generic PostScript Printer" 2>/dev/null || true
+    sudo lpadmin -p "$name" -o device-uri="$uri" 2>/dev/null || true
+    
+    ((SUCCESS_COUNT++))
+    return 0
+}
+
+# Install all printers
+echo ""
+echo "📍 Architecture Library:"
+install_printer "LIB-ArchMobileBW" "Architecture Library" "Black & White"
+install_printer "LIB-ArchMobileColor" "Architecture Library" "Color"
 
 echo ""
-echo "==========================================="
-echo " Installation Summary"
-echo "==========================================="
-echo "Printers installed: $TOTAL_INSTALLED"
-echo "Printers skipped (already installed): $TOTAL_SKIPPED"
-echo "Printers failed: $TOTAL_FAILED"
-echo "Log file: $LOG_FILE"
-echo "Completed: $(date)"
-echo ""
+echo "📍 Art Library:"
+install_printer "LIB-ArtMobileBW" "Art Library" "Black & White"
+install_printer "LIB-ArtMobileColor" "Art Library" "Color"
 
-# Show appropriate completion dialog
-if [ $TOTAL_FAILED -eq 0 ]; then
-    # Perfect success
-    osascript -e "display dialog \"SUCCESS! All UMD library printers installed!\\n\\n📊 Summary:\\n• $TOTAL_INSTALLED printers installed\\n• $TOTAL_SKIPPED printers were already present\\n\\n How to Print:\\n1. Print from any Mac application\\n2. Select your desired library printer\\n3. Use your UMD credentials at the printer to release jobs\\n\\n📞 Need help? Contact help@umd.edu\" buttons {\"Great!\"} default button \"Great!\" with icon note"
-    echo "🎉 SUCCESS: All printers installed successfully!"
-elif [ $TOTAL_INSTALLED -gt 0 ]; then
-    # Partial success
-    osascript -e "display dialog \" Installation completed with some issues\\n\\n📊 Summary:\\n• $TOTAL_INSTALLED printers installed successfully\\n• $TOTAL_FAILED printers failed\\n• $TOTAL_SKIPPED printers were already present\\n\\n You can use the successfully installed printers immediately\\n\\n📞 Need help? Contact help@umd.edu\" buttons {\"OK\"} default button \"OK\" with icon caution"
-    echo "⚠️  PARTIAL SUCCESS: Some printers installed successfully"
+echo ""
+echo "📍 EPSL Library:"
+install_printer "LIB-EPSLMobileBW" "EPSL Library" "Black & White"
+install_printer "LIB-EPSLMobileColor" "EPSL Library" "Color"
+
+echo ""
+echo "📍 Hornbake Library:"
+install_printer "LIB-HBKMobileBW" "Hornbake Library" "Black & White"
+install_printer "LIB-HBKMobileColor" "Hornbake Library" "Color"
+
+echo ""
+echo "📍 Maryland Room:"
+install_printer "LIB-MarylandRoomMobileBW" "Maryland Room" "Black & White"
+install_printer "LIB-MarylandRoomMobileColor" "Maryland Room" "Color"
+
+echo ""
+echo "📍 McKeldin Library:"
+install_printer "LIB-McKMobileBW" "McKeldin Library" "Black & White"
+install_printer "LIB-McKMobileColor" "McKeldin Library" "Color"
+install_printer "LIB-Mck2FMobileWideFormat" "McKeldin Library" "Wide Format"
+
+echo ""
+echo "📍 PAL Library:"
+install_printer "LIB-PALMobileBW" "PAL Library" "Black & White"
+install_printer "LIB-PALMobileColor" "PAL Library" "Color"
+
+# Enhanced system integration
+echo ""
+echo "🔄 Applying enhanced macOS integration..."
+
+# Force system printer database refresh
+sudo rm -f /var/db/printmgr.db 2>/dev/null || true
+sudo killall -HUP cupsd 2>/dev/null || true
+sudo launchctl stop com.apple.printmanagerd 2>/dev/null || true
+sudo launchctl start com.apple.printmanagerd 2>/dev/null || true
+sleep 3
+
+# Force UI refresh
+killall Dock 2>/dev/null || true
+sudo dscacheutil -flushcache
+
+echo "✅ System integration completed"
+
+# Final summary
+echo ""
+echo "==========================================="
+echo "📊 Installation Summary"
+echo "==========================================="
+echo "✅ Successfully installed: $SUCCESS_COUNT printers"
+echo "⏭️ Already present: $SKIP_COUNT printers"
+echo "❌ Failed: $FAIL_COUNT printers"
+echo "📝 Log file: $LOG_FILE"
+echo "⏰ Completed: $(date)"
+
+# Show completion dialog
+if [ $FAIL_COUNT -eq 0 ]; then
+    osascript -e "display dialog \"🎉 SUCCESS! UMD printers installed with PostScript drivers!\\n\\n📊 Summary:\\n• $SUCCESS_COUNT printers installed\\n• $SKIP_COUNT already present\\n\\n🖨️ The PostScript drivers should provide better compatibility with macOS print dialogs.\\n\\n📞 Help: help@umd.edu\" buttons {\"Excellent!\"} with icon note"
+elif [ $SUCCESS_COUNT -gt 0 ]; then
+    osascript -e "display dialog \"⚠️ Partial Success\\n\\n• $SUCCESS_COUNT installed\\n• $FAIL_COUNT failed\\n\\nWorking printers use PostScript drivers for better compatibility.\" buttons {\"OK\"} with icon caution"
 else
-    # Complete failure
-    osascript -e "display dialog \" Installation failed\\n\\nNo printers were installed successfully.\\nPlease check your network connection and try again.\\n\\n📞 Need help? Contact help@umd.edu\" buttons {\"OK\"} default button \"OK\" with icon stop"
-    echo " FAILURE: No printers were installed"
-    exit 1
+    osascript -e "display dialog \"❌ Installation Failed\\n\\nNo printers installed. Please check network connection and try again.\" buttons {\"OK\"} with icon stop"
 fi
 
 echo ""
-echo "🎓 Ready for UMD Mobile Printing!"
-echo "Thank you for using UMD IT services."
+echo "✅ PostScript driver installation complete!"
+echo ""
+echo "🧪 Test Steps:"
+echo "1. Wait 30 seconds for system integration"
+echo "2. Open TextEdit and try to print (Cmd+P)"
+echo "3. Look for UMD printers in the printer dropdown"
+echo "4. If not visible, try logging out and back in"
+
+# Final verification
+FINAL_COUNT=$(lpstat -p 2>/dev/null | grep -c "LIB-" || echo "0")
+echo ""
+echo "🔍 Verification: $FINAL_COUNT UMD printers installed"
