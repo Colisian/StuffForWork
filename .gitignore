@@ -15,7 +15,8 @@
 *.ex_
 *.dat
 *.dbc
-
+*.pkg
+*.dmg
 
 /Fonts_Rick/*
 !/Fonts_Rick/

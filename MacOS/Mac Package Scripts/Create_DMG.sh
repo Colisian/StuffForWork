@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-APP_NAME="Pharos Mobile Print Client"
-DMG_NAME="Pharos-Mobile-Print-Installer.dmg"
-SOURCE_FOLDER="./pharos_source"
-VOLUME_NAME="Pharos Mobile Print"
+APP_NAME="Libraries Mobile Print Client"
+DMG_NAME="Libraries-Mobile-Print-Installer.dmg"
+SOURCE_FOLDER="./Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/MacOS/Mac Package Scripts/PharosPopUp"
+VOLUME_NAME="Libraries Mobile Print"
 BACKGROUND="background.png"  # optional
 VOL_ICON="VolumeIcon.icns"   # optional
 
