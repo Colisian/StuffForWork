@@ -83,6 +83,7 @@ fi
 # Wait for installation to complete
 sleep 3
 
+# ADD THIS NEW SECTION HERE:
 # Disable the problematic Notify app to prevent "damaged app" errors
 echo ""
 echo "🔧 Disabling Pharos Notify app to prevent errors..."
