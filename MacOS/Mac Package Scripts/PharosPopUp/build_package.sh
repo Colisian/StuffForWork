@@ -298,8 +298,14 @@ mkdir -p "$DMG_DIR"
 # Copy the installer package
 cp "$OUTPUT_DIR/${PKG_NAME}.pkg" "$DMG_DIR/"
 
-# Create a simple README
-cat > "$DMG_DIR/How to Install.txt" << 'README_TXT'
+# Copy the README.md if it exists
+if [ -f "$SCRIPT_DIR/README.md" ]; then
+    cp "$SCRIPT_DIR/README.md" "$DMG_DIR/"
+    echo "✅ Added README.md to DMG"
+else
+    echo "⚠️  README.md not found, creating basic instructions..."
+    # Create a basic README if none exists
+    cat > "$DMG_DIR/README.txt" << 'README_TXT'
 UMD Library Printers - Installation Instructions
 ================================================
 
@@ -309,25 +315,16 @@ INSTALLATION:
 3. Enter your Mac administrator password when prompted
 4. Installation will complete automatically
 
-AFTER INSTALLATION:
-• All UMD library printers will appear in your print dialog (Cmd+P)
-• Printer names start with "LIB-" (e.g., LIB-McKMobileBW)
-• You'll authenticate with your Directory ID when printing
-
-PRINTING STEPS:
-1. Press Cmd+P in any application
-2. Select a UMD printer from the dropdown
-3. Click Print
-4. Enter your Directory ID and password
-5. Go to any library print station to release your job
+IMPORTANT - FIREWALL CONFIGURATION:
+If prompted about allowing "Pharos Popup.app" to accept incoming connections, click "Allow"
 
 SUPPORT:
 Email: help@umd.edu
 Phone: 301-405-1500
-Web: it.umd.edu
 
 ================================================
 README_TXT
+fi
 
 # Create the DMG
 echo "Building DMG file..."
