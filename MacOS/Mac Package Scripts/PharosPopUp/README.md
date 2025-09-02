@@ -6,6 +6,32 @@ Your UMD library printers have been successfully installed. However, you may nee
 
 ---
 
+## ⚠️ SECURITY WARNING ON FIRST INSTALL
+
+macOS may show: "cannot be opened because it is from an unidentified developer"
+
+## Installation Options
+
+### Getting Security Warnings?
+Use **Install_with_Bypass.command** for a hassle-free installation
+
+### Standard Installation  
+Double-click the .pkg file (may require security approval in System Settings)
+
+### To Install:
+1. **Right-click** the installer package
+2. Select **Open** from the menu
+3. Click **Open** in the warning dialog
+4. Enter your password and continue
+
+OR
+
+1. After seeing the error, go to System Settings > Privacy & Security
+2. Find the message about the blocked package
+3. Click **Open Anyway**
+
+---
+
 ## FIREWALL CONFIGURATION REQUIRED
 
 If you have macOS Firewall enabled, you MUST allow the Pharos Popup app to accept incoming connections for printing to work properly.
@@ -56,13 +82,13 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp "/Library/Appl
 
 ## PRINTER LOCATIONS
 
-- **McKeldin Library**: All floors have print stations
+- **McKeldin Library**: Firstr and Second Floor
 - **Architecture Library**: First floor
 - **Art Library**: Near entrance
-- **EPSL (Engineering)**: Multiple locations
-- **Hornbake Library**: First and second floor
-- **PAL (Performing Arts)**: Main floor
-- **Maryland Room**: By request
+- **EPSL (Engineering)**: First floor
+- **Hornbake Library**: First floor
+- **PAL (Performing Arts)**: Main floor by Service Desk
+- **Maryland Room**: First Floor
 
 ---
 

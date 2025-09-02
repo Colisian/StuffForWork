@@ -274,12 +274,16 @@ productbuild \
     --distribution "$BUILD_DIR/distribution.xml" \
     --resources "$RESOURCES_DIR" \
     --package-path "$BUILD_DIR" \
-    "$OUTPUT_DIR/${PKG_NAME}.pkg"
+    "$OUTPUT_DIR/${PKG_NAME}_unsigned.pkg"
 
 if [ $? -ne 0 ]; then
     echo "❌ Failed to build product package"
     exit 1
 fi
+
+echo "📦 Package ready for signing and notarization..."
+mv "$OUTPUT_DIR/${PKG_NAME}_unsigned.pkg" "$OUTPUT_DIR/${PKG_NAME}.pkg"
+echo "✅ Package built: ${PKG_NAME}.pkg (unsigned, ready for notarization)"
 
 echo "✅ Package built: ${PKG_NAME}.pkg"
 
@@ -298,6 +302,7 @@ mkdir -p "$DMG_DIR"
 # Copy the installer package
 cp "$OUTPUT_DIR/${PKG_NAME}.pkg" "$DMG_DIR/"
 
+
 # Copy the README.md if it exists
 if [ -f "$SCRIPT_DIR/README.md" ]; then
     cp "$SCRIPT_DIR/README.md" "$DMG_DIR/"
@@ -309,11 +314,17 @@ else
 UMD Library Printers - Installation Instructions
 ================================================
 
-INSTALLATION:
+⚠️ GETTING SECURITY WARNINGS?
+-----------------------------
+If macOS blocks the installer, use "Install_with_Bypass.command" instead:
+1. Double-click "Install_with_Bypass.command"
+2. Enter your administrator password
+3. Installation will proceed without Gatekeeper blocks
+
+STANDARD INSTALLATION:
 1. Double-click "UMD_Library_Printers_Installer.pkg"
 2. Follow the on-screen instructions
 3. Enter your Mac administrator password when prompted
-4. Installation will complete automatically
 
 IMPORTANT - FIREWALL CONFIGURATION:
 If prompted about allowing "Pharos Popup.app" to accept incoming connections, click "Allow"
@@ -353,16 +364,21 @@ echo "==========================================="
 echo ""
 echo "📦 Created files:"
 ls -lh "$OUTPUT_DIR/${PKG_NAME}.pkg" 2>/dev/null && echo "   • ${PKG_NAME}.pkg"
+ls -lh "$OUTPUT_DIR/Install_with_Bypass.command" 2>/dev/null && echo "   • Install_with_Bypass.command"
 ls -lh "$OUTPUT_DIR/${PKG_NAME}.dmg" 2>/dev/null && echo "   • ${PKG_NAME}.dmg (recommended for distribution)"
 echo ""
-echo "📋 Required files for this build script:"
-echo "   • install_printers.sh (your printer installation script)"
-echo "   • Popup.pkg (Pharos client installer)"
-echo "   • This build script"
+echo "📋 DMG Contents:"
+echo "The DMG should contain:"
+echo "   • ${PKG_NAME}.pkg"
+echo "   • Install_with_Bypass.command"
+echo "   • README.md (if present)"
+echo ""
+echo "To verify DMG contents, run:"
+echo "   hdiutil attach '${PKG_NAME}.dmg' && ls '/Volumes/UMD Library Printers/'"
 echo ""
 echo "📚 To distribute to students:"
 echo "   1. Upload the .dmg file to a web server"
-echo "   2. Share the download link with students"
-echo "   3. Students just double-click to install"
+echo "   2. Tell students to use Install_with_Bypass.command if they get security warnings"
+echo "   3. Students just double-click Install_with_Bypass.command to install"
 echo ""
 echo "==========================================="
