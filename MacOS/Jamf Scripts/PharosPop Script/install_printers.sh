@@ -226,7 +226,7 @@ echo "==========================================="
 
 # Exit with appropriate code for Jamf
 if [ $FAIL_COUNT -eq 0 ]; then
-    echo "Installation completed successfully"
+    echo "Installations completed successfully"
     exit 0
 else
     echo "Installation completed with errors"
