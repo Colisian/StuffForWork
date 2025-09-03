@@ -83,6 +83,26 @@ fi
 # Wait for installation to complete
 sleep 3
 
+<<<<<<< HEAD
+=======
+# ADD THIS NEW SECTION HERE:
+# Disable the problematic Notify app to prevent "damaged app" errors
+echo ""
+echo "🔧 Disabling Pharos Notify app to prevent errors..."
+# Kill the app if it's running
+sudo killall "Notify" 2>/dev/null || true
+sudo killall "psnotifyd" 2>/dev/null || true
+sleep 1
+
+# Rename the Notify app to disable it
+if [ -d "/Library/Application Support/Pharos/Notify.app" ]; then
+    sudo mv "/Library/Application Support/Pharos/Notify.app" "/Library/Application Support/Pharos/Notify.app.disabled" 2>/dev/null || true
+    echo "✅ Notify app disabled (prevents 'damaged app' errors)"
+else
+    echo "ℹ️  Notify app not found or already disabled"
+fi
+
+>>>>>>> c371f76349bc9ad6424e3222d56c75e8fac05992
 # Verify popup backend was installed
 if [ ! -f "$POPUP_BACKEND" ] && [ ! -L "$POPUP_BACKEND" ]; then
     echo "⚠️  Creating popup backend manually..."

@@ -274,13 +274,24 @@ productbuild \
     --distribution "$BUILD_DIR/distribution.xml" \
     --resources "$RESOURCES_DIR" \
     --package-path "$BUILD_DIR" \
+<<<<<<< HEAD
     "$OUTPUT_DIR/${PKG_NAME}.pkg"
+=======
+    "$OUTPUT_DIR/${PKG_NAME}_unsigned.pkg"
+>>>>>>> c371f76349bc9ad6424e3222d56c75e8fac05992
 
 if [ $? -ne 0 ]; then
     echo "❌ Failed to build product package"
     exit 1
 fi
 
+<<<<<<< HEAD
+=======
+echo "📦 Package ready for signing and notarization..."
+mv "$OUTPUT_DIR/${PKG_NAME}_unsigned.pkg" "$OUTPUT_DIR/${PKG_NAME}.pkg"
+echo "✅ Package built: ${PKG_NAME}.pkg (unsigned, ready for notarization)"
+
+>>>>>>> c371f76349bc9ad6424e3222d56c75e8fac05992
 echo "✅ Package built: ${PKG_NAME}.pkg"
 
 # Create DMG
@@ -298,6 +309,7 @@ mkdir -p "$DMG_DIR"
 # Copy the installer package
 cp "$OUTPUT_DIR/${PKG_NAME}.pkg" "$DMG_DIR/"
 
+<<<<<<< HEAD
 # Create a simple README
 cat > "$DMG_DIR/How to Install.txt" << 'README_TXT'
 UMD Library Printers - Installation Instructions
@@ -320,14 +332,49 @@ PRINTING STEPS:
 3. Click Print
 4. Enter your Directory ID and password
 5. Go to any library print station to release your job
+=======
+
+# Copy the README.md if it exists
+if [ -f "$SCRIPT_DIR/README.md" ]; then
+    cp "$SCRIPT_DIR/README.md" "$DMG_DIR/"
+    echo "✅ Added README.md to DMG"
+else
+    echo "⚠️  README.md not found, creating basic instructions..."
+    # Create a basic README if none exists
+    cat > "$DMG_DIR/README.txt" << 'README_TXT'
+UMD Library Printers - Installation Instructions
+================================================
+
+⚠️ GETTING SECURITY WARNINGS?
+-----------------------------
+If macOS blocks the installer, use "Install_with_Bypass.command" instead:
+1. Double-click "Install_with_Bypass.command"
+2. Enter your administrator password
+3. Installation will proceed without Gatekeeper blocks
+
+STANDARD INSTALLATION:
+1. Double-click "UMD_Library_Printers_Installer.pkg"
+2. Follow the on-screen instructions
+3. Enter your Mac administrator password when prompted
+
+IMPORTANT - FIREWALL CONFIGURATION:
+If prompted about allowing "Pharos Popup.app" to accept incoming connections, click "Allow"
+>>>>>>> c371f76349bc9ad6424e3222d56c75e8fac05992
 
 SUPPORT:
 Email: help@umd.edu
 Phone: 301-405-1500
+<<<<<<< HEAD
 Web: it.umd.edu
 
 ================================================
 README_TXT
+=======
+
+================================================
+README_TXT
+fi
+>>>>>>> c371f76349bc9ad6424e3222d56c75e8fac05992
 
 # Create the DMG
 echo "Building DMG file..."
@@ -356,6 +403,7 @@ echo "==========================================="
 echo ""
 echo "📦 Created files:"
 ls -lh "$OUTPUT_DIR/${PKG_NAME}.pkg" 2>/dev/null && echo "   • ${PKG_NAME}.pkg"
+<<<<<<< HEAD
 ls -lh "$OUTPUT_DIR/${PKG_NAME}.dmg" 2>/dev/null && echo "   • ${PKG_NAME}.dmg (recommended for distribution)"
 echo ""
 echo "📋 Required files for this build script:"
@@ -367,5 +415,23 @@ echo "📚 To distribute to students:"
 echo "   1. Upload the .dmg file to a web server"
 echo "   2. Share the download link with students"
 echo "   3. Students just double-click to install"
+=======
+ls -lh "$OUTPUT_DIR/Install_with_Bypass.command" 2>/dev/null && echo "   • Install_with_Bypass.command"
+ls -lh "$OUTPUT_DIR/${PKG_NAME}.dmg" 2>/dev/null && echo "   • ${PKG_NAME}.dmg (recommended for distribution)"
+echo ""
+echo "📋 DMG Contents:"
+echo "The DMG should contain:"
+echo "   • ${PKG_NAME}.pkg"
+echo "   • Install_with_Bypass.command"
+echo "   • README.md (if present)"
+echo ""
+echo "To verify DMG contents, run:"
+echo "   hdiutil attach '${PKG_NAME}.dmg' && ls '/Volumes/UMD Library Printers/'"
+echo ""
+echo "📚 To distribute to students:"
+echo "   1. Upload the .dmg file to a web server"
+echo "   2. Tell students to use Install_with_Bypass.command if they get security warnings"
+echo "   3. Students just double-click Install_with_Bypass.command to install"
+>>>>>>> c371f76349bc9ad6424e3222d56c75e8fac05992
 echo ""
 echo "==========================================="

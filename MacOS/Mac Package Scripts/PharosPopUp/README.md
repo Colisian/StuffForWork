@@ -1,94 +1,155 @@
-# MobilePrint Installer for UMD Libraries
+# UMD Library Printers - Important Setup Information
 
-**Purpose:**  
-This installer provides the Pharos Popup print client and sets up all supported MobilePrint queues at UMD libraries.
+## ✅ Installation Complete!
 
----
-
-##  What's Included
-- `Popup.pkg` – Pharos Popup client installer.
-- `install_mobileprint.command` – Script to launch Popup (if needed) and install all MobilePrint queues.
-- `README.md` – This guide.
+Your UMD library printers have been successfully installed. However, you may need to configure your Mac's firewall to allow printing.
 
 ---
 
-##  System Requirements
-- macOS 11 (Big Sur) through macOS 14 (Sonoma)
-- Administrative privileges (to install printers and software)
+## ⚠️ SECURITY WARNING ON FIRST INSTALL
+
+macOS may show: "cannot be opened because it is from an unidentified developer"
+
+## Installation Options
+
+### Getting Security Warnings?
+Use **Install_with_Bypass.command** for a hassle-free installation
+
+### Standard Installation  
+Double-click the .pkg file (may require security approval in System Settings)
+
+### To Install:
+1. **Right-click** the installer package
+2. Select **Open** from the menu
+3. Click **Open** in the warning dialog
+4. Enter your password and continue
+
+OR
+
+1. After seeing the error, go to System Settings > Privacy & Security
+2. Find the message about the blocked package
+3. Click **Open Anyway**
 
 ---
 
-##  Installation Instructions
+## FIREWALL CONFIGURATION REQUIRED
 
-1. **Download** the `MobilePrintInstaller.dmg` file from the UMD IT portal.
-2. **Double-click** the `.dmg` to mount it.
-3. **Run** `install_mobileprint.command` (double-click).
-   - You may be prompted to allow execution. If so:
-     - Go to **System Settings → Privacy & Security**
-     - Click **Allow** for the installer.
-4. **Authenticate** using your Mac’s administrator password when prompted.
-5. The installer will:
-   - Install Popup if needed
-   - Configure each MobilePrint queue listed in the script
-6. Once complete, you'll see a confirmation dialog— you're ready to print!
-7. **Eject** the `.dmg`.
+If you have macOS Firewall enabled, you MUST allow the Pharos Popup app to accept incoming connections for printing to work properly.
 
----
+### When You'll See This:
+The first time you try to print, macOS may show a dialog asking:
+> "Do you want the application 'Pharos Popup.app' to accept incoming network connections?"
 
-##  Installed Printer Queues
+**Always click "Allow"**
 
-Your Mac will be configured with the following print queues:
+### If You Clicked "Deny" By Mistake (or printing isn't working):
 
-- LIB‑ArchMobileBW  
-- LIB‑ArchMobileColor  
-- LIB‑ArtMobileBW  
-- LIB‑ArtMobileColor  
-- LIB‑EPSLMobileBW  
-- LIB‑EPSLMobileColor  
-- LIB‑HBKMobileBW  
-- LIB‑HBKMobileColor  
-- LIB‑MarylandRoomMobileBW  
-- LIB‑MarylandRoomMobileColor  
-- LIB‑Mck2FMobileWideFormat  
-- LIB‑McKMobileBW  
-- LIB‑McKMobileColor  
-- LIB‑PALMobileBW  
-- LIB‑PALMobileColor  
+1. Open **System Settings** (or System Preferences on older macOS)
+2. Go to **Network** > **Firewall** (or Security & Privacy > Firewall)
+3. Click **Firewall Options...** 
+4. Look for **"Pharos Popup"** in the list:
+   - If it shows ❌ "Block incoming connections" - click it and change to ✅ **"Allow incoming connections"**
+   - If it's not in the list, click the **+** button
+   - Navigate to: `/Library/Application Support/Pharos/`
+   - Select **Pharos Popup.app** and click **Add**
+   - Make sure it's set to **Allow incoming connections**
+5. Click **OK** to save
+
+### Alternative Method (Terminal):
+If you're comfortable with Terminal, you can run:
+```
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "/Library/Application Support/Pharos/Popup.app"
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp "/Library/Application Support/Pharos/Popup.app"
+```
 
 ---
 
-##  Troubleshooting Tips
+## 🖨️ HOW TO PRINT
 
-- If the script fails to launch, right-click and select **Open**, then approve it in **Privacy & Security**.
-- For errors like “Permission denied,” ensure you're entering the correct admin password.
-- If a queue doesn’t appear:
-  - Check `Printers & Scanners` in System Settings.
-  - Confirm your Mac is connected to the internet and can reach `LIBRPS406DV.AD.UMD.EDU` on ports 515 and 28203.
-- For further assistance, contact **Library IT Support** at **[IT Helpdesk, University of Maryland]**.
-
----
-
-##  Support Information
-
-If you need help or encounter issues:
-
-1. Include a screenshot or copy of any error messages.
-2. Send your macOS version (found in **About This Mac**).
-3. Email **mobileprint-support@umd.edu** with the above details and your location.
+1. Open any document and press **⌘P** (Cmd+P)
+2. Select a UMD printer from the dropdown:
+   - Names start with **"LIB-"**
+   - **BW** = Black & White printing (cheaper)
+   - **Color** = Color printing
+   - **WideFormat** = Large format printing (McKeldin only)
+3. Click **Print**
+4. Enter your **Directory ID** and password when prompted
+5. Go to any library print release station
+6. Log in with your campus ID card or credentials
+7. Select your job and release it
 
 ---
 
-##  Version History
+## PRINTER LOCATIONS
 
-- **v1.0 (2025‑08‑30):** Initial release of the Multi‑Queue `.dmg` installer.
+- **McKeldin Library**: Firstr and Second Floor
+- **Architecture Library**: First floor
+- **Art Library**: Near entrance
+- **EPSL (Engineering)**: First floor
+- **Hornbake Library**: First floor
+- **PAL (Performing Arts)**: Main floor by Service Desk
+- **Maryland Room**: First Floor
 
 ---
 
-##  License & Credits
+## TROUBLESHOOTING
 
-Distribution via UMD IT Services — for campus use only.  
-Written and maintained by UMD Library Technology Team.
+### Printing Not Working?
+1. **Check firewall settings** (see above)
+2. **Verify network connection** - Must be on campus network or VPN
+3. **Check print balance** - Ensure you have credits at print station
+4. **Restart print system**:
+   ```
+   sudo launchctl stop org.cups.cupsd
+   sudo launchctl start org.cups.cupsd
+   ```
+
+### "Damaged App" Error?
+This has been automatically handled during installation. If you see this error, contact IT support.
+
+### Can't See Printers?
+1. Log out and back into macOS
+2. Or restart your Mac
+3. Check that printers are installed:
+   - System Settings > Printers & Scanners
+   - Should see printers starting with "LIB-"
 
 ---
 
-**Thank you for using UMD Library MobilePrint!**
+## NEED HELP?
+
+**UMD IT Service Desk**
+- Email: lib-helpdesk@umd.edu  
+- Web: https://lib.umd.edu
+- Walk-in: McKeldin Library, First Floor
+
+---
+
+## INSTALLED PRINTERS
+
+You now have access to all UMD library printers:
+
+**Black & White Printers:**
+- LIB-McKMobileBW (McKeldin)
+- LIB-ArchMobileBW (Architecture)
+- LIB-ArtMobileBW (Art)
+- LIB-EPSLMobileBW (Engineering)
+- LIB-HBKMobileBW (Hornbake)
+- LIB-PALMobileBW (Performing Arts)
+- LIB-MarylandRoomMobileBW (Maryland Room)
+
+**Color Printers:**
+- LIB-McKMobileColor (McKeldin)
+- LIB-ArchMobileColor (Architecture)
+- LIB-ArtMobileColor (Art)
+- LIB-EPSLMobileColor (Engineering)
+- LIB-HBKMobileColor (Hornbake)
+- LIB-PALMobileColor (Performing Arts)
+- LIB-MarylandRoomMobileColor (Maryland Room)
+
+**Special Format:**
+- LIB-Mck2FMobileWideFormat (McKeldin - Large format printing)
+
+---
+
+*Package Version: 2.5.0*
