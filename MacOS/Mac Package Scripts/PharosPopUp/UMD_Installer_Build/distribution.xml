@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2.0">
+    <title>UMD Library Printers</title>
+    <organization>edu.umd</organization>
+    <welcome file="welcome.html"/>
+    <conclusion file="conclusion.html"/>
+    
+    <pkg-ref id="edu.umd.library.printers">
+        <bundle-version/>
+    </pkg-ref>
+    
+    <options customize="never" require-scripts="true" hostArchitectures="x86_64,arm64"/>
+    <domains enable_localSystem="true"/>
+    
+    <installation-check script="installation_check()"/>
+    <script>
+        function installation_check() {
+            var osVersion = system.version.ProductVersion;
+            var versionArray = osVersion.split('.');
+            var majorVersion = parseInt(versionArray[0]);
+            
+            // macOS 11+ (Big Sur and later) or 10.15+ (Catalina)
+            if (majorVersion >= 11 || (majorVersion == 10 && parseInt(versionArray[1]) >= 15)) {
+                return true;
+            }
+            
+            my.result.title = "macOS Version Too Old";
+            my.result.message = "This installer requires macOS 10.15 (Catalina) or later.";
+            my.result.type = "Fatal";
+            return false;
+        }
+    </script>
+    
+    <choices-outline>
+        <line choice="default">
+            <line choice="edu.umd.library.printers"/>
+        </line>
+    </choices-outline>
+    
+    <choice id="default"/>
+    <choice id="edu.umd.library.printers" visible="false">
+        <pkg-ref id="edu.umd.library.printers"/>
+    </choice>
+    
+    <pkg-ref id="edu.umd.library.printers" version="2.5.0" onConclusion="none">UMDPrinters.pkg</pkg-ref>
+</installer-gui-script>

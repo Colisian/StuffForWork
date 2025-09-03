@@ -1,0 +1,38 @@
+#!/bin/bash
+# This script runs during package installation
+# It extracts and runs the actual printer installation script
+
+LOG_FILE="/var/log/umd_printer_install.log"
+TEMP_DIR="/tmp/umd_printer_install_$$"
+
+echo "UMD Printer Installation Started: $(date)" >> "$LOG_FILE"
+
+# Create temporary directory
+mkdir -p "$TEMP_DIR"
+
+# Copy resources to temp directory
+# $1 is the full path to the installer package
+cp "$1/Contents/Resources/Popup.pkg" "$TEMP_DIR/" 2>> "$LOG_FILE"
+cp "$1/Contents/Resources/install_printers.command" "$TEMP_DIR/" 2>> "$LOG_FILE"
+
+# Make the installer script executable
+chmod +x "$TEMP_DIR/install_printers.command"
+
+# Change to temp directory and run the installer
+cd "$TEMP_DIR"
+
+# Run the printer installation script
+# The script expects Popup.pkg to be in the same directory
+echo "Running printer installation script..." >> "$LOG_FILE"
+./install_printers.sh >> "$LOG_FILE" 2>&1
+
+# Capture the exit code
+RESULT=$?
+
+# Clean up
+rm -rf "$TEMP_DIR"
+
+echo "UMD Printer Installation Completed: $(date)" >> "$LOG_FILE"
+echo "Exit code: $RESULT" >> "$LOG_FILE"
+
+exit $RESULT
