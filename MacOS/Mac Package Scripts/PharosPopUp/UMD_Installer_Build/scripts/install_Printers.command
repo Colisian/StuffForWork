@@ -83,6 +83,8 @@ fi
 # Wait for installation to complete
 sleep 3
 
+<<<<<<< HEAD
+=======
 # ADD THIS NEW SECTION HERE:
 # Disable the problematic Notify app to prevent "damaged app" errors
 echo ""
@@ -100,6 +102,7 @@ else
     echo "ℹ️  Notify app not found or already disabled"
 fi
 
+>>>>>>> c371f76349bc9ad6424e3222d56c75e8fac05992
 # Verify popup backend was installed
 if [ ! -f "$POPUP_BACKEND" ] && [ ! -L "$POPUP_BACKEND" ]; then
     echo "⚠️  Creating popup backend manually..."
