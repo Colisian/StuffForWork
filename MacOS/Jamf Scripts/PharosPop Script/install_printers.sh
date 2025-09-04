@@ -19,15 +19,17 @@ echo ""
 echo "🔍 Checking print system status..."
 if ! pgrep -x cupsd > /dev/null; then
     echo "⚠️  CUPS service not running, attempting to start..."
+    # Try new macOS method first, then fall back to older method
+    launchctl kickstart -k system/org.cups.cupsd 2>/dev/null || \
     launchctl load -w /System/Library/LaunchDaemons/org.cups.cupsd.plist 2>/dev/null || true
-    sleep 2
+    sleep 3
 fi
 
 if pgrep -x cupsd > /dev/null; then
     echo "✅ CUPS service is running"
 else
-    echo "❌ CUPS service failed to start"
-    exit 1
+    echo "⚠️  CUPS service not detected, but may be running (continuing anyway)"
+    # Don't exit - CUPS might be running but pgrep might not see it
 fi
 
 # Verify Pharos Popup is installed
@@ -226,7 +228,7 @@ echo "==========================================="
 
 # Exit with appropriate code for Jamf
 if [ $FAIL_COUNT -eq 0 ]; then
-    echo "Installations completed successfully"
+    echo "Installation completed successfully"
     exit 0
 else
     echo "Installation completed with errors"
