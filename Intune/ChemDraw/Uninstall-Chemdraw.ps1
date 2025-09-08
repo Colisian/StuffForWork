@@ -73,8 +73,8 @@ foreach ($c in $candidates) {
         Log (" - Uninstall via msiexec /x {0} (verbose log: {1})" -f $guid, $msiLog)
 
         try {
-            $args = @("/x", $guid, "/l*v", $msiLog, "/qn", "REBOOT=ReallySuppress")
-            $proc = Start-Process -FilePath $msiexec -ArgumentList $args -Wait -PassThru -WindowStyle Hidden
+            $msiArgs = @("/x", $guid, "/l*v", $msiLog, "/qn", "REBOOT=ReallySuppress")
+            $proc = Start-Process -FilePath $msiexec -ArgumentList $msiArgs -Wait -PassThru -WindowStyle Hidden
             $rc = $proc.ExitCode
         } catch {
             $rc = 1
