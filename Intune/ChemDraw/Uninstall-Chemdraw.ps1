@@ -1,152 +1,149 @@
- <#
-uninstall-chemdraw-suite.ps1
-- Run as SYSTEM (Intune) or elevated admin.
-- Finds and uninstalls any installed items with DisplayName matching "ChemDraw" or "ChemDraw Suite"
-  and DisplayVersion matching "23.1*". Adjust the pattern if you need a different scope.
-- Logging: writes a log in %TEMP% starting with Chemdraw_Uninstall_.
-- Exit codes:
-    0 = success (all targeted uninstalls succeeded or none found)
-    3010 = success but reboot required for at least one item
-    1 = any uninstall failed
+<#
+uninstall-chemdraw-23.1.ps1
+Robust removal of ChemDraw / ChemDraw Suite 23.1.x entries.
+Writes verbose MSI logs to C:\Windows\Temp.
+Exit codes:
+  0    = success (no matching items remain)
+  3010 = success but reboot required
+  1    = failure (one or more uninstalls failed)
 #>
 
-$Log = Join-Path $env:TEMP ("Chemdraw_Uninstall_" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
-"Started: $(Get-Date -Format u)" | Out-File $Log -Encoding UTF8
-
-function LogWrite([string]$s) {
+$LogFile = "C:\Windows\Temp\Chemdraw_Uninstall_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+function Log {
+    param($s)
     $t = "$(Get-Date -Format u) $s"
-    $t | Out-File $Log -Append -Encoding UTF8
+    $t | Out-File -FilePath $LogFile -Append -Encoding UTF8
+    Write-Output $s
 }
 
-function Run-Command {
-    param(
-        [string]$Exe,
-        [Parameter(Mandatory=$false)]
-        $Arguments
-    )
+$versionPattern = "23.1*"
+Log "Starting uninstall script. Target DisplayVersion pattern: $versionPattern"
 
-    if ($null -eq $Arguments) { $argList = @() }
-    elseif ($Arguments -is [array]) { $argList = $Arguments }
-    else { $argList = @($Arguments) }
+# prefer Sysnative to avoid WOW64 redirection when running under a 32-bit host
+$msiexec = Join-Path $env:windir "Sysnative\msiexec.exe"
+if (-not (Test-Path $msiexec)) { $msiexec = Join-Path $env:windir "System32\msiexec.exe" }
+Log ("Using msiexec: {0}" -f $msiexec)
 
-    LogWrite ("Running: " + $Exe + " " + ($argList -join ' '))
-    try {
-        $p = Start-Process -FilePath $Exe -ArgumentList $argList -Wait -PassThru -WindowStyle Hidden
-        $exit = 0
-        if ($p -and $p.ExitCode -ne $null) { $exit = [int]$p.ExitCode }
-    } catch {
-        $msg = $_.Exception.Message
-        LogWrite ("Error starting " + $Exe + ": " + $msg)
-        Write-Warning ("Error starting " + $Exe + ": " + $msg)
-        $exit = 1
-    }
-    LogWrite ("ExitCode: " + $exit)
-    return $exit
-}
-
-# -- discovery: look in both 64-bit & WOW6432Node uninstall registry hives
 $hives = @(
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
     "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
 )
 
-$targets = @()
+# discover candidates
+$candidates = @()
 foreach ($h in $hives) {
     Get-ChildItem -Path $h -ErrorAction SilentlyContinue | ForEach-Object {
-        $p = Get-ItemProperty -Path $_.PsPath -ErrorAction SilentlyContinue
-        if ($p -and $p.DisplayName) {
-            # match DisplayName containing ChemDraw or ChemDraw Suite AND DisplayVersion starting with 23.1
-            if (($p.DisplayName -match "ChemDraw" -or $p.DisplayName -match "ChemDraw Suite") -and $p.DisplayVersion -like "23.1*") {
-                $targets += [pscustomobject]@{
-                    RegistryKey = $_.PSChildName
+        $props = Get-ItemProperty -Path $_.PsPath -ErrorAction SilentlyContinue
+        if ($props -and $props.DisplayName -and $props.DisplayVersion) {
+            if (($props.DisplayName -match "ChemDraw" -or $props.DisplayName -match "ChemDraw Suite") -and ($props.DisplayVersion -like $versionPattern)) {
+                $candidates += [pscustomobject]@{
                     Hive = $h
-                    DisplayName = $p.DisplayName
-                    DisplayVersion = $p.DisplayVersion
-                    UninstallString = ($p.UninstallString -as [string])
-                    InstallLocation = ($p.InstallLocation -as [string])
+                    Key = $_.PSChildName
+                    DisplayName = $props.DisplayName
+                    DisplayVersion = $props.DisplayVersion
+                    UninstallString = ($props.UninstallString -as [string])
+                    InstallLocation = ($props.InstallLocation -as [string])
                 }
             }
         }
     }
 }
 
-if (-not $targets -or $targets.Count -eq 0) {
-    LogWrite "No ChemDraw 23.1.x items found. Nothing to uninstall."
+if (-not $candidates -or $candidates.Count -eq 0) {
+    Log "No matching ChemDraw 23.1.x entries found. Nothing to do."
     Exit 0
 }
 
-LogWrite ("Found {0} matching entries." -f $targets.Count)
-$targets | ForEach-Object { LogWrite (" - " + $_.DisplayName + "  Version:" + $_.DisplayVersion + "  UninstallString: " + ($_.UninstallString -replace "`r`n"," ")) }
+Log ("Found {0} matching registry entry(ies):" -f $candidates.Count)
+$candidates | ForEach-Object { Log (" - {0} v{1}  Key={2}  UninstallString={3}" -f $_.DisplayName, $_.DisplayVersion, $_.Key, ($_.UninstallString -replace "`r`n"," ")) }
 
 $globalExit = 0
 $needReboot = $false
 
-foreach ($entry in $targets) {
-    LogWrite ("Processing: " + $entry.DisplayName + " (" + $entry.DisplayVersion + ")")
-    $u = $entry.UninstallString
-    if (-not $u) {
-        LogWrite ("  No uninstall string found for " + $entry.DisplayName + " — skipping")
-        $globalExit = 1
-        continue
-    }
+foreach ($c in $candidates) {
+    Log ("Processing entry: {0} (Key: {1})" -f $c.DisplayName, $c.Key)
 
-    # Normalize whitespace, remove surrounding quotes for parsing
-    $uClean = $u.Trim()
-    # If it's an msiexec string (/I or /X or contains GUID), prefer msiexec /x {guid} /qn
-    $rc = $null
-    if ($uClean -match "msiexec" -or $uClean -match "MsiExec.exe") {
-        $guid = $null
-        if ($uClean -match "/I\s*\{?([0-9A-Fa-f\-]{36})\}?" -or $uClean -match "/X\s*\{?([0-9A-Fa-f\-]{36})\}?") {
-            $guid = $matches[1]
-        } elseif ($uClean -match "\{([0-9A-Fa-f\-]{36})\}") {
-            $guid = $matches[1]
+    # extract GUID from registry key or UninstallString
+    $guid = $null
+    if ($c.Key -match "^\{[0-9A-Fa-f\-]{36}\}$") { $guid = $c.Key.Trim() }
+    if (-not $guid -and $c.UninstallString -match "\{([0-9A-Fa-f\-]{36})\}") { $guid = "{" + $matches[1] + "}" }
+
+    if ($guid) {
+        $msiLog = "C:\Windows\Temp\Chemdraw_uninstall_verbose_$($guid.Trim('{}'))_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+        Log (" - Uninstall via msiexec /x {0} (verbose log: {1})" -f $guid, $msiLog)
+
+        try {
+            $args = @("/x", $guid, "/l*v", $msiLog, "/qn", "REBOOT=ReallySuppress")
+            $proc = Start-Process -FilePath $msiexec -ArgumentList $args -Wait -PassThru -WindowStyle Hidden
+            $rc = $proc.ExitCode
+        } catch {
+            $rc = 1
+            $errMsg = $_.Exception.Message
+            # use -f formatting to avoid PowerShell string-parsing issues
+            Log (" - ERROR starting msiexec for {0}: {1}" -f $guid, $errMsg)
         }
 
-        if ($guid) {
-            LogWrite ("  Uninstall via msiexec /x {" + $guid + "} /qn REBOOT=ReallySuppress")
-            $rc = Run-Command "msiexec.exe" @("/x","{$guid}","/qn","REBOOT=ReallySuppress")
+        Log (" - ExitCode: {0}" -f $rc)
+        if ($rc -eq 3010) { $needReboot = $true }
+        elseif ($rc -ne 0) {
+            Log (" - Uninstall returned non-zero for {0}. See {1}" -f $guid, $msiLog)
+            $globalExit = 1
         } else {
-            # Run the uninstall string; if it lacks a quiet switch, try adding /qn or /S as appropriate
-            LogWrite ("  msiexec string found but no GUID extracted; running uninstall string fallback")
-            $uNoQuotes = $uClean.Trim('"')
-            # split exe and args
-            if ($uNoQuotes -match '^\s*"([^"]+)"\s*(.*)$') { $exePath = $matches[1]; $uArgs = $matches[2] } else {
-                $parts = $uNoQuotes -split '\s+',2
-                $exePath = $parts[0]; $uArgs = if ($parts.Length -gt 1) { $parts[1] } else { "" }
-            }
-            if ($uArgs -match "/qn|/quiet|/S|/silent") {
-                $rc = Run-Command $exePath $uArgs
-            } else {
-                # try to append /S then /quiet
-                $rc = Run-Command $exePath "/S"
-                if ($rc -ne 0) { $rc = Run-Command $exePath "/quiet" }
-            }
+            Log (" - Uninstall succeeded for {0}" -f $guid)
         }
+
     } else {
-        # Non-msiexec (EXE). Try to parse and run with silent switches
-        if ($uClean -match '^\s*"([^"]+)"\s*(.*)$') { $exe = $matches[1]; $uArgs = $matches[2] } else {
-            $parts = $uClean -split '\s+',2; $exe = $parts[0]; $uArgs = if ($parts.Length -gt 1) { $parts[1] } else { "" }
+        Log (" - Could not extract GUID. Attempting fallback using UninstallString: {0}" -f $c.UninstallString)
+        $u = ($c.UninstallString -as [string]).Trim()
+        if ($u -match '^\s*"([^"]+)"\s*(.*)$') { $exe = $matches[1]; $uArgs = $matches[2] } else { $parts = $u -split '\s+',2; $exe = $parts[0]; $uArgs = if ($parts.Length -gt 1) {$parts[1]} else {""} }
+
+        # choose arguments (best-effort)
+        if ($uArgs -match '/qn|/quiet|/S|/silent') {
+            $argToUse = $uArgs
+        } else {
+            $argToUse = "/S"
         }
 
-        if ($uArgs -match '/S|/quiet|/silent|/uninstall|/qn') {
-            $rc = Run-Command $exe $uArgs
-        } else {
-            # try common silent switches
-            $rc = Run-Command $exe "/S"
-            if ($rc -ne 0) { $rc = Run-Command $exe "/quiet" }
+        try {
+            $proc2 = Start-Process -FilePath $exe -ArgumentList $argToUse -Wait -PassThru -WindowStyle Hidden
+            $rc2 = $proc2.ExitCode
+        } catch {
+            $rc2 = 1
+            $errMsg2 = $_.Exception.Message
+            Log (" - ERROR running fallback {0} {1} : {2}" -f $exe, $argToUse, $errMsg2)
+        }
+        Log (" - Fallback exit code: {0}" -f $rc2)
+        if ($rc2 -eq 3010) { $needReboot = $true }
+        elseif ($rc2 -ne 0) { $globalExit = 1 }
+    }
+}
+
+# small pause then re-check registry
+Start-Sleep -Seconds 3
+$remaining = @()
+foreach ($h in $hives) {
+    Get-ChildItem -Path $h -ErrorAction SilentlyContinue | ForEach-Object {
+        $p = Get-ItemProperty -Path $_.PsPath -ErrorAction SilentlyContinue
+        if ($p -and $p.DisplayName -and $p.DisplayVersion) {
+            if (($p.DisplayName -match "ChemDraw" -or $p.DisplayName -match "ChemDraw Suite") -and ($p.DisplayVersion -like $versionPattern)) {
+                $remaining += [pscustomobject]@{ Hive=$h; Key=$_.PSChildName; DisplayName=$p.DisplayName; Version=$p.DisplayVersion }
+            }
         }
     }
+}
 
-    if ($rc -eq $null) { $rc = 1 }  # defensive
-    if ($rc -eq 3010) { $needReboot = $true; LogWrite ("  Uninstall returned 3010 (reboot required)") }
-    elseif ($rc -ne 0) { LogWrite ("  Uninstall returned non-zero: " + $rc); $globalExit = 1 }
-    else { LogWrite ("  Uninstall returned 0 (success)") }
+if ($remaining.Count -gt 0) {
+    Log "UNINSTALL INCOMPLETE. Remaining entries:"
+    $remaining | ForEach-Object { Log (" - {0} v{1}  Key={2}" -f $_.DisplayName, $_.Version, $_.Key) }
+    $globalExit = 1
+} else {
+    Log "All matching entries removed."
 }
 
 if ($needReboot) {
-    LogWrite "One or more uninstalls requested a reboot. Exiting 3010."
+    Log "One or more uninstalls requested reboot. Exiting 3010."
     Exit 3010
 }
 
-LogWrite ("Finished. GlobalExit = " + $globalExit)
-Exit $globalExit 
+Log ("Finished. ExitCode = {0}" -f $globalExit)
+Exit $globalExit
