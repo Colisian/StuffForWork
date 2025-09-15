@@ -80,7 +80,7 @@ lpadmin -x "$TEST_PRINTER" 2>/dev/null || true
 
 # Install printers
 echo ""
-echo "🖨️  Installing UMD Library Printers..."
+echo "  Installing UMD Library Printers..."
 echo "   Using driver method: $DRIVER_METHOD"
 
 PHAROS_SERVER="LIBRPS406DV.AD.UMD.EDU"
@@ -198,7 +198,7 @@ install_printer "LIB-PALMobileColor" "PAL Library" "Color"
 
 # System integration
 echo ""
-echo "🔄 Refreshing print system..."
+echo " Refreshing print system..."
 launchctl stop org.cups.cupsd 2>/dev/null || true
 launchctl start org.cups.cupsd 2>/dev/null || true
 sleep 2
