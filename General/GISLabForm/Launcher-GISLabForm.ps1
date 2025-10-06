@@ -4,7 +4,7 @@ GIS Lab Check-In Blocker
 #>
 
 param(
-  [string]$SurveyUrl = "https://survey123.arcgis.com/share/830e8534db9d4a39b81facf3fc72577d",
+  [string]$SurveyUrl = "https://go.umd.edu/lib-GIS-lab",
   [switch]$LaunchArcGISProAfter = $false,
   [string]$ArcGISProPath = "C:\Program Files\ArcGIS\Pro\bin\ArcGISPro.exe"
 )
