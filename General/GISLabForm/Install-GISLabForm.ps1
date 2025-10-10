@@ -1,5 +1,5 @@
 $BaseDir  = "C:\ProgramData\GISLab\FormBlocker"
-$Launcher = "Launcher-GISLab.ps1"
+$Launcher = "Launcher-GISLabForm.ps1"
 $TaskName = "GIS Lab Check-In Helper"
 $ScriptPath = Join-Path $BaseDir $Launcher
 
