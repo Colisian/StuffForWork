@@ -2,12 +2,11 @@
 .SYNOPSIS
     Detection script for folder redirection registry fix
 .DESCRIPTION
-    Checks if registry entries still point to old server drive
+    Checks if registry entries are properly set to %USERPROFILE% paths
     Returns exit code 0 if fix is applied, 1 if fix is needed
 #>
 
 param(
-    [string]$OldServerDrive = "Z:",
     [string]$MarkerFile = "$env:ProgramData\FolderRedirectionFix\FixApplied.txt"
 )
 
@@ -17,8 +16,25 @@ if (Test-Path $MarkerFile) {
     exit 0
 }
 
-# If no marker, check if any user profiles still have the issue
+# If no marker, check if any user profiles still have issues
 $issueFound = $false
+
+# Define what the values SHOULD be
+$expectedValues = @{
+    "Personal" = "%USERPROFILE%\Documents"
+    "My Documents" = "%USERPROFILE%\Documents"
+    "{374DE290-123F-4565-9164-39C4925E467B}" = "%USERPROFILE%\Downloads"
+    "Desktop" = "%USERPROFILE%\Desktop"
+    "My Pictures" = "%USERPROFILE%\Pictures"
+    "My Music" = "%USERPROFILE%\Music"
+    "My Video" = "%USERPROFILE%\Videos"
+    "{F42EE2D3-909F-4907-8871-4C22FC0BF756}" = "%USERPROFILE%\Documents"
+    "{7D83EE9B-2244-4E70-B1F5-5393042AF1E4}" = "%USERPROFILE%\Downloads"
+    "{33E28130-4E1E-4676-835A-98395C3BC3BB}" = "%USERPROFILE%\Pictures"
+    "{4BD8D571-6D19-48D3-BE97-422220080E43}" = "%USERPROFILE%\Music"
+    "{18989B1D-99B5-455B-841C-AB7C74E4DDFC}" = "%USERPROFILE%\Videos"
+    "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" = "%USERPROFILE%\Desktop"
+}
 
 try {
     $userProfiles = Get-WmiObject Win32_UserProfile | Where-Object { 
@@ -42,11 +58,26 @@ try {
                     $regKey = Get-Item $path -ErrorAction SilentlyContinue
                     if ($regKey) {
                         foreach ($valueName in $regKey.GetValueNames()) {
-                            $value = $regKey.GetValue($valueName)
-                            if ($value -and $value.ToString().StartsWith($OldServerDrive)) {
-                                Write-Output "Found registry entry pointing to $OldServerDrive"
-                                $issueFound = $true
-                                break
+                            # Only check values we care about
+                            if ($expectedValues.ContainsKey($valueName)) {
+                                $currentValue = $regKey.GetValue($valueName)
+                                $expectedValue = $expectedValues[$valueName]
+                                
+                                if ($currentValue) {
+                                    $currentValueStr = $currentValue.ToString()
+                                    
+                                    # Check if value needs fixing
+                                    if ($currentValueStr -ne $expectedValue) {
+                                        # Check for network paths, hardcoded paths, or missing %USERPROFILE%
+                                        if ($currentValueStr -match '^\\\\' -or 
+                                            ($currentValueStr -match '^[A-Z]:' -and $currentValueStr -notmatch '^C:\\Users') -or
+                                            ($currentValueStr -notmatch '%USERPROFILE%' -and $currentValueStr -match '^C:\\Users\\[^\\]+\\(Documents|Desktop|Pictures|Music|Videos|Downloads)')) {
+                                            Write-Output "Found misconfigured registry entry: $valueName = $currentValueStr"
+                                            $issueFound = $true
+                                            break
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

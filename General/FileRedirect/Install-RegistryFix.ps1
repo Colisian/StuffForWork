@@ -1,8 +1,3 @@
-# =============================================================================
-# FILE 1: Install-RegistryFix.ps1
-# This is the main installation 
-# =============================================================================
-
 <#
 .SYNOPSIS
     Fixes folder redirection registry entries pointing to old server
@@ -227,5 +222,3 @@ catch {
     Write-Log "Critical error: $($_.Exception.Message)" "ERROR"
     exit 1  # Failure
 }
-
-
