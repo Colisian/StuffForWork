@@ -1,3 +1,8 @@
+# =============================================================================
+# FILE 1: Install-RegistryFix.ps1
+# This is the main installation 
+# =============================================================================
+
 <#
 .SYNOPSIS
     Fixes folder redirection registry entries pointing to old server
@@ -9,7 +14,6 @@
 #>
 
 param(
-    [string]$OldServerDrive = "Z:",
     [string]$LogPath = "$env:ProgramData\FolderRedirectionFix\RegistryFix.log"
 )
 
@@ -63,8 +67,7 @@ function Get-UserSID {
 function Fix-UserRegistry {
     param(
         [string]$UserSID,
-        [string]$Username,
-        [string]$ServerDrive
+        [string]$Username
     )
     
     Write-Log "Processing registry for user: $Username (SID: $UserSID)"
@@ -85,15 +88,21 @@ function Fix-UserRegistry {
         "$regPath\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
     )
     
-    # Default folder mappings
+    # Default folder mappings - what they SHOULD be
     $defaultFolders = @{
         "Personal" = "%USERPROFILE%\Documents"
         "My Documents" = "%USERPROFILE%\Documents"
+        "{374DE290-123F-4565-9164-39C4925E467B}" = "%USERPROFILE%\Downloads"
         "Desktop" = "%USERPROFILE%\Desktop"
         "My Pictures" = "%USERPROFILE%\Pictures"
         "My Music" = "%USERPROFILE%\Music"
         "My Video" = "%USERPROFILE%\Videos"
         "{F42EE2D3-909F-4907-8871-4C22FC0BF756}" = "%USERPROFILE%\Documents"
+        "{7D83EE9B-2244-4E70-B1F5-5393042AF1E4}" = "%USERPROFILE%\Downloads"
+        "{33E28130-4E1E-4676-835A-98395C3BC3BB}" = "%USERPROFILE%\Pictures"
+        "{4BD8D571-6D19-48D3-BE97-422220080E43}" = "%USERPROFILE%\Music"
+        "{18989B1D-99B5-455B-841C-AB7C74E4DDFC}" = "%USERPROFILE%\Videos"
+        "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" = "%USERPROFILE%\Desktop"
     }
     
     $changesFound = $false
@@ -104,25 +113,52 @@ function Fix-UserRegistry {
                 $regKey = Get-Item $regPathToCheck -ErrorAction Stop
                 
                 foreach ($valueName in $regKey.GetValueNames()) {
-                    try {
-                        $currentValue = $regKey.GetValue($valueName)
-                        
-                        if ($currentValue -and $currentValue.ToString().StartsWith($ServerDrive)) {
-                            Write-Log "Found redirected folder for $Username : $valueName = $currentValue"
-                            $changesFound = $true
+                    # Only process values we have mappings for
+                    if ($defaultFolders.ContainsKey($valueName)) {
+                        try {
+                            $currentValue = $regKey.GetValue($valueName)
+                            $expectedValue = $defaultFolders[$valueName]
                             
-                            if ($defaultFolders.ContainsKey($valueName)) {
-                                $newValue = $defaultFolders[$valueName]
-                                Set-ItemProperty -Path $regPathToCheck -Name $valueName -Value $newValue -Force
-                                Write-Log "Updated $valueName to: $newValue" "SUCCESS"
+                            # Check if current value needs to be fixed
+                            $needsUpdate = $false
+                            
+                            if ([string]::IsNullOrEmpty($currentValue)) {
+                                Write-Log "Value $valueName is empty, will set to: $expectedValue"
+                                $needsUpdate = $true
                             }
-                            else {
-                                Write-Log "No default mapping for $valueName, skipping"
+                            elseif ($currentValue -ne $expectedValue) {
+                                # Value doesn't match expected - check if it's a UNC path, network drive, or incorrect path
+                                $currentValueStr = $currentValue.ToString()
+                                
+                                # Check for network paths (UNC or mapped drives)
+                                if ($currentValueStr -match '^\\\\' -or $currentValueStr -match '^[A-Z]:' -and $currentValueStr -notmatch '^C:\\Users') {
+                                    Write-Log "Found network/redirected path for $Username : $valueName = $currentValue"
+                                    $needsUpdate = $true
+                                }
+                                # Check if it's missing %USERPROFILE% variable
+                                elseif ($currentValueStr -notmatch '%USERPROFILE%' -and $currentValueStr -match '^C:\\Users\\[^\\]+\\(Documents|Desktop|Pictures|Music|Videos|Downloads)') {
+                                    Write-Log "Found hardcoded path for $Username : $valueName = $currentValue"
+                                    $needsUpdate = $true
+                                }
+                                # Check if path doesn't exist or is inaccessible
+                                elseif ($currentValueStr -notmatch '%USERPROFILE%') {
+                                    $expandedPath = [Environment]::ExpandEnvironmentVariables($currentValueStr)
+                                    if (!(Test-Path $expandedPath -ErrorAction SilentlyContinue)) {
+                                        Write-Log "Found inaccessible path for $Username : $valueName = $currentValue"
+                                        $needsUpdate = $true
+                                    }
+                                }
+                            }
+                            
+                            if ($needsUpdate) {
+                                $changesFound = $true
+                                Set-ItemProperty -Path $regPathToCheck -Name $valueName -Value $expectedValue -Force
+                                Write-Log "Updated $valueName from '$currentValue' to: $expectedValue" "SUCCESS"
                             }
                         }
-                    }
-                    catch {
-                        Write-Log "Error processing value $valueName : $($_.Exception.Message)" "ERROR"
+                        catch {
+                            Write-Log "Error processing value $valueName : $($_.Exception.Message)" "ERROR"
+                        }
                     }
                 }
             }
@@ -137,7 +173,6 @@ function Fix-UserRegistry {
 
 # Main execution
 Write-Log "=== Starting Registry Fix Installation ==="
-Write-Log "Target server drive: $OldServerDrive"
 
 $totalChanges = 0
 
@@ -167,7 +202,7 @@ try {
         
         Write-Log "Checking profile: $username"
         
-        $changesFound = Fix-UserRegistry -UserSID $sid -Username $username -ServerDrive $OldServerDrive
+        $changesFound = Fix-UserRegistry -UserSID $sid -Username $username
         
         if ($changesFound) {
             $totalChanges++
@@ -192,3 +227,5 @@ catch {
     Write-Log "Critical error: $($_.Exception.Message)" "ERROR"
     exit 1  # Failure
 }
+
+
