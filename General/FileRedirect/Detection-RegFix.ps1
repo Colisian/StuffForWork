@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Detection script for folder redirection registry fix
+    Detection script for folder redirection registry fix (User Context)
 .DESCRIPTION
-    Checks if registry entries are properly set to %USERPROFILE% paths
+    Checks if registry entries are properly set to %USERPROFILE% paths for current user
     Returns exit code 0 if fix is applied, 1 if fix is needed
 #>
 
 param(
-    [string]$MarkerFile = "$env:ProgramData\FolderRedirectionFix\FixApplied.txt"
+    [string]$MarkerFile = "$env:LOCALAPPDATA\FolderRedirectionFix\FixApplied.txt"
 )
 
 # Check if marker file exists (indicating fix was previously applied)
@@ -16,7 +16,7 @@ if (Test-Path $MarkerFile) {
     exit 0
 }
 
-# If no marker, check if any user profiles still have issues
+# If no marker, check if current user's registry still has issues
 $issueFound = $false
 
 # Define what the values SHOULD be
@@ -37,63 +37,49 @@ $expectedValues = @{
 }
 
 try {
-    $userProfiles = Get-WmiObject Win32_UserProfile | Where-Object { 
-        $_.Special -eq $false -and 
-        $_.LocalPath -notlike "*system32*" -and
-        $_.LocalPath -notlike "*systemprofile*"
-    }
+    $pathsToCheck = @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+    )
     
-    foreach ($profile in $userProfiles) {
-        $sid = $profile.SID
-        $regPath = "Registry::HKEY_USERS\$sid"
-        
-        if (Test-Path $regPath) {
-            $pathsToCheck = @(
-                "$regPath\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
-                "$regPath\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
-            )
-            
-            foreach ($path in $pathsToCheck) {
-                if (Test-Path $path) {
-                    $regKey = Get-Item $path -ErrorAction SilentlyContinue
-                    if ($regKey) {
-                        foreach ($valueName in $regKey.GetValueNames()) {
-                            # Only check values we care about
-                            if ($expectedValues.ContainsKey($valueName)) {
-                                $currentValue = $regKey.GetValue($valueName)
-                                $expectedValue = $expectedValues[$valueName]
-                                
-                                if ($currentValue) {
-                                    $currentValueStr = $currentValue.ToString()
-                                    
-                                    # Check if value needs fixing
-                                    if ($currentValueStr -ne $expectedValue) {
-                                        # Check for network paths, hardcoded paths, or missing %USERPROFILE%
-                                        if ($currentValueStr -match '^\\\\' -or 
-                                            ($currentValueStr -match '^[A-Z]:' -and $currentValueStr -notmatch '^C:\\Users') -or
-                                            ($currentValueStr -notmatch '%USERPROFILE%' -and $currentValueStr -match '^C:\\Users\\[^\\]+\\(Documents|Desktop|Pictures|Music|Videos|Downloads)')) {
-                                            Write-Output "Found misconfigured registry entry: $valueName = $currentValueStr"
-                                            $issueFound = $true
-                                            break
-                                        }
-                                    }
+    foreach ($path in $pathsToCheck) {
+        if (Test-Path $path) {
+            $regKey = Get-Item $path -ErrorAction SilentlyContinue
+            if ($regKey) {
+                foreach ($valueName in $regKey.GetValueNames()) {
+                    # Only check values we care about
+                    if ($expectedValues.ContainsKey($valueName)) {
+                        $currentValue = $regKey.GetValue($valueName)
+                        $expectedValue = $expectedValues[$valueName]
+                        
+                        if ($currentValue) {
+                            $currentValueStr = $currentValue.ToString()
+                            
+                            # Check if value needs fixing
+                            if ($currentValueStr -ne $expectedValue) {
+                                # Check for network paths, hardcoded paths, or missing %USERPROFILE%
+                                if ($currentValueStr -match '^\\\\' -or 
+                                    ($currentValueStr -match '^[A-Z]:' -and $currentValueStr -notmatch '^C:\\Users') -or
+                                    ($currentValueStr -notmatch '%USERPROFILE%' -and $currentValueStr -match '^C:\\Users\\[^\\]+\\(Documents|Desktop|Pictures|Music|Videos|Downloads)')) {
+                                    Write-Output "Found misconfigured registry entry: $valueName = $currentValueStr"
+                                    $issueFound = $true
+                                    break
                                 }
                             }
                         }
                     }
                 }
-                if ($issueFound) { break }
             }
         }
         if ($issueFound) { break }
     }
     
     if ($issueFound) {
-        Write-Output "Registry fix needed"
+        Write-Output "Registry fix needed for current user"
         exit 1  # Not detected, needs installation
     }
     else {
-        Write-Output "No issues found"
+        Write-Output "No issues found for current user"
         exit 0  # Detected, no installation needed
     }
 }

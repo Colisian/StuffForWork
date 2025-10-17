@@ -1,16 +1,15 @@
-<#
-.SYNOPSIS
-    Uninstall script for folder redirection registry fix
+SYNOPSIS
+    Uninstall script for folder redirection registry fix (User Context)
 .DESCRIPTION
     Removes marker file to allow fix to be re-applied
 #>
 
-$LogDir = "$env:ProgramData\FolderRedirectionFix"
+$LogDir = "$env:LOCALAPPDATA\FolderRedirectionFix"
 
 try {
     if (Test-Path $LogDir) {
         Remove-Item -Path $LogDir -Recurse -Force
-        Write-Output "Marker files removed"
+        Write-Output "Marker files removed for current user"
         exit 0
     }
     else {

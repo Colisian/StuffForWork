@@ -1,15 +1,15 @@
 <#
 .SYNOPSIS
-    Fixes folder redirection registry entries pointing to old server
+    Fixes folder redirection registry entries for the current user
 .DESCRIPTION
-    Removes registry entries pointing to Z: drive and restores default local paths
-    Runs in SYSTEM context but fixes registry for all logged-in users
+    Removes registry entries pointing to network paths and restores default local paths
+    Runs in USER context - targets HKEY_CURRENT_USER
 .NOTES
-    Designed for Intune Win32 app deployment
+    Designed for Intune Company Portal deployment (user-initiated install)
 #>
 
 param(
-    [string]$LogPath = "$env:ProgramData\FolderRedirectionFix\RegistryFix.log"
+    [string]$LogPath = "$env:LOCALAPPDATA\FolderRedirectionFix\RegistryFix.log"
 )
 
 # Create log directory
@@ -25,62 +25,12 @@ function Write-Log {
     Add-Content -Path $LogPath -Value $LogMessage
 }
 
-function Get-LoggedInUsers {
-    try {
-        $users = @()
-        $explorerProcesses = Get-WmiObject Win32_Process -Filter "Name = 'explorer.exe'"
-        
-        foreach ($process in $explorerProcesses) {
-            $owner = $process.GetOwner()
-            $username = "$($owner.Domain)\$($owner.User)"
-            if ($username -notin $users) {
-                $users += $username
-            }
-        }
-        return $users
-    }
-    catch {
-        Write-Log "Error getting logged in users: $($_.Exception.Message)" "ERROR"
-        return @()
-    }
-}
-
-function Get-UserSID {
-    param([string]$Username)
-    
-    try {
-        $objUser = New-Object System.Security.Principal.NTAccount($Username)
-        $sid = $objUser.Translate([System.Security.Principal.SecurityIdentifier])
-        return $sid.Value
-    }
-    catch {
-        Write-Log "Error getting SID for $Username : $($_.Exception.Message)" "ERROR"
-        return $null
-    }
-}
-
-function Fix-UserRegistry {
-    param(
-        [string]$UserSID,
-        [string]$Username
-    )
-    
-    Write-Log "Processing registry for user: $Username (SID: $UserSID)"
-    
-    # Load the user's registry hive if not already loaded
-    $userHiveLoaded = $false
-    $regPath = "Registry::HKEY_USERS\$UserSID"
-    
-    if (!(Test-Path $regPath)) {
-        Write-Log "User hive not loaded, attempting to load..." "WARNING"
-        # Hive not loaded - this user is not currently logged in
-        # We'll skip for now, but log it
-        return $false
-    }
+function Fix-CurrentUserRegistry {
+    Write-Log "Processing registry for current user: $env:USERNAME"
     
     $registryPaths = @(
-        "$regPath\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
-        "$regPath\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
     )
     
     # Default folder mappings - what they SHOULD be
@@ -103,43 +53,55 @@ function Fix-UserRegistry {
     $changesFound = $false
     
     foreach ($regPathToCheck in $registryPaths) {
+        Write-Log "Checking registry path: $regPathToCheck"
+        
         if (Test-Path $regPathToCheck) {
             try {
                 $regKey = Get-Item $regPathToCheck -ErrorAction Stop
+                $valueNames = $regKey.GetValueNames()
+                Write-Log "Found $($valueNames.Count) values in $regPathToCheck"
                 
-                foreach ($valueName in $regKey.GetValueNames()) {
+                foreach ($valueName in $valueNames) {
                     # Only process values we have mappings for
                     if ($defaultFolders.ContainsKey($valueName)) {
                         try {
                             $currentValue = $regKey.GetValue($valueName)
                             $expectedValue = $defaultFolders[$valueName]
                             
+                            Write-Log "Checking: $valueName = '$currentValue' (Expected: '$expectedValue')"
+                            
                             # Check if current value needs to be fixed
                             $needsUpdate = $false
+                            $reason = ""
                             
                             if ([string]::IsNullOrEmpty($currentValue)) {
-                                Write-Log "Value $valueName is empty, will set to: $expectedValue"
+                                $reason = "Value is empty"
                                 $needsUpdate = $true
                             }
                             elseif ($currentValue -ne $expectedValue) {
                                 # Value doesn't match expected - check if it's a UNC path, network drive, or incorrect path
                                 $currentValueStr = $currentValue.ToString()
                                 
-                                # Check for network paths (UNC or mapped drives)
-                                if ($currentValueStr -match '^\\\\' -or $currentValueStr -match '^[A-Z]:' -and $currentValueStr -notmatch '^C:\\Users') {
-                                    Write-Log "Found network/redirected path for $Username : $valueName = $currentValue"
+                                # Check for UNC network paths (\\server\share)
+                                if ($currentValueStr -match '^\\\\') {
+                                    $reason = "UNC network path detected"
                                     $needsUpdate = $true
                                 }
-                                # Check if it's missing %USERPROFILE% variable
+                                # Check for mapped network drives (not C:\Users)
+                                elseif ($currentValueStr -match '^[A-Z]:' -and $currentValueStr -notmatch '^C:\\Users') {
+                                    $reason = "Network drive mapping detected"
+                                    $needsUpdate = $true
+                                }
+                                # Check if it's a hardcoded C:\Users path without %USERPROFILE%
                                 elseif ($currentValueStr -notmatch '%USERPROFILE%' -and $currentValueStr -match '^C:\\Users\\[^\\]+\\(Documents|Desktop|Pictures|Music|Videos|Downloads)') {
-                                    Write-Log "Found hardcoded path for $Username : $valueName = $currentValue"
+                                    $reason = "Hardcoded path without %USERPROFILE%"
                                     $needsUpdate = $true
                                 }
-                                # Check if path doesn't exist or is inaccessible
-                                elseif ($currentValueStr -notmatch '%USERPROFILE%') {
+                                # Check if path doesn't exist or is inaccessible (for non-%USERPROFILE% paths)
+                                elseif ($currentValueStr -notmatch '%USERPROFILE%' -and $currentValueStr -notmatch '^C:\\Users') {
                                     $expandedPath = [Environment]::ExpandEnvironmentVariables($currentValueStr)
                                     if (!(Test-Path $expandedPath -ErrorAction SilentlyContinue)) {
-                                        Write-Log "Found inaccessible path for $Username : $valueName = $currentValue"
+                                        $reason = "Path is inaccessible"
                                         $needsUpdate = $true
                                     }
                                 }
@@ -147,8 +109,11 @@ function Fix-UserRegistry {
                             
                             if ($needsUpdate) {
                                 $changesFound = $true
+                                Write-Log "NEEDS UPDATE: $valueName - Reason: $reason - Current: '$currentValue' -> New: '$expectedValue'" "WARNING"
                                 Set-ItemProperty -Path $regPathToCheck -Name $valueName -Value $expectedValue -Force
-                                Write-Log "Updated $valueName from '$currentValue' to: $expectedValue" "SUCCESS"
+                                Write-Log "UPDATED: $valueName to '$expectedValue'" "SUCCESS"
+                            } else {
+                                Write-Log "OK: $valueName is already correct"
                             }
                         }
                         catch {
@@ -160,65 +125,125 @@ function Fix-UserRegistry {
             catch {
                 Write-Log "Error accessing registry path $regPathToCheck : $($_.Exception.Message)" "ERROR"
             }
+        } else {
+            Write-Log "Registry path does not exist: $regPathToCheck" "WARNING"
         }
     }
     
     return $changesFound
 }
 
-# Main execution
-Write-Log "=== Starting Registry Fix Installation ==="
-
-$totalChanges = 0
-
-try {
-    # Get all user profiles
-    $userProfiles = Get-WmiObject Win32_UserProfile | Where-Object { 
-        $_.Special -eq $false -and 
-        $_.LocalPath -notlike "*system32*" -and
-        $_.LocalPath -notlike "*systemprofile*"
-    }
+function Restart-ExplorerProcess {
+    Write-Log "Attempting to restart Windows Explorer to apply changes..."
     
-    Write-Log "Found $($userProfiles.Count) user profiles to check"
-    
-    foreach ($profile in $userProfiles) {
-        $sid = $profile.SID
+    try {
+        # Get current user's explorer processes
+        $explorerProcesses = Get-Process -Name explorer -ErrorAction SilentlyContinue
         
-        # Try to get username from SID
+        if ($explorerProcesses) {
+            Write-Log "Restarting Explorer for current user"
+            
+            # Stop explorer
+            Stop-Process -Name explorer -Force -ErrorAction Stop
+            
+            Write-Log "Stopped Explorer process" "SUCCESS"
+            
+            # Wait a moment
+            Start-Sleep -Milliseconds 500
+            
+            # Check if it auto-restarted
+            $newExplorer = Get-Process -Name explorer -ErrorAction SilentlyContinue
+            
+            if ($newExplorer) {
+                Write-Log "Explorer auto-restarted successfully" "SUCCESS"
+            } else {
+                Write-Log "Explorer did not auto-restart, starting manually..."
+                Start-Process explorer.exe
+                Write-Log "Explorer started manually" "SUCCESS"
+            }
+        }
+        else {
+            Write-Log "No Explorer process found (unexpected)" "WARNING"
+        }
+    }
+    catch {
+        Write-Log "Error restarting Explorer: $($_.Exception.Message)" "ERROR"
+        # Try to start Explorer anyway if it crashed
         try {
-            $objSID = New-Object System.Security.Principal.SecurityIdentifier($sid)
-            $objUser = $objSID.Translate([System.Security.Principal.NTAccount])
-            $username = $objUser.Value
+            Start-Process explorer.exe -ErrorAction SilentlyContinue
         }
         catch {
-            $username = "Unknown"
-            Write-Log "Could not resolve username for SID: $sid" "WARNING"
-        }
-        
-        Write-Log "Checking profile: $username"
-        
-        $changesFound = Fix-UserRegistry -UserSID $sid -Username $username
-        
-        if ($changesFound) {
-            $totalChanges++
+            Write-Log "Could not start Explorer manually" "ERROR"
         }
     }
+}
+
+function Ensure-LocalFoldersExist {
+    Write-Log "Ensuring local user folders exist..."
     
-    # Create success marker file
-    $markerFile = "$LogDir\FixApplied.txt"
-    Set-Content -Path $markerFile -Value (Get-Date).ToString()
+    $folders = @(
+        [Environment]::GetFolderPath("MyDocuments"),
+        [Environment]::GetFolderPath("Desktop"),
+        [Environment]::GetFolderPath("MyPictures"),
+        [Environment]::GetFolderPath("MyMusic"),
+        [Environment]::GetFolderPath("MyVideos")
+    )
     
-    Write-Log "=== Registry fix completed. Changes made to $totalChanges user profiles ===" "SUCCESS"
+    foreach ($folder in $folders) {
+        if ($folder -and !(Test-Path $folder)) {
+            try {
+                New-Item -ItemType Directory -Path $folder -Force | Out-Null
+                Write-Log "Created folder: $folder" "SUCCESS"
+            }
+            catch {
+                Write-Log "Error creating folder $folder : $($_.Exception.Message)" "ERROR"
+            }
+        }
+    }
+}
+
+# Main execution
+Write-Log "=== Starting Registry Fix Installation (User Context) ==="
+Write-Log "Current user: $env:USERNAME"
+Write-Log "Computer name: $env:COMPUTERNAME"
+Write-Log "User profile: $env:USERPROFILE"
+
+try {
+    # Step 1: Fix registry entries
+    Write-Log "Step 1: Fixing registry folder redirection entries"
+    $changesFound = Fix-CurrentUserRegistry
     
-    if ($totalChanges -gt 0) {
-        exit 0  # Success with changes
+    if ($changesFound) {
+        Write-Log "Registry changes were made" "SUCCESS"
+        
+        # Step 2: Ensure local folders exist
+        Write-Log "Step 2: Ensuring local folders exist"
+        Ensure-LocalFoldersExist
+        
+        # Step 3: Restart Explorer
+        Write-Log "Step 3: Restarting Windows Explorer to apply changes"
+        Restart-ExplorerProcess
+        
+        # Create success marker file
+        $markerFile = "$LogDir\FixApplied.txt"
+        Set-Content -Path $markerFile -Value (Get-Date).ToString()
+        
+        Write-Log "=== Registry fix completed successfully! ===" "SUCCESS"
+        exit 0
     }
     else {
-        Write-Log "No changes were needed" "INFO"
-        exit 0  # Success, no changes needed
+        Write-Log "No registry changes were needed - all values are correct" "INFO"
+        
+        # Create success marker file anyway
+        $markerFile = "$LogDir\FixApplied.txt"
+        Set-Content -Path $markerFile -Value (Get-Date).ToString()
+        
+        Write-Log "=== Registry fix completed (no changes needed) ===" "SUCCESS"
+        exit 0
     }
 }
 catch {
     Write-Log "Critical error: $($_.Exception.Message)" "ERROR"
-    exit 1  # Failure
+    Write-Log "Stack trace: $($_.ScriptStackTrace)" "ERROR"
+    exit 1
 }
