@@ -4,13 +4,11 @@ REM SysAid Agent - Intune Silent Installer
 REM =========================================
 setlocal
 
-REM Install SysAid Agent silently with Org parameters
-msiexec /i "%~dp0SysAidAgent.msi" /qn /norestart ^
-    ACCOUNT="umlibraryitd" ^
-    SERVERURL="https://ticketing.lib.umd.edu" ^
-    SERIAL="ENTER-YOUR-SERIAL-HERE"
+@echo off
+:: Install SysAid Agent using MSI + MST
+msiexec /i "%~dp0SysAidAgent.msi" /qn TRANSFORMS="%~dp0SysAidAgentx64.mst" /norestart
 
-:: Run post-install configuration script
-powershell.exe -ExecutionPolicy Bypass -File "%~dp0SysAidAgentFirewall.ps1"
+:: Run post-install configuration
+powershell.exe -ExecutionPolicy Bypass -File "%~dp0Configure-SysAid.ps1"
 
-exit /b 0
+exit /b %errorlevel%
