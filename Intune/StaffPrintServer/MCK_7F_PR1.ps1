@@ -7,12 +7,12 @@
     Intended for deployment via Intune Company Portal or other automation tools.
 
 .NOTES
-    Printer: HBK_1F_PR2
+    Printer: MCK_7F_PR1
     Print Server: LIBRPS403v.ad.umd.edu
 #>
 
 # Parameters
-$PrinterName     = "HBK_1F_PR2"
+$PrinterName     = "MCK_7F_PR1"
 $PrintServer     = "LIBRPS403v.ad.umd.edu"
 $PrinterPath     = "\\$PrintServer\$PrinterName"
 
