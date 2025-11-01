@@ -52,6 +52,19 @@ if (-not(Test-Path -Path $sourceFile)) {
     exit
 }
 
+# Check if destination file exists and delete it
+if (Test-Path -Path $destinationFile) {
+    Write-Output "Existing file found at $destinationFile. Deleting it..."
+    try {
+        Remove-Item -Path $destinationFile -Force
+        Write-Output "Existing file deleted successfully."
+    }
+    catch {
+        Write-Output "Failed to delete existing file: $_"
+        exit
+    }
+}
+
 try{
     Copy-Item -Path $sourceFile -Destination $destinationFile -Force
     Write-Output "File copied successfully to $destinationFile"
