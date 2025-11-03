@@ -56,15 +56,15 @@ foreach ($PrinterName in $PrinterNames) {
 
         if ($printer) {
             $printerStatus = $printer.PrinterStatus
-            Write-Host "  ✓ Found '$PrinterName' - Status: $printerStatus"
+            Write-Host " Found '$PrinterName' - Status: $printerStatus"
             $installedPrinters += $PrinterName
         } else {
-            Write-Host "  ✗ Missing '$PrinterName'"
+            Write-Host " Missing '$PrinterName'"
             $missingPrinters += $PrinterName
         }
 
     } catch {
-        Write-Warning "  ! Error detecting '$PrinterName': $($_.Exception.Message)"
+        Write-Warning " Error detecting '$PrinterName': $($_.Exception.Message)"
         $missingPrinters += $PrinterName
     }
 }
