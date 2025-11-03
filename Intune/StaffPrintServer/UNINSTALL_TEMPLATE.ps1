@@ -60,9 +60,9 @@ foreach ($PrinterName in $PrinterNames) {
             # Verify removal
             $verifyPrinter = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
             if (-not $verifyPrinter) {
-                Write-Host "  ✓ Successfully removed '$PrinterName'."
+                Write-Host " Successfully removed '$PrinterName'."
             } else {
-                Write-Warning "  ✗ Printer '$PrinterName' still exists after removal attempt."
+                Write-Warning " Printer '$PrinterName' still exists after removal attempt."
                 $failedRemovals += $PrinterName
             }
         } else {
