@@ -80,14 +80,16 @@ Write-Host "Detection Summary:"
 Write-Host "  Installed: $($installedPrinters.Count) / $($PrinterNames.Count)"
 Write-Host "  Missing:   $($missingPrinters.Count) / $($PrinterNames.Count)"
 
-if ($missingPrinters.Count -gt 0) {
+# Check if at least ONE printer is installed
+if ($installedPrinters.Count -gt 0) {
     Write-Host ""
-    Write-Host "Missing printers: $($missingPrinters -join ', ')"
-    # Exit 1 indicates printers are not installed (trigger remediation)
-    exit 1
+    Write-Host "SUCCESS: At least one staff printer detected ($($installedPrinters.Count) found)"
+    Write-Host "Installed printers: $($installedPrinters -join ', ')"
+    # Exit 0 indicates printer(s) are installed (no action needed)
+    exit 0
 } else {
     Write-Host ""
-    Write-Host "All printers detected successfully."
-    # Exit 0 indicates all required printers are installed (no action needed)
-    exit 0
+    Write-Host "FAILED: No staff printers found"
+    # Exit 1 indicates no printers are installed (trigger installation)
+    exit 1
 }
