@@ -9,6 +9,16 @@
 .NOTES
     Printer: EPL_1F_PR1
     Print Server: LIBRPS403v.ad.umd.edu
+
+    INTUNE DEPLOYMENT COMMANDS (Copy & Paste):
+    Install Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\EPL_1F_PR1.ps1
+
+    Uninstall Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\UNINSTALL_TEMPLATE.ps1
+
+    Detection Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\DETECTION_SCRIPT.ps1
 #>
 
 # Parameters

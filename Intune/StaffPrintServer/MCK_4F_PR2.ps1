@@ -10,6 +10,16 @@
     Printer: MCK_4F_PR2
     Print Server: LIBRPS403v.ad.umd.edu
     Notes: No paperwork on file
+
+    INTUNE DEPLOYMENT COMMANDS (Copy & Paste):
+    Install Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\MCK_4F_PR2.ps1
+
+    Uninstall Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\UNINSTALL_TEMPLATE.ps1
+
+    Detection Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\DETECTION_SCRIPT.ps1
 #>
 
 # Parameters

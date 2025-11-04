@@ -9,6 +9,16 @@
 .NOTES
     Printer: SVN_1F_PR2
     Print Server: LIBRPS403v.ad.umd.edu
+
+    INTUNE DEPLOYMENT COMMANDS (Copy & Paste):
+    Install Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\SVN_1F_PR2.ps1
+
+    Uninstall Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\UNINSTALL_TEMPLATE.ps1
+
+    Detection Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\DETECTION_SCRIPT.ps1
 #>
 
 # Parameters

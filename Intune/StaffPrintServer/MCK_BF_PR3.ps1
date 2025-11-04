@@ -9,6 +9,16 @@
 .NOTES
     Printer: MCK_BF_PR3
     Print Server: LIBRPS403v.ad.umd.edu
+
+    INTUNE DEPLOYMENT COMMANDS (Copy & Paste):
+    Install Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\MCK_BF_PR3.ps1
+
+    Uninstall Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\UNINSTALL_TEMPLATE.ps1
+
+    Detection Command:
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\DETECTION_SCRIPT.ps1
 #>
 
 # Parameters
