@@ -51,8 +51,14 @@ Write-Host "Detecting staff printer installations..."
 
 foreach ($PrinterName in $PrinterNames) {
     try {
-        # Check if printer exists
+        # Check if printer exists by short name
         $printer = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
+
+        # Also check for full UNC path format
+        if (-not $printer) {
+            $uncPath = "\\$PrintServer\$PrinterName"
+            $printer = Get-Printer -Name $uncPath -ErrorAction SilentlyContinue
+        }
 
         if ($printer) {
             $printerStatus = $printer.PrinterStatus

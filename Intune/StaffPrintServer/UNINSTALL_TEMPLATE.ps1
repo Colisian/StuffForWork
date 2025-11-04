@@ -49,16 +49,28 @@ Write-Host "Starting printer uninstallation process..."
 
 foreach ($PrinterName in $PrinterNames) {
     try {
-        # Check if printer exists
+        # Check if printer exists by short name
         $printer = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
 
-        if ($printer) {
+        # Also check for full UNC path format
+        $printerToRemove = $printer
+        if (-not $printerToRemove) {
+            $uncPath = "\\$PrintServer\$PrinterName"
+            $printerToRemove = Get-Printer -Name $uncPath -ErrorAction SilentlyContinue
+        }
+
+        if ($printerToRemove) {
             Write-Host "Removing printer '$PrinterName'..."
-            Remove-Printer -Name $PrinterName -Confirm:$false
+            Remove-Printer -Name $printerToRemove.Name -Confirm:$false
             Start-Sleep -Seconds 1
 
-            # Verify removal
+            # Verify removal - check both naming formats
             $verifyPrinter = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
+            if (-not $verifyPrinter) {
+                $uncPath = "\\$PrintServer\$PrinterName"
+                $verifyPrinter = Get-Printer -Name $uncPath -ErrorAction SilentlyContinue
+            }
+
             if (-not $verifyPrinter) {
                 Write-Host " Successfully removed '$PrinterName'."
             } else {
