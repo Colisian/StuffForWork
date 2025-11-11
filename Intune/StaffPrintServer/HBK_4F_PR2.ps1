@@ -7,7 +7,7 @@
     Intended for deployment via Intune Company Portal or other automation tools.
 
 .NOTES
-    Printer: HBK_4F_PR1
+    Printer: HBK_4F_PR2
     Print Server: LIBRPS403v.ad.umd.edu
 
     INTUNE DEPLOYMENT COMMANDS (Copy & Paste):
