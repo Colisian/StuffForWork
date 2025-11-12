@@ -32,7 +32,7 @@ Set-ItemProperty -Path $ppRoot -Name 'ServerList' -Type String -Value $serverLis
 # NoWarningNoElevationOnInstall: 1 = do not show warning/elevation on new installs
 # UpdatePromptSettings: 2 = do not show warning/elevation on updates
 Set-ItemProperty -Path $ppRoot -Name 'NoWarningNoElevationOnInstall' -Type DWord -Value 1
-Set-ItemProperty -Path $ppRoot -Name 'UpdatePromptSettings'           -Type DWord -Value 2
+Set-ItemProperty -Path $ppRoot -Name 'UpdatePromptSettings' -Type DWord -Value 2
 
 # Newer hardening toggle (introduced with PrintNightmare mitigations)
 # 0 = allow non-admins to install drivers from trusted servers
@@ -41,7 +41,7 @@ Set-ItemProperty -Path $ppRoot -Name 'RestrictDriverInstallationToAdministrators
 # ---- Package Point and Print – Approved servers (Device) ----
 # Restricts package PnP to approved servers and lists them
 Set-ItemProperty -Path $pkgRoot -Name 'TrustedServers' -Type DWord -Value 1
-Set-ItemProperty -Path $pkgRoot -Name 'ServerList'     -Type String -Value $serverList
+Set-ItemProperty -Path $pkgRoot -Name 'ServerList' -Type String -Value $serverList
 
 # ---- OPTIONAL: Neutralize stricter user-scope override for current user ----
 # Comment out the next block if you don't want to touch HKCU
