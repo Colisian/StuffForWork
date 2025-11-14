@@ -1,16 +1,21 @@
 <#
 .SYNOPSIS
     Configures Point and Print settings for print servers in an Intune-managed environment.
+
+.DESCRIPTION
+    Sets machine-level Point and Print policies to allow non-admin users to install
+    printer drivers from trusted print servers without elevation prompts.
+    Designed for deployment via Intune Win32 app in System context.
+
+.NOTES
+    Install Command (Intune):
+    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\Point-and-Print.ps1
+
+    Detection Script:
+    Use Point-and-Print-Detection.ps1
 #>
 
 $Servers = @('librps403v.ad.umd.edu')
-
-# Must run as admin
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Error "Run this script in an elevated PowerShell session."
-    exit 1
-}
 
 $serverList = ($Servers | ForEach-Object { $_.ToLower().Trim('\') } | Where-Object { $_ }) -join ';'
 
@@ -43,23 +48,15 @@ Set-ItemProperty -Path $ppRoot -Name 'RestrictDriverInstallationToAdministrators
 Set-ItemProperty -Path $pkgRoot -Name 'TrustedServers' -Type DWord -Value 1
 Set-ItemProperty -Path $pkgRoot -Name 'ServerList' -Type String -Value $serverList
 
-# ---- OPTIONAL: Neutralize stricter user-scope override for current user ----
-# Comment out the next block if you don't want to touch HKCU
-$ppUser = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint'
-if (Test-Path $ppUser) {
-    try {
-        Remove-Item $ppUser -Recurse -Force -ErrorAction Stop
-        Write-Host "Removed user-scope PointAndPrint policy override (HKCU)."
-    } catch {
-        Write-Warning "Could not remove HKCU PointAndPrint key: $($_.Exception.Message)"
-    }
-}
+Write-Host "Point and Print policies configured successfully."
 
 # Restart spooler so settings take effect immediately
+Write-Host "Restarting Print Spooler service..."
 Restart-Service -Name Spooler -Force
 
 # Show effective values
 Write-Host "`nConfigured trusted servers: $serverList"
 Get-ItemProperty -Path $ppRoot  | Select-Object Restricted,TrustedServers,ServerList,NoWarningNoElevationOnInstall,UpdatePromptSettings,RestrictDriverInstallationToAdministrators
 Get-ItemProperty -Path $pkgRoot | Select-Object TrustedServers,ServerList
-Write-Host "`nDone."
+Write-Host "`nPoint and Print configuration completed successfully."
+exit 0
