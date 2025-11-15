@@ -17,6 +17,6 @@
 *.dbc
 *.pkg
 *.dmg
-
+*.DS_Store
 /Fonts_Rick/*
 !/Fonts_Rick/
