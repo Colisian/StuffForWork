@@ -24,7 +24,7 @@ if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
         }
     }
     if ($args) { $argList += $args }
-    $result = & powershell.exe @argList
+    & powershell.exe @argList
     exit $LASTEXITCODE
 }
 
