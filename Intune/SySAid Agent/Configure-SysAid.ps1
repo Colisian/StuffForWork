@@ -19,10 +19,39 @@ param (
 )
 
 $ErrorActionPreference = 'Stop'
+$LogPath = "$env:ProgramData\Microsoft\IntuneManagementExtension\Logs\SysAid-Configure.log"
 
-function Write-Info { param($m) Write-Host "[INFO]  $m" -ForegroundColor Cyan }
-function Write-Warn { param($m) Write-Host "[WARN]  $m" -ForegroundColor Yellow }
-function Write-Err  { param($m) Write-Host "[ERROR] $m" -ForegroundColor Red }
+function Write-Log {
+    param(
+        [string]$m,
+        [string]$Level = "INFO"
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "$timestamp [$Level] $m"
+
+    # Write to log file
+    try {
+        $logDir = Split-Path -Path $LogPath -Parent
+        if (-not (Test-Path $logDir)) {
+            New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+        }
+        $logMessage | Out-File -FilePath $LogPath -Append -Encoding UTF8
+    } catch {
+        # Silently continue if logging fails
+    }
+
+    # Write to console with color
+    $color = switch ($Level) {
+        "ERROR" { "Red" }
+        "WARN"  { "Yellow" }
+        default { "Cyan" }
+    }
+    Write-Host "[$Level] $m" -ForegroundColor $color
+}
+
+function Write-Info { param($m) Write-Log -m $m -Level "INFO" }
+function Write-Warn { param($m) Write-Log -m $m -Level "WARN" }
+function Write-Err  { param($m) Write-Log -m $m -Level "ERROR" }
 
 try {
     Write-Info "Starting SysAid Agent post-install configuration..."
