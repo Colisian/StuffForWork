@@ -1,15 +1,15 @@
 #!/bin/bash
 # UMD Library Printers Installation Script
-# Version 4.0 - Public Package Installer
-# For Canon printers with Pharos Popup
-# Installs embedded PPD file and Popup.pkg
+# Version 4.2 - Two-Package Installation
+# Requires: Popup.pkg to be installed separately
+# Installs: PPD file and all 16 printers
 
 LOG_FILE="/var/log/umd_printer_install.log"
 exec &> >(tee -a "$LOG_FILE")
 
 echo "==========================================="
 echo "UMD Library Printers Installation"
-echo "Version 4.0 - Public Package"
+echo "Version 4.2 - Two-Package Installation"
 echo "==========================================="
 echo "Started: $(date)"
 echo "macOS: $(sw_vers -productVersion)"
@@ -23,44 +23,30 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 #===========================================
-# STEP 1: Locate Resources and Install Pharos Popup
+# STEP 1: Verify Pharos Popup is Already Installed
 #===========================================
-
-# Determine resource location
-# When run from Packages installer, resources are in ../Resources relative to Scripts
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-RESOURCES_DIR="$(dirname "$SCRIPT_DIR")/Resources"
-
 echo ""
-echo "📦 Installing Pharos Popup backend..."
+echo "🔍 Verifying Pharos Popup is installed..."
 
-POPUP_PKG="$RESOURCES_DIR/Popup.pkg"
-if [ -f "$POPUP_PKG" ]; then
-    /usr/sbin/installer -pkg "$POPUP_PKG" -target / 2>&1
-    if [ $? -eq 0 ]; then
-        echo "   ✅ Popup.pkg installed successfully"
-    else
-        echo "   ❌ Failed to install Popup.pkg"
-        exit 1
-    fi
-else
-    echo "   ❌ ERROR: Popup.pkg not found in package!"
-    exit 1
-fi
-
-# Verify Popup installation
-sleep 2
 POPUP_BACKEND="/usr/libexec/cups/backend/popup"
 
 if [ -f "$POPUP_BACKEND" ] || [ -L "$POPUP_BACKEND" ]; then
-    echo "   ✅ Pharos popup backend verified"
+    echo "   ✅ Pharos popup backend found"
 elif [ -f "/Library/Application Support/Pharos/popup" ]; then
     echo "   ⚠️  Creating popup backend symlink..."
     ln -sf "/Library/Application Support/Pharos/popup" "$POPUP_BACKEND"
     chmod 755 "$POPUP_BACKEND" 2>/dev/null || true
     echo "   ✅ Popup backend symlink created"
 else
-    echo "   ❌ ERROR: Pharos Popup installation failed!"
+    echo "   ❌ ERROR: Pharos Popup not installed!"
+    echo ""
+    echo "   REQUIRED: Please install Popup.pkg first:"
+    echo "   1. Right-click Popup.pkg"
+    echo "   2. Select 'Open'"
+    echo "   3. Click 'Open' in the dialog"
+    echo "   4. Complete installation"
+    echo "   5. Then run this installer again"
+    echo ""
     exit 1
 fi
 
@@ -70,22 +56,63 @@ fi
 echo ""
 echo "📄 Installing Canon PPD driver..."
 
-PPD_SOURCE="$RESOURCES_DIR/CNPZUIRAC5030ZU.ppd"
-PPD_DEST="/Library/Printers/PPDs/Contents/Resources/CNPZUIRAC5030ZU.ppd"
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+RESOURCES_DIR="$(dirname "$SCRIPT_DIR")/Resources"
+
+PPD_NAME="CNPZUIRAC5030ZU.ppd"
+PPD_SOURCE="$RESOURCES_DIR/$PPD_NAME"
+PPD_DEST="/Library/Printers/PPDs/Contents/Resources/$PPD_NAME"
+PPD_FOUND=false
 
 if [ -f "$PPD_SOURCE" ]; then
+    # Priority 1: Install from package
     mkdir -p "/Library/Printers/PPDs/Contents/Resources"
     cp "$PPD_SOURCE" "$PPD_DEST"
     chmod 644 "$PPD_DEST"
-    echo "   ✅ PPD file installed to $PPD_DEST"
+    sleep 1  # Allow file system to sync
+    echo "   ✅ PPD file installed from package to $PPD_DEST"
+    PPD_FOUND=true
 else
-    echo "   ❌ ERROR: PPD file not found in package!"
-    exit 1
+    echo "   ⚠️  PPD file not found in package, searching system..."
+
+    # Priority 2: Look for the exact same Canon PPD on the system (check both .ppd and .ppd.gz)
+    EXISTING_PPD="/Library/Printers/PPDs/Contents/Resources/$PPD_NAME"
+    EXISTING_PPD_GZ="/Library/Printers/PPDs/Contents/Resources/${PPD_NAME}.gz"
+
+    if [ -f "$EXISTING_PPD" ]; then
+        echo "   ✅ Found existing $PPD_NAME on system"
+        PPD_DEST="$EXISTING_PPD"
+        echo "   ℹ️  Using existing Canon driver at: $PPD_DEST"
+        PPD_FOUND=true
+    elif [ -f "$EXISTING_PPD_GZ" ]; then
+        echo "   ✅ Found existing ${PPD_NAME}.gz on system"
+        PPD_DEST="$EXISTING_PPD_GZ"
+        echo "   ℹ️  Using existing Canon driver at: $PPD_DEST"
+        PPD_FOUND=true
+    else
+        # Priority 3: Search for any other Canon PPD as fallback (check both .ppd and .ppd.gz)
+        echo "   ⚠️  $PPD_NAME not found, searching for alternative Canon PPD..."
+
+        # First try to find .ppd files, then .ppd.gz files
+        FALLBACK_PPD=$(find /Library/Printers/PPDs/Contents/Resources -type f \( -iname "*canon*.ppd" -o -iname "*canon*.ppd.gz" \) 2>/dev/null | head -1)
+
+        if [ -n "$FALLBACK_PPD" ] && [ -f "$FALLBACK_PPD" ]; then
+            echo "   ✅ Found alternative Canon PPD: $(basename "$FALLBACK_PPD")"
+            PPD_DEST="$FALLBACK_PPD"
+            echo "   ℹ️  Using fallback Canon driver at: $PPD_DEST"
+            PPD_FOUND=true
+        else
+            echo "   ❌ ERROR: No Canon PPD file found in package or on system!"
+            echo "   Please install a Canon printer driver first or provide the PPD file."
+            exit 1
+        fi
+    fi
 fi
 
 # Verify PPD installation
-if [ -f "$PPD_DEST" ]; then
-    echo "   ✅ PPD file verified"
+if [ "$PPD_FOUND" = true ] && [ -f "$PPD_DEST" ]; then
+    echo "   ✅ PPD file verified at: $PPD_DEST"
 else
     echo "   ❌ ERROR: PPD file installation failed!"
     exit 1
@@ -152,7 +179,6 @@ fi
 # Initialize counters
 SUCCESS_COUNT=0
 FAIL_COUNT=0
-SKIP_COUNT=0
 
 # Pharos server configuration
 PHAROS_SERVER="LIBRPS406DV.AD.UMD.EDU"
@@ -253,9 +279,7 @@ install_printer "LIB-PALMobileColor" "PAL Library" "Color"
 # Refresh print system
 echo ""
 echo "🔄 Refreshing print system..."
-launchctl stop org.cups.cupsd 2>/dev/null || true
-sleep 1
-launchctl start org.cups.cupsd 2>/dev/null || true
+launchctl kickstart -k system/org.cups.cupsd 2>/dev/null || true
 sleep 2
 
 # Verification
@@ -293,7 +317,6 @@ echo "==========================================="
 echo "📊 Installation Summary"
 echo "==========================================="
 echo "✅ Successfully installed: $SUCCESS_COUNT printers"
-echo "⏭️  Already present: $SKIP_COUNT printers"
 echo "❌ Failed: $FAIL_COUNT printers"
 echo "⏰ Completed: $(date)"
 echo "==========================================="
@@ -304,7 +327,7 @@ if [ "$FAIL_COUNT" -eq 0 ]; then
     echo "✅ Installation completed successfully"
     echo "📝 Log file: $LOG_FILE"
     echo ""
-    echo "You can now print to any of the 17 UMD Library printers!"
+    echo "You can now print to any of the 16 UMD Library printers!"
     echo "Find them in System Preferences → Printers & Scanners"
     exit 0
 else
