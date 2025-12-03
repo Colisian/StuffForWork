@@ -1,15 +1,15 @@
 #!/bin/bash
 # UMD Library Printers Installation Script
-# Version 4.3 - Payload-based PPD Installation
+# Version 4.4 - Final Package Version
 # Requires: Popup.pkg to be installed separately
-# Installs: All 16 printers (PPD installed via payload)
+# Installs: PPD file and all 16 printers
 
 LOG_FILE="/var/log/umd_printer_install.log"
 exec &> >(tee -a "$LOG_FILE")
 
 echo "==========================================="
 echo "UMD Library Printers Installation"
-echo "Version 4.3 - Payload-based Installation"
+echo "Version 4.4 - Package Installation"
 echo "==========================================="
 echo "Started: $(date)"
 echo "macOS: $(sw_vers -productVersion)"
@@ -51,35 +51,39 @@ else
 fi
 
 #===========================================
-# STEP 2: Verify PPD File Was Installed
+# STEP 2: Verify Canon PPD Driver
 #===========================================
 echo ""
-echo "📄 Verifying Canon PPD driver..."
+echo "🔍 Verifying Canon PPD driver..."
 
-# PPD should already be installed by the package payload
-PPD_NAME="CNPZUIRAC5030ZU.ppd"
-PPD_DEST="/Library/Printers/PPDs/Contents/Resources/$PPD_NAME"
+CANON_PPD=""
+PPD_LOCATIONS=(
+    "/Library/Printers/PPDs/Contents/Resources"
+)
 
-# Check if PPD was installed by payload
-if [ -f "$PPD_DEST" ]; then
-    echo "   ✅ PPD file found at: $PPD_DEST"
-    echo "   ℹ️  PPD was installed by package payload"
-else
-    # Fallback: Look for existing Canon PPD on system
-    echo "   ⚠️  Expected PPD not found, searching for alternative Canon PPD..."
-    
-    FALLBACK_PPD=$(find /Library/Printers/PPDs/Contents/Resources -type f \( -iname "*canon*.ppd" -o -iname "*canon*.ppd.gz" \) 2>/dev/null | head -1)
-    
-    if [ -n "$FALLBACK_PPD" ] && [ -f "$FALLBACK_PPD" ]; then
-        echo "   ✅ Found alternative Canon PPD: $(basename "$FALLBACK_PPD")"
-        PPD_DEST="$FALLBACK_PPD"
-        echo "   ℹ️  Using fallback Canon driver at: $PPD_DEST"
-    else
-        echo "   ❌ ERROR: No Canon PPD file found on system!"
-        echo "   The package payload may have failed to install the PPD."
-        echo "   Please install a Canon printer driver first."
-        exit 1
+for location in "${PPD_LOCATIONS[@]}"; do
+    if [ -d "$location" ]; then
+        # Look for our specific Canon PPD (compressed)
+        CANON_PPD=$(find "$location" -name "CNPZUIRAC5030ZU.ppd.gz" 2>/dev/null | head -1)
+        if [ -n "$CANON_PPD" ]; then
+            echo "   ✅ Found Canon PPD: $(basename "$CANON_PPD")"
+            break
+        fi
+        
+        # Fallback: Look for any Canon PPD
+        CANON_PPD=$(find "$location" -name "CNPZ*.ppd.gz" 2>/dev/null | head -1)
+        if [ -n "$CANON_PPD" ]; then
+            echo "   ✅ Found alternative Canon PPD: $(basename "$CANON_PPD")"
+            break
+        fi
     fi
+done
+
+if [ -z "$CANON_PPD" ]; then
+    echo "   ❌ ERROR: Canon PPD driver not found!"
+    echo "   Expected location: /Library/Printers/PPDs/Contents/Resources/CNPZUIRAC5030ZU.ppd.gz"
+    echo "   Please ensure the package payload installed correctly"
+    exit 1
 fi
 
 #===========================================
@@ -140,6 +144,9 @@ fi
 # STEP 5: Install Printers
 #===========================================
 
+echo ""
+echo "🖨️  Installing UMD Library Printers with Canon driver..."
+
 # Initialize counters
 SUCCESS_COUNT=0
 FAIL_COUNT=0
@@ -152,13 +159,14 @@ PHAROS_PORT="515"
 install_printer() {
     local name="$1"
     local location="$2"
-    local description="$3"
+    local type="$3"
     local uri="popup://$PHAROS_SERVER:$PHAROS_PORT/$name"
+    local description="$location - $type"
     
     echo ""
-    echo "🖨️  Installing: $name"
-    echo "   Location: $location"
-    echo "   Description: $description"
+    echo "   📝 Installing: $name"
+    echo "      Location: $location"
+    echo "      Type: $type"
     
     # Check if printer already exists
     if lpstat -p "$name" &>/dev/null; then
@@ -169,7 +177,7 @@ install_printer() {
     
     # Install with PPD - capture full output but check exit code
     local install_output
-    install_output=$(lpadmin -p "$name" -E -v "$uri" -P "$PPD_DEST" -D "$description" -L "$location" 2>&1)
+    install_output=$(lpadmin -p "$name" -E -v "$uri" -P "$CANON_PPD" -D "$description" -L "$location" 2>&1)
     local exit_code=$?
     
     # Check if installation succeeded by exit code
@@ -243,7 +251,9 @@ install_printer "LIB-PALMobileColor" "PAL Library" "Color"
 # Refresh print system
 echo ""
 echo "🔄 Refreshing print system..."
-launchctl kickstart -k system/org.cups.cupsd 2>/dev/null || true
+launchctl stop org.cups.cupsd 2>/dev/null || true
+sleep 1
+launchctl start org.cups.cupsd 2>/dev/null || true
 sleep 2
 
 # Verification
@@ -264,7 +274,7 @@ echo "🔍 Verifying 11x17 support on Architecture printers..."
 for printer in LIB-ArchMobileBW LIB-ArchMobileColor; do
     if lpstat -p "$printer" &>/dev/null; then
         echo ""
-        echo "   🖨️ $printer:"
+        echo "   📄 $printer:"
         if lpoptions -p "$printer" -l 2>/dev/null | grep -qi "tabloid\|11x17\|ledger"; then
             echo "      ✅ 11x17/Tabloid support confirmed"
         else
