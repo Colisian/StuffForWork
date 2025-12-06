@@ -1,16 +1,14 @@
 #!/bin/bash
-# UMD Library Printers Installation Script
-# Version 4.4 - Final Package Version
-# Requires: Popup.pkg to be installed separately
-# Installs: PPD file and all 16 printers
+# UMD Library Complete Printer Setup
+# Installs: Pharos Popup → Canon Drivers → Configures All Printers
+# Version 4.0
 
-LOG_FILE="/var/log/umd_printer_install.log"
+LOG_FILE="/var/log/umd_printer_master_install.log"
 exec &> >(tee -a "$LOG_FILE")
 
-echo "==========================================="
-echo "UMD Library Printers Installation"
-echo "Version 4.4 - Package Installation"
-echo "==========================================="
+echo "=========================================="
+echo "UMD Library Complete Printer Setup"
+echo "=========================================="
 echo "Started: $(date)"
 echo "macOS: $(sw_vers -productVersion)"
 echo "Architecture: $(uname -m)"
@@ -22,99 +20,84 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-#===========================================
-# STEP 1: Verify Pharos Popup is Already Installed
-#===========================================
+# Packages are installed to /tmp/umd-printer-resources
+PACKAGES_DIR="/tmp/umd-printer-resources"
+
+echo "📂 Package location: $PACKAGES_DIR"
 echo ""
-echo "🔍 Verifying Pharos Popup is installed..."
-
-POPUP_BACKEND="/usr/libexec/cups/backend/popup"
-
-if [ -f "$POPUP_BACKEND" ] || [ -L "$POPUP_BACKEND" ]; then
-    echo "   ✅ Pharos popup backend found"
-elif [ -f "/Library/Application Support/Pharos/popup" ]; then
-    echo "   ⚠️  Creating popup backend symlink..."
-    ln -sf "/Library/Application Support/Pharos/popup" "$POPUP_BACKEND"
-    chmod 755 "$POPUP_BACKEND" 2>/dev/null || true
-    echo "   ✅ Popup backend symlink created"
-else
-    echo "   ❌ ERROR: Pharos Popup not installed!"
-    echo ""
-    echo "   REQUIRED: Please install Popup.pkg first:"
-    echo "   1. Right-click Popup.pkg"
-    echo "   2. Select 'Open'"
-    echo "   3. Click 'Open' in the dialog"
-    echo "   4. Complete installation"
-    echo "   5. Then run this installer again"
-    echo ""
-    exit 1
-fi
 
 #===========================================
-# STEP 2: Verify Canon PPD Driver
+# STEP 1: Install Pharos Popup
 #===========================================
-echo ""
-echo "🔍 Verifying Canon PPD driver..."
-
-CANON_PPD=""
-PPD_LOCATIONS=(
-    "/Library/Printers/PPDs/Contents/Resources"
-)
-
-for location in "${PPD_LOCATIONS[@]}"; do
-    if [ -d "$location" ]; then
-        # Look for our specific Canon PPD (compressed)
-        CANON_PPD=$(find "$location" -name "CNPZUIRAC5030ZU.ppd.gz" 2>/dev/null | head -1)
-        if [ -n "$CANON_PPD" ]; then
-            echo "   ✅ Found Canon PPD: $(basename "$CANON_PPD")"
-            break
-        fi
-        
-        # Fallback: Look for any Canon PPD
-        CANON_PPD=$(find "$location" -name "CNPZ*.ppd.gz" 2>/dev/null | head -1)
-        if [ -n "$CANON_PPD" ]; then
-            echo "   ✅ Found alternative Canon PPD: $(basename "$CANON_PPD")"
-            break
-        fi
+echo "📦 Installing Pharos Popup..."
+if [ -f "$PACKAGES_DIR/popup.pkg" ]; then
+    installer -pkg "$PACKAGES_DIR/popup.pkg" -target /
+    if [ $? -eq 0 ]; then
+        echo "✅ Pharos Popup installed successfully"
+    else
+        echo "❌ Pharos Popup installation failed"
+        exit 1
     fi
-done
-
-if [ -z "$CANON_PPD" ]; then
-    echo "   ❌ ERROR: Canon PPD driver not found!"
-    echo "   Expected location: /Library/Printers/PPDs/Contents/Resources/CNPZUIRAC5030ZU.ppd.gz"
-    echo "   Please ensure the package payload installed correctly"
+else
+    echo "❌ popup.pkg not found at $PACKAGES_DIR/popup.pkg"
     exit 1
 fi
 
 #===========================================
-# STEP 3: Check CUPS Service
+# OPTIONAL: Disable Pharos Notify
+# Set to "true" to disable, "false" to keep
 #===========================================
-echo ""
-echo "🔧 Checking print system status..."
 
-if ! pgrep -x cupsd > /dev/null; then
-    echo "   ⚠️  CUPS service not running, attempting to start..."
-    launchctl kickstart -k system/org.cups.cupsd 2>/dev/null || \
-    launchctl load -w /System/Library/LaunchDaemons/org.cups.cupsd.plist 2>/dev/null || true
-    sleep 3
+DISABLE_PHAROS_NOTIFY="true"
+
+if [ "$DISABLE_PHAROS_NOTIFY" = "true" ]; then
+    echo ""
+    echo "🔇 Disabling Pharos Notify (optional component)..."
+    
+    # Rename Notify.app to prevent it from running
+    if [ -d "/Library/Application Support/Pharos/Notify.app" ]; then
+        mv "/Library/Application Support/Pharos/Notify.app" "/Library/Application Support/Pharos/Notify.app.disabled" 2>/dev/null
+        echo "   ✅ Notify.app disabled"
+        echo "   ℹ️  Launch agent will remain but cannot start disabled app"
+    fi
+    
+    # Kill any running instances
+    killall "Pharos Notify" 2>/dev/null || true
+    killall "notify" 2>/dev/null || true
 fi
 
-if pgrep -x cupsd > /dev/null; then
-    echo "   ✅ CUPS service is running"
+#===========================================
+# STEP 2: Install Canon UFR II Drivers
+#===========================================
+echo ""
+echo "📦 Installing Canon UFR II Drivers..."
+if [ -f "$PACKAGES_DIR/UFRII_LT_LIPS_LX_Installer.pkg" ]; then
+    installer -pkg "$PACKAGES_DIR/UFRII_LT_LIPS_LX_Installer.pkg" -target /
+    if [ $? -eq 0 ]; then
+        echo "✅ Canon drivers installed successfully"
+    else
+        echo "❌ Canon driver installation failed"
+        exit 1
+    fi
 else
-    echo "   ⚠️  CUPS service not detected (continuing anyway)"
+    echo "❌ UFRII_LT_LIPS_LX_Installer.pkg not found at $PACKAGES_DIR/UFRII_LT_LIPS_LX_Installer.pkg"
+    exit 1
 fi
 
+echo ""
+echo "⏳ Waiting for drivers to initialize..."
+sleep 2
+
 #===========================================
-# STEP 4: Remove Old Printers (if any)
+# STEP 3: Remove Old Printers (if any)
 #===========================================
 echo ""
-echo "🔍 Checking for existing UMD Library printers..."
+echo "🔍 Checking for existing UMD printers..."
 EXISTING_PRINTERS=$(lpstat -p 2>/dev/null | grep "LIB-" | awk '{print $2}')
 
 if [ -n "$EXISTING_PRINTERS" ]; then
     EXISTING_COUNT=$(echo "$EXISTING_PRINTERS" | wc -l | tr -d ' ')
-    echo "   ⚠️  Found $EXISTING_COUNT existing printer(s)"
+    echo "⚠️  Found $EXISTING_COUNT existing UMD printer(s)"
     echo ""
     echo "🗑️  Removing old printers for clean installation..."
     
@@ -124,9 +107,9 @@ if [ -n "$EXISTING_PRINTERS" ]; then
             lpadmin -x "$printer" 2>/dev/null || true
         fi
     done
-    
+
     # Verify removal
-    sleep 2
+    sleep 1
     REMAINING=$(lpstat -p 2>/dev/null | grep -c "LIB-" || echo "0")
     
     if [ "$REMAINING" -eq "0" ]; then
@@ -136,67 +119,101 @@ if [ -n "$EXISTING_PRINTERS" ]; then
     fi
     echo ""
 else
-    echo "   ✅ No existing UMD Library printers found (clean install)"
+    echo "✅ No existing UMD printers found (clean install)"
     echo ""
 fi
 
 #===========================================
-# STEP 5: Install Printers
+# STEP 4: Verify Prerequisites
+#===========================================
+
+# Check CUPS service
+echo "🔍 Checking print system status..."
+if ! pgrep -x cupsd > /dev/null; then
+    echo "⚠️  CUPS service not running, attempting to start..."
+    launchctl kickstart -k system/org.cups.cupsd 2>/dev/null || \
+    launchctl load -w /System/Library/LaunchDaemons/org.cups.cupsd.plist 2>/dev/null || true
+    sleep 2
+fi
+
+if pgrep -x cupsd > /dev/null; then
+    echo "✅ CUPS service is running"
+else
+    echo "⚠️  CUPS service not detected (continuing anyway)"
+fi
+
+# Verify Pharos Popup is installed
+echo ""
+echo "🔍 Verifying Pharos installation..."
+POPUP_BACKEND="/usr/libexec/cups/backend/popup"
+
+if [ -f "$POPUP_BACKEND" ] || [ -L "$POPUP_BACKEND" ]; then
+    echo "✅ Pharos popup backend found"
+elif [ -f "/Library/Application Support/Pharos/popup" ]; then
+    echo "⚠️  Creating popup backend symlink..."
+    ln -sf "/Library/Application Support/Pharos/popup" "$POPUP_BACKEND"
+    chmod 755 "$POPUP_BACKEND" 2>/dev/null || true
+    echo "✅ Popup backend symlink created"
+else
+    echo "❌ ERROR: Pharos Popup not installed correctly!"
+    exit 1
+fi
+
+# Verify Canon UFR II Driver is installed
+echo ""
+echo "🔍 Verifying Canon UFR II driver..."
+
+CANON_PPD="/Library/Printers/PPDs/Contents/Resources/CNPZUIRAC5030ZU.ppd.gz"
+
+if [ -f "$CANON_PPD" ]; then
+    echo "✅ Found required Canon PPD: CNPZUIRAC5030ZU.ppd.gz"
+else
+    echo "❌ ERROR: Required PPD not found: $CANON_PPD"
+    echo "   Canon driver may not be installed correctly"
+    exit 1
+fi
+
+#===========================================
+# STEP 5: Install Printers with Canon Driver
 #===========================================
 
 echo ""
-echo "🖨️  Installing UMD Library Printers with Canon driver..."
+echo "🖨️  Installing UMD Library Printers with Canon UFR II driver..."
 
-# Initialize counters
-SUCCESS_COUNT=0
-FAIL_COUNT=0
-
-# Pharos server configuration
 PHAROS_SERVER="LIBRPS406DV.AD.UMD.EDU"
 PHAROS_PORT="515"
+SUCCESS_COUNT=0
+SKIP_COUNT=0
+FAIL_COUNT=0
 
-# Printer installation function
 install_printer() {
     local name="$1"
     local location="$2"
     local type="$3"
     local uri="popup://$PHAROS_SERVER:$PHAROS_PORT/$name"
     local description="$location - $type"
-    
+
     echo ""
     echo "   📝 Installing: $name"
     echo "      Location: $location"
     echo "      Type: $type"
-    
-    # Check if printer already exists
-    if lpstat -p "$name" &>/dev/null; then
-        echo "      ⚠️  Printer already exists, forcing removal..."
-        lpadmin -x "$name" 2>/dev/null || true
-        sleep 1
-    fi
-    
-    # Install with PPD - capture full output but check exit code
+
+    # Install with Canon PPD - capture full output but check exit code
     local install_output
-    install_output=$(lpadmin -p "$name" -E -v "$uri" -P "$CANON_PPD" -D "$description" -L "$location" 2>&1)
+    install_output=$(lpadmin -p "$name" -E -v "$uri" -P "$CANON_PPD" -D "$description" -L "$location" -o printer-is-shared=false -o printer-error-policy=retry-job 2>&1)
     local exit_code=$?
-    
+
     # Check if installation succeeded by exit code
     if [ $exit_code -eq 0 ]; then
-        echo "      ✅ Installed with Canon driver"
-        
-        # Configure basic printer options
-        lpadmin -p "$name" -o printer-is-shared=false 2>/dev/null || true
-        lpadmin -p "$name" -o printer-error-policy=retry-job 2>/dev/null || true
-        
+        echo "      ✅ Installed with Canon UFR II driver"
+
         # Special configuration for Architecture printers (11x17 support)
         if [[ "$name" == *"Arch"* ]]; then
             echo "      📐 Configuring 11x17 (Tabloid) support..."
-            lpadmin -p "$name" -o PageSize=Tabloid 2>/dev/null || true
-            lpadmin -p "$name" -o MediaType=Plain 2>/dev/null || true
-            lpadmin -p "$name" -o InputSlot=Auto 2>/dev/null || true
+            lpadmin -p "$name" -o PageSize=Tabloid -o MediaType=Plain -o InputSlot=Auto 2>/dev/null || true
             echo "      ✅ 11x17 support enabled"
         fi
-        
+
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         return 0
     else
@@ -251,21 +268,20 @@ install_printer "LIB-PALMobileColor" "PAL Library" "Color"
 # Refresh print system
 echo ""
 echo "🔄 Refreshing print system..."
-launchctl stop org.cups.cupsd 2>/dev/null || true
+launchctl kickstart -k system/org.cups.cupsd 2>/dev/null || true
 sleep 1
-launchctl start org.cups.cupsd 2>/dev/null || true
-sleep 2
 
 # Verification
 echo ""
 echo "🔍 Verifying installation..."
-INSTALLED_PRINTERS=$(lpstat -p 2>/dev/null | grep -c "LIB-" || echo "0")
-echo "   Found $INSTALLED_PRINTERS UMD Library printers in system"
+LPSTAT_OUTPUT=$(lpstat -p 2>/dev/null | grep "LIB-" || true)
+INSTALLED_PRINTERS=$(echo "$LPSTAT_OUTPUT" | grep -c "LIB-" || echo "0")
+echo "   Found $INSTALLED_PRINTERS UMD printers in system"
 
 if [ "$INSTALLED_PRINTERS" -gt 0 ]; then
     echo ""
     echo "   📋 Installed printers:"
-    lpstat -p | grep "LIB-" | awk '{print "      • " $2}' || true
+    echo "$LPSTAT_OUTPUT" | awk '{print "      • " $2}'
 fi
 
 # Verify 11x17 support on Architecture printers
@@ -285,24 +301,28 @@ for printer in LIB-ArchMobileBW LIB-ArchMobileColor; do
     fi
 done
 
+# Cleanup temporary files
+echo ""
+echo "🧹 Cleaning up temporary files..."
+rm -rf /tmp/umd-printer-resources
+echo "✅ Cleanup complete"
+
 # Final summary
 echo ""
 echo "==========================================="
 echo "📊 Installation Summary"
 echo "==========================================="
 echo "✅ Successfully installed: $SUCCESS_COUNT printers"
+echo "⏭️  Already present: $SKIP_COUNT printers"
 echo "❌ Failed: $FAIL_COUNT printers"
 echo "⏰ Completed: $(date)"
 echo "==========================================="
 
-# Exit with appropriate code
+# Exit with appropriate code for Jamf
 if [ "$FAIL_COUNT" -eq 0 ]; then
     echo ""
-    echo "✅ Installation completed successfully"
+    echo "✅ Complete installation finished successfully"
     echo "📝 Log file: $LOG_FILE"
-    echo ""
-    echo "You can now print to any of the 16 UMD Library printers!"
-    echo "Find them in System Preferences → Printers & Scanners"
     exit 0
 else
     echo ""
