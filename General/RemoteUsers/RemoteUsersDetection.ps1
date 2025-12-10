@@ -17,22 +17,31 @@ $members = @($remoteDesktopGroup.Invoke("Members")) | ForEach-Object {
     $name
 }
 
-# Define the expected user that must be in the group.
-# For a local account, the account is represented as 'ComputerName\Username'.
-$expectedUser = "$env:COMPUTERNAME\sach"
+# Define the expected group that must be in the Remote Desktop Users group.
+# "Everyone" is a well-known group represented as "BUILTIN\Everyone" or just "Everyone"
+$expectedGroup = "Everyone"
 
-# Check if the expected user is in the group.
-if ($members -contains $expectedUser) {
-    Write-Host "Detection successful: '$expectedUser' is a member of the Remote Desktop Users group."
-    
+# Check if the expected group is in the Remote Desktop Users group.
+# The group might appear as "BUILTIN\Everyone" or "Everyone" depending on the system
+$isCompliant = $false
+foreach ($member in $members) {
+    if ($member -like "*\Everyone" -or $member -eq "Everyone") {
+        $isCompliant = $true
+        break
+    }
+}
+
+if ($isCompliant) {
+    Write-Host "Detection successful: 'Everyone' is a member of the Remote Desktop Users group."
+
     # Write a log file to signal that the configuration is correct.
-    $logContent = "Detection successful: '$expectedUser' is a member of Remote Desktop Users group on $(Get-Date)."
+    $logContent = "Detection successful: 'Everyone' is a member of Remote Desktop Users group on $(Get-Date)."
     $logContent | Out-File -FilePath $logFilePath -Encoding UTF8
 
     # Exit with 0 (success) so that Intune detection sees this as compliant.
     exit 0
 } else {
-    Write-Host "Detection failed: '$expectedUser' is NOT a member of the Remote Desktop Users group."
+    Write-Host "Detection failed: 'Everyone' is NOT a member of the Remote Desktop Users group."
 
     # Optionally, remove any stale log file if detection fails.
     if (Test-Path $logFilePath) {
