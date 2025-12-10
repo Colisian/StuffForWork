@@ -1,5 +1,5 @@
 # Add the "Everyone" group to the Remote Desktop Users group
-$groupToAdd = "Everyone"
+$groupToAdd = "Authenticated Users"
 Write-Host "Attempting to add $groupToAdd to the Remote Desktop Users group..."
 
 # Attempt to add the Everyone group to the Remote Desktop Users group

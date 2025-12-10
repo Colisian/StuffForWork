@@ -1,5 +1,5 @@
 # Remove the "Everyone" group from the Remote Desktop Users group
-$groupToRemove = "Everyone"
+$groupToRemove = "Authenticated Users"
 Write-Host "Attempting to remove $groupToRemove from the Remote Desktop Users group..."
 
 # Attempt to remove the Everyone group from the Remote Desktop Users group
