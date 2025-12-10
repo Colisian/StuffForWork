@@ -1,55 +1,19 @@
-param (
-    [string]$UserToKeep = "ad\cmcleod1",
-    [string]$UserToAdd = "sach"
-)
+# Remove the "Everyone" group from the Remote Desktop Users group
+$groupToRemove = "Everyone"
+Write-Host "Attempting to remove $groupToRemove from the Remote Desktop Users group..."
 
-# Get the Remote Desktop Users group
-$remoteDesktopGroup = [ADSI]"WinNT://$env:COMPUTERNAME/Remote Desktop Users,group"
-
-# Get all members of the group
-$members = @($remoteDesktopGroup.Invoke("Members")) | ForEach-Object {
-    $path = $_.GetType().InvokeMember("ADsPath", "GetProperty", $null, $_, $null)
-    $name = $path.Replace("WinNT://", "").Replace("/", "\")
-    $name
-}
-
-# Display current members for verification
-Write-Host "Current members of Remote Desktop Users group:"
-$members | ForEach-Object { Write-Host "  $_" }
-
-# Remove users except for the user to keep
-foreach ($member in $members) {
-    if ($member -ne $UserToKeep) {
-        Write-Host "Removing $member from Remote Desktop Users group..."
-        $memberPath = $member.Replace("\", "/")
-        try {
-            $remoteDesktopGroup.Remove("WinNT://$memberPath")
-            Write-Host "Successfully removed $member."
-        } catch {
-            Write-Host "Error removing $member $_" -ForegroundColor Red
-        }
+# Attempt to remove the Everyone group from the Remote Desktop Users group
+try {
+    Remove-LocalGroupMember -Group "Remote Desktop Users" -Member $groupToRemove -ErrorAction Stop
+    Write-Host "Successfully removed $groupToRemove from the Remote Desktop Users group." -ForegroundColor Green
+    exit 0
+} catch {
+    # Check if the error is because the member doesn't exist
+    if ($_.Exception.Message -like "*not found*" -or $_.Exception.Message -like "*cannot find*") {
+        Write-Host "$groupToRemove is not a member of the Remote Desktop Users group." -ForegroundColor Yellow
+        exit 0
     } else {
-        Write-Host "Keeping $member in Remote Desktop Users group."
+        Write-Host "Error removing $groupToRemove : $_" -ForegroundColor Red
+        exit 1
     }
 }
-
-Write-Host "Operation completed."
-
-# Add local admin account to Remote Desktop Users group
-Write-Host "Adding $UserToAdd to Remote Desktop Users group..."
-try {
-    $remoteDesktopGroup.Add("WinNT://$env:COMPUTERNAME/$UserToAdd")
-    Write-Host "Successfully added $UserToAdd to Remote Desktop Users group."
-} catch {
-    Write-Host "Error adding $UserToAdd to Remote Desktop Users group: $_" -ForegroundColor Red
-}
-
-# Verify the current members after changes
-$updatedMembers = @($remoteDesktopGroup.Invoke("Members")) | ForEach-Object {
-    $path = $_.GetType().InvokeMember("ADsPath", "GetProperty", $null, $_, $null)
-    $name = $path.Replace("WinNT://", "").Replace("/", "\")
-    $name
-}
-
-Write-Host "Updated members of Remote Desktop Users group:"
-$updatedMembers | ForEach-Object { Write-Host "  $_" }
