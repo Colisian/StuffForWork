@@ -1,3 +1,4 @@
 @echo off
-PowerShell.exe -ExecutionPolicy Bypass -File "%~dp0AddRemoteUser.ps1"
-exit /b 0
+REM Force 64-bit PowerShell to avoid WOW64 redirection issues
+%SystemRoot%\System32\WindowsPowerShell\v1.0\PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0AddRemoteUser.ps1"
+exit /b %ERRORLEVEL%
