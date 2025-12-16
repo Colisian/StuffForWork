@@ -68,14 +68,25 @@ try {
     # Copy the PowerShell script to the installation directory
     Copy-Item -Path $sourcePath -Destination $installDir -Force
 
-    # Create desktop shortcut
-    $shortcutPath = Join-Path $desktopPath "Toggle Secure Print.lnk"
+    # Create VBScript wrapper for truly hidden PowerShell execution
+    $vbsName = "Toggle-SecurePrint.vbs"
+    $vbsPath = Join-Path $installDir $vbsName
     $targetScript = Join-Path $installDir $scriptName
+    
+    $vbsContent = @"
+Set objShell = CreateObject("WScript.Shell")
+objShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$targetScript""", 0, False
+"@
+    
+    Set-Content -Path $vbsPath -Value $vbsContent -Force
+
+    # Create desktop shortcut pointing to VBScript wrapper
+    $shortcutPath = Join-Path $desktopPath "Toggle Secure Print.lnk"
 
     $WshShell = New-Object -ComObject WScript.Shell
     $shortcut = $WshShell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = "powershell.exe"
-    $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$targetScript`""
+    $shortcut.TargetPath = "wscript.exe"
+    $shortcut.Arguments = "`"$vbsPath`""
     $shortcut.WorkingDirectory = $installDir
     $shortcut.Description = "Toggle Secure Print on/off for all Canon printers"
     $shortcut.IconLocation = "shell32.dll,16"  # Printer icon
