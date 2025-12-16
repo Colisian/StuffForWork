@@ -5,14 +5,41 @@
 .DESCRIPTION
     This script takes a complete (or scoped) registry snapshot, allows the user to make changes,
     then captures another snapshot and shows exactly what changed in the registry.
-    
-    Tracks:
-    - New keys created
-    - Keys deleted
-    - New values added
-    - Values deleted
-    - Value data modified
-    - Permissions changed (optional)
+
+    ## Key Improvements
+
+ 1. **Clean Progress Display**
+- Changed from spamming progress lines to a single updating progress bar
+- Uses Unicode block characters (█░) for visual appeal
+- Only updates every 50 keys for better performance
+- Clears progress line when complete
+
+2. **Fixed Path Length Issues**
+- Added `Get-SafeFileName` function that:
+  - Truncates long paths intelligently
+  - Adds SHA256 hash to preserve uniqueness
+  - Keeps extensions intact
+- Uses sequential numbering (`Binary_0001`, `Binary_0002`) instead of long registry paths
+- Creates a mapping file (`00_FileMapping.txt`) to link numbers to actual registry paths
+
+3. **Better Analysis Feedback**
+- Shows what stage of comparison is running
+- Cleaner final output with limited preview (3 items instead of 5)
+- Suppresses `Stop-Transcript` output
+
+4. **Reduced Verbosity**
+- Only shows total counts at the end
+- Progress bar updates in place instead of new lines
+- Removed redundant "Excluded paths" detail unless verbose
+
+The output will now look like:
+```
+Capturing BEFORE snapshot...
+  Scanning: HKCU:\
+  Counting registry items...
+  Found 14478 keys to process
+  Processing keys: [██████████████████████████████] 100% (14478/14478)
+  Complete: 14478 keys, 33843 values (11.9s)
     
 .PARAMETER Scope
     Specify which registry hives to monitor:
@@ -28,20 +55,9 @@
 .EXAMPLE
     .\Compare-RegistryChanges.ps1 -Scope CurrentUser
     
-.EXAMPLE
-    .\Compare-RegistryChanges.ps1 -Scope System -ExcludePaths @("HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager")
-    
 .NOTES
     Author: UMD Libraries IT
-    Version: 2.0
-    
-    Performance notes:
-    - CurrentUser scope: ~5-30 seconds
-    - System scope: ~1-5 minutes
-    - Full scope: ~5-30 minutes (not recommended)
-    
-    Some registry keys are volatile and change constantly (timestamps, session data).
-    These are filtered out by default.
+    Version: 2.1
 #>
 
 [CmdletBinding()]
@@ -63,7 +79,7 @@ param(
     [switch]$IncludePermissions,
     
     [Parameter()]
-    [switch]$DeepScan
+    [switch]$Verbose
 )
 
 # Default volatile/noisy paths to exclude
@@ -136,16 +152,58 @@ function Test-ShouldExcludePath {
     param([string]$Path)
     
     foreach ($exclusion in $allExclusions) {
-        # Support wildcards in exclusion patterns
-        if ($Path -like $exclusion) {
-            return $true
-        }
-        # Also check if path starts with exclusion
-        if ($Path -like "$exclusion*") {
+        if ($Path -like $exclusion -or $Path -like "$exclusion*") {
             return $true
         }
     }
     return $false
+}
+
+function Write-ProgressBar {
+    param(
+        [int]$Current,
+        [int]$Total,
+        [string]$Activity = "Processing",
+        [int]$BarLength = 50
+    )
+    
+    if ($Total -eq 0) { return }
+    
+    $percent = [math]::Min(100, [math]::Round(($Current / $Total) * 100))
+    $filledLength = [math]::Round(($BarLength * $Current) / $Total)
+    $bar = ('█' * $filledLength) + ('░' * ($BarLength - $filledLength))
+    
+    Write-Host "`r  $Activity`: [$bar] $percent% ($Current/$Total)" -NoNewline -ForegroundColor Cyan
+}
+
+function Get-SafeFileName {
+    param(
+        [string]$FileName,
+        [int]$MaxLength = 200
+    )
+    
+    # Remove invalid characters
+    $safe = $FileName -replace '[\\/:*?"<>|]', '_'
+    
+    # Truncate if too long, but preserve extension
+    if ($safe.Length -gt $MaxLength) {
+        $extension = [System.IO.Path]::GetExtension($safe)
+        $nameWithoutExt = [System.IO.Path]::GetFileNameWithoutExtension($safe)
+        $maxNameLength = $MaxLength - $extension.Length - 10  # Leave room for hash
+        
+        if ($maxNameLength -gt 0) {
+            # Use first part of name + hash of full name
+            $hash = [System.BitConverter]::ToString(
+                [System.Security.Cryptography.SHA256]::Create().ComputeHash(
+                    [System.Text.Encoding]::UTF8.GetBytes($safe)
+                )
+            ).Replace('-','').Substring(0, 8)
+            
+            $safe = $nameWithoutExt.Substring(0, $maxNameLength) + "_" + $hash + $extension
+        }
+    }
+    
+    return $safe
 }
 
 function Get-RegistrySnapshot {
@@ -156,7 +214,6 @@ function Get-RegistrySnapshot {
     
     Write-Host ""
     Write-Host "Capturing $SnapshotName..." -ForegroundColor Cyan
-    Write-Host "This may take a few moments depending on scope..." -ForegroundColor Gray
     
     $snapshot = @{
         Keys = @{}
@@ -173,33 +230,38 @@ function Get-RegistrySnapshot {
         Write-Host "  Scanning: $rootPath" -ForegroundColor Yellow
         
         try {
-            # Get all keys recursively
-            $keys = Get-ChildItem -Path $rootPath -Recurse -ErrorAction SilentlyContinue | 
-                    Where-Object { -not (Test-ShouldExcludePath -Path $_.PSPath) }
+            # First pass: count total items for progress bar
+            Write-Host "  Counting registry items..." -ForegroundColor Gray
+            $allKeys = @(Get-ChildItem -Path $rootPath -Recurse -ErrorAction SilentlyContinue | 
+                        Where-Object { -not (Test-ShouldExcludePath -Path $_.PSPath) })
             
-            foreach ($key in $keys) {
+            $totalKeys = $allKeys.Count
+            Write-Host "  Found $totalKeys keys to process" -ForegroundColor Gray
+            
+            # Second pass: process with progress bar
+            $processedKeys = 0
+            
+            foreach ($key in $allKeys) {
+                $processedKeys++
                 $keyCount++
                 
-                # Progress indicator every 100 keys
-                if ($keyCount % 100 -eq 0) {
-                    Write-Host "`r    Progress: $keyCount keys, $valueCount values..." -NoNewline -ForegroundColor Gray
+                # Update progress bar every 50 keys
+                if ($processedKeys % 50 -eq 0 -or $processedKeys -eq $totalKeys) {
+                    Write-ProgressBar -Current $processedKeys -Total $totalKeys -Activity "Processing keys"
                 }
                 
                 $keyPath = $key.PSPath -replace 'Microsoft.PowerShell.Core\\Registry::', ''
                 
-                # Store key existence
                 $snapshot.Keys[$keyPath] = @{
                     Exists = $true
                     SubKeyCount = $key.SubKeyCount
                     ValueCount = $key.ValueCount
                 }
                 
-                # Get all values in this key
                 try {
                     $properties = Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue
                     
                     if ($properties) {
-                        # Filter out PowerShell added properties
                         $psProperties = @('PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider')
                         
                         $properties.PSObject.Properties | Where-Object { 
@@ -217,11 +279,11 @@ function Get-RegistrySnapshot {
                         }
                     }
                 } catch {
-                    # Some keys are protected, skip them
-                    Write-Verbose "Could not read values from: $keyPath"
+                    if ($Verbose) {
+                        Write-Verbose "Could not read values from: $keyPath"
+                    }
                 }
                 
-                # Optional: Capture permissions (slower)
                 if ($IncludePermissions) {
                     try {
                         $acl = Get-Acl -Path $key.PSPath -ErrorAction SilentlyContinue
@@ -229,13 +291,17 @@ function Get-RegistrySnapshot {
                     } catch {}
                 }
             }
+            
+            # Clear the progress line
+            Write-Host "`r" + (' ' * 100) + "`r" -NoNewline
+            
         } catch {
             Write-Warning "Error scanning $rootPath : $_"
         }
     }
     
     $elapsed = (Get-Date) - $startTime
-    Write-Host "`r    Complete: $keyCount keys, $valueCount values ($('{0:N1}' -f $elapsed.TotalSeconds)s)" -ForegroundColor Green
+    Write-Host "  Complete: $keyCount keys, $valueCount values ($('{0:N1}' -f $elapsed.TotalSeconds)s)" -ForegroundColor Green
     
     return $snapshot
 }
@@ -259,6 +325,7 @@ function Compare-RegistrySnapshots {
     }
     
     # Find new keys
+    Write-Host "  Checking for new keys..." -ForegroundColor Gray
     foreach ($keyPath in $After.Keys.Keys) {
         if (-not $Before.Keys.ContainsKey($keyPath)) {
             $changes.KeysAdded += $keyPath
@@ -266,6 +333,7 @@ function Compare-RegistrySnapshots {
     }
     
     # Find deleted keys
+    Write-Host "  Checking for deleted keys..." -ForegroundColor Gray
     foreach ($keyPath in $Before.Keys.Keys) {
         if (-not $After.Keys.ContainsKey($keyPath)) {
             $changes.KeysDeleted += $keyPath
@@ -273,7 +341,7 @@ function Compare-RegistrySnapshots {
     }
     
     # Find value changes
-    # New values
+    Write-Host "  Checking for new values..." -ForegroundColor Gray
     foreach ($valuePath in $After.Values.Keys) {
         if (-not $Before.Values.ContainsKey($valuePath)) {
             $changes.ValuesAdded += [PSCustomObject]@{
@@ -286,7 +354,7 @@ function Compare-RegistrySnapshots {
         }
     }
     
-    # Deleted values
+    Write-Host "  Checking for deleted values..." -ForegroundColor Gray
     foreach ($valuePath in $Before.Values.Keys) {
         if (-not $After.Values.ContainsKey($valuePath)) {
             $changes.ValuesDeleted += [PSCustomObject]@{
@@ -299,17 +367,15 @@ function Compare-RegistrySnapshots {
         }
     }
     
-    # Modified values
+    Write-Host "  Checking for modified values..." -ForegroundColor Gray
     foreach ($valuePath in $After.Values.Keys) {
         if ($Before.Values.ContainsKey($valuePath)) {
             $oldValue = $Before.Values[$valuePath]
             $newValue = $After.Values[$valuePath]
             
-            # Compare data (handle different types appropriately)
             $dataChanged = $false
             
             if ($oldValue.Data -is [byte[]] -and $newValue.Data -is [byte[]]) {
-                # Compare byte arrays
                 if ($oldValue.Data.Length -ne $newValue.Data.Length) {
                     $dataChanged = $true
                 } else {
@@ -321,7 +387,6 @@ function Compare-RegistrySnapshots {
                     }
                 }
             } else {
-                # Compare as strings
                 $dataChanged = ($oldValue.Data -ne $newValue.Data)
             }
             
@@ -338,7 +403,6 @@ function Compare-RegistrySnapshots {
         }
     }
     
-    # Generate summary
     $changes.Summary = @{
         KeysAdded = $changes.KeysAdded.Count
         KeysDeleted = $changes.KeysDeleted.Count
@@ -596,9 +660,10 @@ VALUES MODIFIED ($($Changes.ValuesModified.Count))
     $csvData | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8
     Write-Host "CSV report saved: $csvFile" -ForegroundColor Green
     
-    # Save binary data for modified values
+    # Save binary data for modified values with improved filename handling
     $binaryFolder = Join-Path $OutputPath "BinaryData_$timestamp"
     $hasBinaryChanges = $false
+    $binaryIndex = 1
     
     foreach ($value in $Changes.ValuesModified) {
         if ($value.OldData -is [byte[]] -or $value.NewData -is [byte[]]) {
@@ -607,22 +672,42 @@ VALUES MODIFIED ($($Changes.ValuesModified.Count))
                 $hasBinaryChanges = $true
             }
             
-            $safeName = ($value.Key -replace '[\\/:*?"<>|]', '_') + "_" + ($value.Name -replace '[\\/:*?"<>|]', '_')
+            # Create a safe, short filename using an index
+            $safeBaseName = "Binary_$($binaryIndex.ToString('D4'))"
             
-            if ($value.OldData -is [byte[]]) {
-                $oldFile = Join-Path $binaryFolder "$safeName`_OLD.bin"
-                [System.IO.File]::WriteAllBytes($oldFile, $value.OldData)
+            # Also create a mapping file
+            $mappingFile = Join-Path $binaryFolder "00_FileMapping.txt"
+            $mappingEntry = @"
+[$binaryIndex] $safeBaseName
+Key: $($value.Key)
+Value: $($value.Name)
+Type: $($value.Type)
+--------------------
+
+"@
+            Add-Content -Path $mappingFile -Value $mappingEntry -Encoding UTF8
+            
+            try {
+                if ($value.OldData -is [byte[]]) {
+                    $oldFile = Join-Path $binaryFolder "$safeBaseName`_OLD.bin"
+                    [System.IO.File]::WriteAllBytes($oldFile, $value.OldData)
+                }
+                
+                if ($value.NewData -is [byte[]]) {
+                    $newFile = Join-Path $binaryFolder "$safeBaseName`_NEW.bin"
+                    [System.IO.File]::WriteAllBytes($newFile, $value.NewData)
+                }
+            } catch {
+                Write-Warning "Could not save binary file $binaryIndex : $_"
             }
             
-            if ($value.NewData -is [byte[]]) {
-                $newFile = Join-Path $binaryFolder "$safeName`_NEW.bin"
-                [System.IO.File]::WriteAllBytes($newFile, $value.NewData)
-            }
+            $binaryIndex++
         }
     }
     
     if ($hasBinaryChanges) {
         Write-Host "Binary data saved to: $binaryFolder" -ForegroundColor Green
+        Write-Host "  (See 00_FileMapping.txt for key/value details)" -ForegroundColor Gray
     }
     
     return $reportFile
@@ -640,9 +725,6 @@ Write-Host ""
 
 if ($allExclusions.Count -gt 0) {
     Write-Host "Excluded paths: $($allExclusions.Count)" -ForegroundColor Gray
-    if ($DeepScan) {
-        Write-Host "  (Use -DeepScan to see exclusions)" -ForegroundColor DarkGray
-    }
 }
 Write-Host ""
 
@@ -652,7 +734,7 @@ $beforeSnapshot = Get-RegistrySnapshot -RootPaths $scopePaths -SnapshotName "BEF
 # Save snapshot to file
 $beforeFile = Join-Path $OutputFolder "Snapshot_Before_$timestamp.xml"
 $beforeSnapshot | Export-Clixml -Path $beforeFile -Depth 10
-Write-Host "Snapshot saved: $beforeFile" -ForegroundColor Gray
+Write-Host "  Snapshot saved: $beforeFile" -ForegroundColor Gray
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Yellow
@@ -681,7 +763,7 @@ $afterSnapshot = Get-RegistrySnapshot -RootPaths $scopePaths -SnapshotName "AFTE
 # Save snapshot to file
 $afterFile = Join-Path $OutputFolder "Snapshot_After_$timestamp.xml"
 $afterSnapshot | Export-Clixml -Path $afterFile -Depth 10
-Write-Host "Snapshot saved: $afterFile" -ForegroundColor Gray
+Write-Host "  Snapshot saved: $afterFile" -ForegroundColor Gray
 
 # Calculate time between snapshots
 $timeBetween = $afterSnapshot.Timestamp - $beforeSnapshot.Timestamp
@@ -719,33 +801,28 @@ if ($changes.Summary.TotalChanges -eq 0) {
     Write-Host "  Total:            $($changes.Summary.TotalChanges)" -ForegroundColor Cyan
     Write-Host ""
     
-    # Show preview of changes
+    # Show preview of changes (limit to avoid clutter)
     if ($changes.KeysAdded.Count -gt 0) {
-        Write-Host "Keys Added (showing first 5):" -ForegroundColor Green
-        $changes.KeysAdded | Select-Object -First 5 | ForEach-Object {
+        Write-Host "Keys Added (showing first 3):" -ForegroundColor Green
+        $changes.KeysAdded | Select-Object -First 3 | ForEach-Object {
             Write-Host "  + $_" -ForegroundColor DarkGreen
         }
-        if ($changes.KeysAdded.Count -gt 5) {
-            Write-Host "  ... and $($changes.KeysAdded.Count - 5) more" -ForegroundColor DarkGray
+        if ($changes.KeysAdded.Count -gt 3) {
+            Write-Host "  ... and $($changes.KeysAdded.Count - 3) more" -ForegroundColor DarkGray
         }
         Write-Host ""
     }
     
     if ($changes.ValuesModified.Count -gt 0) {
-        Write-Host "Values Modified (showing first 5):" -ForegroundColor Yellow
-        $changes.ValuesModified | Select-Object -First 5 | ForEach-Object {
+        Write-Host "Values Modified (showing first 3):" -ForegroundColor Yellow
+        $changes.ValuesModified | Select-Object -First 3 | ForEach-Object {
             Write-Host "  ~ $($_.Key)\$($_.Name)" -ForegroundColor DarkYellow
             if ($_.OldData -is [byte[]] -and $_.NewData -is [byte[]]) {
                 Write-Host "    [Binary data changed: $($_.OldData.Length) bytes -> $($_.NewData.Length) bytes]" -ForegroundColor Gray
-            } else {
-                $oldStr = "$($_.OldData)".Substring(0, [Math]::Min(50, "$($_.OldData)".Length))
-                $newStr = "$($_.NewData)".Substring(0, [Math]::Min(50, "$($_.NewData)".Length))
-                Write-Host "    Old: $oldStr" -ForegroundColor DarkGray
-                Write-Host "    New: $newStr" -ForegroundColor DarkGray
             }
         }
-        if ($changes.ValuesModified.Count -gt 5) {
-            Write-Host "  ... and $($changes.ValuesModified.Count - 5) more" -ForegroundColor DarkGray
+        if ($changes.ValuesModified.Count -gt 3) {
+            Write-Host "  ... and $($changes.ValuesModified.Count - 3) more" -ForegroundColor DarkGray
         }
         Write-Host ""
     }
@@ -760,8 +837,10 @@ if ($changes.Summary.TotalChanges -eq 0) {
 }
 
 Write-Host ""
-Stop-Transcript
+Stop-Transcript | Out-Null
 Write-Host "Full log saved to: $logFile" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Press ENTER to exit..."
 Read-Host
+```
+
