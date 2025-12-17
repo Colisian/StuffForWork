@@ -302,7 +302,14 @@ if ($results.Count -gt 0) {
         }
 
         # Recursively call this script
-        & $PSCommandPath @params
+        if ($PSCommandPath) {
+            & $PSCommandPath @params
+        }
+        else {
+            Write-Warning "Cannot recursively drill down - script path not available."
+            Write-Host "This happens when the script is not run as a saved .ps1 file." -ForegroundColor Yellow
+            Write-Host "To enable drill-down, run the script directly from its file location." -ForegroundColor Yellow
+        }
     }
     elseif ($selection -ne "") {
         Write-Host "Invalid selection. Exiting." -ForegroundColor Red
