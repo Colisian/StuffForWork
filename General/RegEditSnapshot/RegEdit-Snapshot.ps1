@@ -74,12 +74,9 @@ param(
     
     [Parameter()]
     [string]$OutputFolder = (Join-Path $env:USERPROFILE "Desktop\RegistryAnalysis"),
-    
+
     [Parameter()]
-    [switch]$IncludePermissions,
-    
-    [Parameter()]
-    [switch]$Verbose
+    [switch]$IncludePermissions
 )
 
 # Default volatile/noisy paths to exclude
@@ -164,16 +161,16 @@ function Write-ProgressBar {
         [int]$Current,
         [int]$Total,
         [string]$Activity = "Processing",
-        [int]$BarLength = 50
+        [int]$BarLength = 50,
+        [string]$Id = "RegistrySnapshot"
     )
-    
+
     if ($Total -eq 0) { return }
-    
+
     $percent = [math]::Min(100, [math]::Round(($Current / $Total) * 100))
-    $filledLength = [math]::Round(($BarLength * $Current) / $Total)
-    $bar = ('█' * $filledLength) + ('░' * ($BarLength - $filledLength))
-    
-    Write-Host "`r  $Activity`: [$bar] $percent% ($Current/$Total)" -NoNewline -ForegroundColor Cyan
+
+    # Use built-in Write-Progress for cross-platform compatibility
+    Write-Progress -Activity $Activity -Status "$Current of $Total keys processed" -PercentComplete $percent -Id 1
 }
 
 function Get-SafeFileName {
@@ -262,10 +259,11 @@ function Get-RegistrySnapshot {
                     $properties = Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue
                     
                     if ($properties) {
-                        $psProperties = @('PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider')
-                        
-                        $properties.PSObject.Properties | Where-Object { 
-                            $_.Name -notin $psProperties 
+                        # Exclude PowerShell built-in properties (not actual registry values)
+                        $psProperties = @('PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider', 'SyncRoot')
+
+                        $properties.PSObject.Properties | Where-Object {
+                            $_.Name -notin $psProperties
                         } | ForEach-Object {
                             $valueCount++
                             $valuePath = "$keyPath\$($_.Name)"
@@ -279,9 +277,7 @@ function Get-RegistrySnapshot {
                         }
                     }
                 } catch {
-                    if ($Verbose) {
-                        Write-Verbose "Could not read values from: $keyPath"
-                    }
+                    Write-Verbose "Could not read values from: $keyPath"
                 }
                 
                 if ($IncludePermissions) {
@@ -291,10 +287,10 @@ function Get-RegistrySnapshot {
                     } catch {}
                 }
             }
-            
-            # Clear the progress line
-            Write-Host "`r" + (' ' * 100) + "`r" -NoNewline
-            
+
+            # Clear the progress bar
+            Write-Progress -Activity "Processing keys" -Completed -Id 1
+
         } catch {
             Write-Warning "Error scanning $rootPath : $_"
         }
@@ -372,10 +368,12 @@ function Compare-RegistrySnapshots {
         if ($Before.Values.ContainsKey($valuePath)) {
             $oldValue = $Before.Values[$valuePath]
             $newValue = $After.Values[$valuePath]
-            
+
             $dataChanged = $false
-            
+
+            # Compare based on data type
             if ($oldValue.Data -is [byte[]] -and $newValue.Data -is [byte[]]) {
+                # Byte array comparison
                 if ($oldValue.Data.Length -ne $newValue.Data.Length) {
                     $dataChanged = $true
                 } else {
@@ -386,10 +384,31 @@ function Compare-RegistrySnapshots {
                         }
                     }
                 }
+            } elseif ($oldValue.Data -is [array] -and $newValue.Data -is [array]) {
+                # String array comparison
+                if ($oldValue.Data.Length -ne $newValue.Data.Length) {
+                    $dataChanged = $true
+                } else {
+                    for ($i = 0; $i -lt $oldValue.Data.Length; $i++) {
+                        if ($oldValue.Data[$i] -ne $newValue.Data[$i]) {
+                            $dataChanged = $true
+                            break
+                        }
+                    }
+                }
+            } elseif ($null -eq $oldValue.Data -and $null -eq $newValue.Data) {
+                # Both null, no change
+                $dataChanged = $false
+            } elseif ($null -eq $oldValue.Data -or $null -eq $newValue.Data) {
+                # One is null, the other isn't
+                $dataChanged = $true
             } else {
-                $dataChanged = ($oldValue.Data -ne $newValue.Data)
+                # Convert to string for comparison to handle complex objects
+                $oldString = if ($oldValue.Data -is [string]) { $oldValue.Data } else { "$($oldValue.Data)" }
+                $newString = if ($newValue.Data -is [string]) { $newValue.Data } else { "$($newValue.Data)" }
+                $dataChanged = ($oldString -ne $newString)
             }
-            
+
             if ($dataChanged) {
                 $changes.ValuesModified += [PSCustomObject]@{
                     Path = $valuePath
