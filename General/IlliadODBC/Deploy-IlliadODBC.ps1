@@ -1,7 +1,11 @@
-# Save as: Deploy-ILLiadODBC-NoTest.ps1
-# Deploys configuration without connection test
-
-#Requires -RunAsAdministrator
+# Save as: Deploy-IlliadODBC.ps1
+# Deploys ILLiad ODBC configuration as User DSN
+#
+# SECURITY WARNING: This script stores the database password in plain text
+# in the Windows registry at HKCU:\SOFTWARE\ODBC\ODBC.INI\[DSN Name]\PWD
+# This is an inherent limitation of ODBC User DSNs with SQL authentication.
+# Any process running under your user account can read this password.
+# Ensure your workstation uses full disk encryption and strong authentication.
 
 $dsnName = "ILLiadLink"
 $serverName = "LIBRAP013V.AD.UMD.EDU"
@@ -28,19 +32,37 @@ $driverPath = if ($platform -eq "64-bit") { "C:\Windows\System32\sqlncli11.dll" 
 
 Write-Host "Office: $platform" -ForegroundColor Green
 
-# Remove old
-Remove-OdbcDsn -Name $dsnName -DsnType System -Platform $platform -ErrorAction SilentlyContinue
+# Verify SQL Server Native Client driver exists
+if (-not (Test-Path $driverPath)) {
+    Write-Host "`n✗ ERROR: SQL Server Native Client 11.0 driver not found" -ForegroundColor Red
+    Write-Host "Expected location: $driverPath" -ForegroundColor Yellow
+    Write-Host "`nInstall SQL Server Native Client 11.0:" -ForegroundColor Yellow
+    Write-Host "  Download from: https://www.microsoft.com/en-us/download/details.aspx?id=50402" -ForegroundColor White
+    pause
+    exit 1
+}
+
+Write-Host "✓ Driver found: SQL Server Native Client 11.0" -ForegroundColor Green
+
+# Remove old DSN configurations
 Remove-OdbcDsn -Name $dsnName -DsnType User -Platform $platform -ErrorAction SilentlyContinue
 
-# Create paths
-$regPath = "HKLM:\SOFTWARE\ODBC\ODBC.INI\$dsnName"
-$regListPath = "HKLM:\SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources"
+# Create registry paths for User DSN
+$regPath = "HKCU:\SOFTWARE\ODBC\ODBC.INI\$dsnName"
+$regListPath = "HKCU:\SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources"
 
-$null = New-Item -Path "HKLM:\SOFTWARE\ODBC\ODBC.INI" -Force -ErrorAction SilentlyContinue
-$null = New-Item -Path $regListPath -Force -ErrorAction SilentlyContinue
-$null = New-Item -Path $regPath -Force
+try {
+    $null = New-Item -Path "HKCU:\SOFTWARE\ODBC\ODBC.INI" -Force -ErrorAction SilentlyContinue
+    $null = New-Item -Path $regListPath -Force -ErrorAction SilentlyContinue
+    $null = New-Item -Path $regPath -Force -ErrorAction Stop
+} catch {
+    Write-Host "`n✗ ERROR: Failed to create registry entries" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Yellow
+    pause
+    exit 1
+}
 
-# Configure
+# Configure ODBC DSN settings
 $settings = @{
     "Driver" = $driverPath
     "Server" = $serverName
@@ -55,18 +77,34 @@ $settings = @{
     "QueryTimeout" = "0"
 }
 
-foreach ($key in $settings.Keys) {
-    Set-ItemProperty -Path $regPath -Name $key -Value $settings[$key] -Force
-}
+try {
+    foreach ($key in $settings.Keys) {
+        Set-ItemProperty -Path $regPath -Name $key -Value $settings[$key] -Force -ErrorAction Stop
+    }
 
-Set-ItemProperty -Path $regListPath -Name $dsnName -Value "SQL Server Native Client 11.0" -Force
+    Set-ItemProperty -Path $regListPath -Name $dsnName -Value "SQL Server Native Client 11.0" -Force -ErrorAction Stop
+
+    Write-Host "✓ Registry configuration written successfully" -ForegroundColor Green
+} catch {
+    Write-Host "`n✗ ERROR: Failed to configure ODBC settings" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Yellow
+
+    # Clean up password before exit
+    $plainPassword = $null
+    [System.GC]::Collect()
+
+    pause
+    exit 1
+}
 
 $plainPassword = $null
 [System.GC]::Collect()
 
-Write-Host "`n✓ Configuration Complete!" -ForegroundColor Green
+Write-Host "`n=== Configuration Complete ===" -ForegroundColor Cyan
+Write-Host "✓ User DSN '$dsnName' created successfully" -ForegroundColor Green
 Write-Host "`nTest in Microsoft Access:" -ForegroundColor Yellow
 Write-Host "  G:\Shared drives\Resource Sharing & Reserves\ILL" -ForegroundColor White
-Write-Host "`nFirst connection may take 20-30 seconds." -ForegroundColor Gray
+Write-Host "`nNote: First connection may take 20-30 seconds." -ForegroundColor Gray
+Write-Host "`nSecurity Reminder: Password stored in user registry (HKCU)" -ForegroundColor Yellow
 
 pause
