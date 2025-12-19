@@ -8,7 +8,7 @@
 # Ensure your workstation uses full disk encryption and strong authentication.
 
 $dsnName = "ILLiadLink"
-$serverName = "LIBRAP013V.AD.UMD.EDU"
+$serverName = "10.126.5.89"
 $database = "ILLData"
 $loginID = "ILLiadLink"
 
