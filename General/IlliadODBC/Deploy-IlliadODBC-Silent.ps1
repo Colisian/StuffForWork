@@ -21,7 +21,7 @@ $loginID = "ILLiadLink"
 
 # Embedded password for silent deployment
 # This is a READ-ONLY database account
-$plainPassword = ""
+$plainPassword = "1qaz2wsx!QAZ@WSX"
 
 Write-Host "`n=== ILLiad ODBC Setup (Silent) ===" -ForegroundColor Cyan
 
