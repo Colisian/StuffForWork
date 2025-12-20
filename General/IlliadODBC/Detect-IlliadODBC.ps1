@@ -1,31 +1,34 @@
 # Detect-IlliadODBC.ps1
-# Detection script for Intune/Company Portal deployment
-# Checks if ILLiad ODBC User DSN is configured
+# Detection script for Intune Win32 App deployment
+# Checks if ILLiad ODBC Setup desktop shortcut exists
 #
 # Exit 0 with output = Detected (installed)
 # Exit 1 or no output = Not detected (not installed)
 
-$dsnName = "ILLiadLink"
-$regPath = "HKCU:\SOFTWARE\ODBC\ODBC.INI\$dsnName"
+$shortcutName = "ILLiad ODBC Setup.lnk"
 
 try {
-    # Check if the DSN registry key exists
-    if (Test-Path $regPath) {
-        # Verify critical settings are present
-        $driver = Get-ItemProperty -Path $regPath -Name "Driver" -ErrorAction SilentlyContinue
-        $server = Get-ItemProperty -Path $regPath -Name "Server" -ErrorAction SilentlyContinue
-        $database = Get-ItemProperty -Path $regPath -Name "Database" -ErrorAction SilentlyContinue
+    # Get user's desktop path from registry
+    $desktopPath = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -ErrorAction Stop).Desktop
 
-        if ($driver -and $server -and $database) {
-            Write-Output "ILLiad ODBC User DSN '$dsnName' is configured"
-            exit 0
-        }
+    # Expand environment variables
+    $desktopPath = [System.Environment]::ExpandEnvironmentVariables($desktopPath)
+
+    # Full path to shortcut
+    $shortcutPath = Join-Path $desktopPath $shortcutName
+
+    # Check if shortcut exists
+    if (Test-Path $shortcutPath) {
+        Write-Output "ILLiad ODBC Setup shortcut found at: $shortcutPath"
+        exit 0
     }
 
-    # DSN not found or incomplete
+    # Shortcut not found
+    Write-Output "ILLiad ODBC Setup shortcut not found"
     exit 1
 
 } catch {
     # Any error means not properly configured
+    Write-Output "Error detecting shortcut: $($_.Exception.Message)"
     exit 1
 }
