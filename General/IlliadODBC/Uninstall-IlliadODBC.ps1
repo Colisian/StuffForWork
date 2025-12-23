@@ -13,6 +13,7 @@ try {
 
     $shortcutName = "ILLiad ODBC Setup.lnk"
     $dsnName = "ILLiadLink"
+    $scriptPath = "C:\ProgramData\UMDLibraries\scripts\Deploy-IlliadODBC.ps1"
     $removedItems = @()
 
     # Get user's desktop path
@@ -32,6 +33,18 @@ try {
         $removedItems += "Desktop shortcut"
     } else {
         Write-Host "  Shortcut not found (may already be removed)" -ForegroundColor Yellow
+    }
+
+    # Remove PowerShell script from shared scripts directory
+    Write-Host "`nRemoving PowerShell script..." -ForegroundColor Cyan
+    Write-Host "  Path: $scriptPath" -ForegroundColor Gray
+
+    if (Test-Path $scriptPath) {
+        Remove-Item -Path $scriptPath -Force -ErrorAction Stop
+        Write-Host "  ✓ PowerShell script removed" -ForegroundColor Green
+        $removedItems += "PowerShell script"
+    } else {
+        Write-Host "  Script not found (may already be removed)" -ForegroundColor Yellow
     }
 
     # Clean up ODBC DSN if it exists

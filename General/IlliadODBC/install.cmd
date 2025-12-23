@@ -24,21 +24,67 @@ if not exist "%PS_SCRIPT%" (
 )
 
 :: Get user's desktop path from registry
-for /f "usebackq tokens=3*" %%A in (`reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Desktop 2^>nul`) do (
+:: Skip first 2 lines of output, get token 2 (the value after REG_EXPAND_SZ)
+for /f "skip=2 tokens=2*" %%A in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Desktop 2^>nul') do (
     set "DESKTOP=%%B"
+)
+
+:: If that failed, try the non-expanding version
+if "%DESKTOP%"=="" (
+    for /f "skip=2 tokens=2*" %%A in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" /v Desktop 2^>nul') do (
+        set "DESKTOP=%%B"
+    )
+)
+
+:: If still empty, use default location
+if "%DESKTOP%"=="" (
+    set "DESKTOP=%USERPROFILE%\Desktop"
+    echo WARNING: Using default desktop location
 )
 
 :: Expand environment variables in desktop path
 call set "DESKTOP=%DESKTOP%"
 
-if "%DESKTOP%"=="" (
-    echo ERROR: Could not determine desktop location
+:: Verify desktop folder exists
+if not exist "%DESKTOP%" (
+    echo ERROR: Desktop folder does not exist: %DESKTOP%
     echo.
     pause
     exit /b 1
 )
 
 echo Desktop location: %DESKTOP%
+echo.
+
+:: Copy PowerShell script to permanent location
+:: (Intune may clean up temp cache after installation)
+set "INSTALL_DIR=C:\ProgramData\UMDLibraries\scripts"
+set "PERMANENT_SCRIPT=%INSTALL_DIR%\Deploy-IlliadODBC.ps1"
+
+echo Ensuring installation directory exists...
+if not exist "%INSTALL_DIR%" (
+    mkdir "%INSTALL_DIR%"
+    if errorlevel 1 (
+        echo ERROR: Failed to create directory: %INSTALL_DIR%
+        echo.
+        pause
+        exit /b 1
+    )
+    echo   Created directory: %INSTALL_DIR%
+) else (
+    echo   Directory already exists: %INSTALL_DIR%
+)
+
+echo Copying PowerShell script to permanent location...
+echo From: %PS_SCRIPT%
+echo To:   %PERMANENT_SCRIPT%
+copy /Y "%PS_SCRIPT%" "%PERMANENT_SCRIPT%" >nul
+if errorlevel 1 (
+    echo ERROR: Failed to copy PowerShell script
+    echo.
+    pause
+    exit /b 1
+)
 echo.
 
 :: Create VBScript to generate the shortcut
@@ -50,8 +96,8 @@ set "SHORTCUT_NAME=ILLiad ODBC Setup.lnk"
     echo sLinkFile = "%DESKTOP%\%SHORTCUT_NAME%"
     echo Set oLink = oWS.CreateShortcut^(sLinkFile^)
     echo oLink.TargetPath = "powershell.exe"
-    echo oLink.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -NoProfile -File ""%PS_SCRIPT%"""
-    echo oLink.WorkingDirectory = "%SCRIPT_DIR%"
+    echo oLink.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -NoProfile -File ""%PERMANENT_SCRIPT%"""
+    echo oLink.WorkingDirectory = "%INSTALL_DIR%"
     echo oLink.Description = "ILLiad ODBC Database Connection Setup"
     echo oLink.IconLocation = "%%SystemRoot%%\System32\odbcad32.exe,0"
     echo oLink.Save
@@ -78,6 +124,9 @@ echo ========================================
 echo.
 echo Desktop shortcut created successfully:
 echo   %DESKTOP%\%SHORTCUT_NAME%
+echo.
+echo Installation directory:
+echo   %INSTALL_DIR%
 echo.
 echo Users can double-click the shortcut to
 echo configure their ILLiad ODBC connection.
