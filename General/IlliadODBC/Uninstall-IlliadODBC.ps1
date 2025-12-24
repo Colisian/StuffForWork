@@ -16,10 +16,9 @@ try {
     $scriptPath = "C:\ProgramData\UMDLibraries\scripts\Deploy-IlliadODBC.ps1"
     $removedItems = @()
 
-    # Get user's desktop path
-    Write-Host "`nLocating desktop path..." -ForegroundColor Cyan
-    $desktopPath = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -ErrorAction Stop).Desktop
-    $desktopPath = [System.Environment]::ExpandEnvironmentVariables($desktopPath)
+    # Get Public Desktop path (SYSTEM context)
+    Write-Host "`nLocating Public Desktop path..." -ForegroundColor Cyan
+    $desktopPath = Join-Path $env:PUBLIC "Desktop"
     Write-Host "  Desktop: $desktopPath" -ForegroundColor Gray
 
     # Remove desktop shortcut

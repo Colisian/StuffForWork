@@ -19,38 +19,22 @@ if not exist "%PS_SCRIPT%" (
     echo ERROR: Deploy-IlliadODBC.ps1 not found in current directory!
     echo Expected: %PS_SCRIPT%
     echo.
-    pause
     exit /b 1
 )
 
-:: Get user's desktop path from registry
-:: Skip first 2 lines of output, get token 2 (the value after REG_EXPAND_SZ)
-for /f "skip=2 tokens=2*" %%A in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Desktop 2^>nul') do (
-    set "DESKTOP=%%B"
-)
+:: Use Public Desktop for all users (SYSTEM context deployment)
+set "DESKTOP=%PUBLIC%\Desktop"
 
-:: If that failed, try the non-expanding version
-if "%DESKTOP%"=="" (
-    for /f "skip=2 tokens=2*" %%A in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" /v Desktop 2^>nul') do (
-        set "DESKTOP=%%B"
-    )
-)
-
-:: If still empty, use default location
-if "%DESKTOP%"=="" (
-    set "DESKTOP=%USERPROFILE%\Desktop"
-    echo WARNING: Using default desktop location
-)
-
-:: Expand environment variables in desktop path
-call set "DESKTOP=%DESKTOP%"
-
-:: Verify desktop folder exists
+:: Verify Public Desktop folder exists
 if not exist "%DESKTOP%" (
-    echo ERROR: Desktop folder does not exist: %DESKTOP%
-    echo.
-    pause
-    exit /b 1
+    echo ERROR: Public Desktop folder does not exist: %DESKTOP%
+    echo Attempting to create it...
+    mkdir "%DESKTOP%"
+    if errorlevel 1 (
+        echo ERROR: Failed to create Public Desktop folder
+        echo.
+        exit /b 1
+    )
 )
 
 echo Desktop location: %DESKTOP%
@@ -67,7 +51,6 @@ if not exist "%INSTALL_DIR%" (
     if errorlevel 1 (
         echo ERROR: Failed to create directory: %INSTALL_DIR%
         echo.
-        pause
         exit /b 1
     )
     echo   Created directory: %INSTALL_DIR%
@@ -82,7 +65,6 @@ copy /Y "%PS_SCRIPT%" "%PERMANENT_SCRIPT%" >nul
 if errorlevel 1 (
     echo ERROR: Failed to copy PowerShell script
     echo.
-    pause
     exit /b 1
 )
 echo.
@@ -110,7 +92,6 @@ cscript //nologo "%VBS%"
 if errorlevel 1 (
     echo ERROR: Failed to create shortcut
     del "%VBS%" 2>nul
-    pause
     exit /b 1
 )
 
@@ -131,4 +112,4 @@ echo.
 echo Users can double-click the shortcut to
 echo configure their ILLiad ODBC connection.
 echo.
-pause
+exit /b 0
