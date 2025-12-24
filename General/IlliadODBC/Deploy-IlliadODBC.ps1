@@ -200,16 +200,10 @@ $successMessage = @"
 ILLiad ODBC connection configured successfully!
 
 DSN Name: $dsnName
-Server: $serverName
 Database: $database
 
 You can now use this connection in Microsoft Access.
-Access the database at:
-G:\Shared drives\Resource Sharing & Reserves\ILL
 
-Note: First connection may take 20-30 seconds.
-
-Security Reminder: Password is stored in your user registry (HKCU).
 "@
 
 [System.Windows.Forms.MessageBox]::Show(
