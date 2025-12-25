@@ -28,7 +28,7 @@ try {
 
     if (Test-Path $shortcutPath) {
         Remove-Item -Path $shortcutPath -Force -ErrorAction Stop
-        Write-Host "  ✓ Desktop shortcut removed" -ForegroundColor Green
+        Write-Host " Desktop shortcut removed" -ForegroundColor Green
         $removedItems += "Desktop shortcut"
     } else {
         Write-Host "  Shortcut not found (may already be removed)" -ForegroundColor Yellow
@@ -40,7 +40,7 @@ try {
 
     if (Test-Path $scriptPath) {
         Remove-Item -Path $scriptPath -Force -ErrorAction Stop
-        Write-Host "  ✓ PowerShell script removed" -ForegroundColor Green
+        Write-Host " PowerShell script removed" -ForegroundColor Green
         $removedItems += "PowerShell script"
     } else {
         Write-Host "  Script not found (may already be removed)" -ForegroundColor Yellow
@@ -65,7 +65,7 @@ try {
         # Clean up registry entries
         if (Test-Path $regPath) {
             Remove-Item -Path $regPath -Recurse -Force -ErrorAction Stop
-            Write-Host "  ✓ Removed DSN registry key" -ForegroundColor Green
+            Write-Host " Removed DSN registry key" -ForegroundColor Green
             $removedItems += "ODBC DSN registry configuration"
         }
 
@@ -74,7 +74,7 @@ try {
             $dsnList = Get-ItemProperty -Path $regListPath -ErrorAction SilentlyContinue
             if ($dsnList.$dsnName) {
                 Remove-ItemProperty -Path $regListPath -Name $dsnName -Force -ErrorAction SilentlyContinue
-                Write-Host "  ✓ Removed from ODBC Data Sources list" -ForegroundColor Green
+                Write-Host " Removed from ODBC Data Sources list" -ForegroundColor Green
             }
         }
     } else {
@@ -86,7 +86,7 @@ try {
     if ($removedItems.Count -gt 0) {
         Write-Host "Removed items:" -ForegroundColor Green
         foreach ($item in $removedItems) {
-            Write-Host "  ✓ $item" -ForegroundColor Green
+            Write-Host " $item" -ForegroundColor Green
         }
     } else {
         Write-Host "No items found to remove (may already be uninstalled)" -ForegroundColor Yellow
