@@ -1,6 +1,6 @@
 @echo off
 :: install.cmd - Creates desktop shortcuts for ILLiad and Ares ODBC Setup
-:: This creates shortcuts that run the PowerShell scripts with hidden windows
+:: Uses VBScript launchers to run PowerShell completely hidden (no console flash)
 
 setlocal enabledelayedexpansion
 
@@ -62,6 +62,8 @@ echo.
 set "INSTALL_DIR=C:\ProgramData\UMDLibraries\scripts"
 set "PERMANENT_ILLIAD=%INSTALL_DIR%\Deploy-IlliadODBC.ps1"
 set "PERMANENT_ARES=%INSTALL_DIR%\Deploy-AresODBC.ps1"
+set "LAUNCHER_ILLIAD=%INSTALL_DIR%\Launch-IlliadODBC.vbs"
+set "LAUNCHER_ARES=%INSTALL_DIR%\Launch-AresODBC.vbs"
 
 echo Ensuring installation directory exists...
 if not exist "%INSTALL_DIR%" (
@@ -98,7 +100,24 @@ if errorlevel 1 (
 echo   Scripts copied successfully.
 echo.
 
-:: Create VBScript to generate the ILLiad shortcut
+:: Create VBScript launcher for ILLiad (runs PowerShell completely hidden)
+echo Creating VBScript launchers...
+echo   Creating ILLiad launcher...
+(
+    echo Set objShell = CreateObject^("WScript.Shell"^)
+    echo objShell.Run "powershell.exe -ExecutionPolicy Bypass -NoProfile -File ""%PERMANENT_ILLIAD%""", 0, False
+) > "%LAUNCHER_ILLIAD%"
+
+echo   Creating Ares launcher...
+(
+    echo Set objShell = CreateObject^("WScript.Shell"^)
+    echo objShell.Run "powershell.exe -ExecutionPolicy Bypass -NoProfile -File ""%PERMANENT_ARES%""", 0, False
+) > "%LAUNCHER_ARES%"
+
+echo   Launchers created successfully.
+echo.
+
+:: Create shortcut for ILLiad (points to VBScript launcher)
 set "VBS=%TEMP%\CreateODBCShortcut_%RANDOM%.vbs"
 set "ILLIAD_SHORTCUT=ILLiad ODBC Setup.lnk"
 
@@ -107,8 +126,8 @@ echo Creating ILLiad desktop shortcut...
     echo Set oWS = WScript.CreateObject^("WScript.Shell"^)
     echo sLinkFile = "%DESKTOP%\%ILLIAD_SHORTCUT%"
     echo Set oLink = oWS.CreateShortcut^(sLinkFile^)
-    echo oLink.TargetPath = "powershell.exe"
-    echo oLink.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -NoProfile -File ""%PERMANENT_ILLIAD%"""
+    echo oLink.TargetPath = "wscript.exe"
+    echo oLink.Arguments = """%LAUNCHER_ILLIAD%"""
     echo oLink.WorkingDirectory = "%INSTALL_DIR%"
     echo oLink.Description = "ILLiad ODBC Database Connection Setup"
     echo oLink.IconLocation = "%%SystemRoot%%\System32\odbcad32.exe,0"
@@ -124,7 +143,7 @@ if errorlevel 1 (
 del "%VBS%" 2>nul
 echo   Created: %ILLIAD_SHORTCUT%
 
-:: Create VBScript to generate the Ares shortcut
+:: Create shortcut for Ares (points to VBScript launcher)
 set "VBS=%TEMP%\CreateODBCShortcut_%RANDOM%.vbs"
 set "ARES_SHORTCUT=Ares ODBC Setup.lnk"
 
@@ -133,8 +152,8 @@ echo Creating Ares desktop shortcut...
     echo Set oWS = WScript.CreateObject^("WScript.Shell"^)
     echo sLinkFile = "%DESKTOP%\%ARES_SHORTCUT%"
     echo Set oLink = oWS.CreateShortcut^(sLinkFile^)
-    echo oLink.TargetPath = "powershell.exe"
-    echo oLink.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -NoProfile -File ""%PERMANENT_ARES%"""
+    echo oLink.TargetPath = "wscript.exe"
+    echo oLink.Arguments = """%LAUNCHER_ARES%"""
     echo oLink.WorkingDirectory = "%INSTALL_DIR%"
     echo oLink.Description = "Ares ODBC Database Connection Setup"
     echo oLink.IconLocation = "%%SystemRoot%%\System32\odbcad32.exe,0"

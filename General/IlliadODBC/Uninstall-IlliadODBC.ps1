@@ -19,6 +19,8 @@ try {
     $aresShortcut = "Ares ODBC Setup.lnk"
     $illiadScript = "C:\ProgramData\UMDLibraries\scripts\Deploy-IlliadODBC.ps1"
     $aresScript = "C:\ProgramData\UMDLibraries\scripts\Deploy-AresODBC.ps1"
+    $illiadLauncher = "C:\ProgramData\UMDLibraries\scripts\Launch-IlliadODBC.vbs"
+    $aresLauncher = "C:\ProgramData\UMDLibraries\scripts\Launch-AresODBC.vbs"
     $removedItems = @()
 
     # Get Public Desktop path (SYSTEM context)
@@ -74,6 +76,30 @@ try {
         $removedItems += "Ares PowerShell script"
     } else {
         Write-Host "  Script not found (may already be removed)" -ForegroundColor Yellow
+    }
+
+    # Remove ILLiad VBScript launcher
+    Write-Host "`nRemoving ILLiad VBScript launcher..." -ForegroundColor Cyan
+    Write-Host "  Path: $illiadLauncher" -ForegroundColor Gray
+
+    if (Test-Path $illiadLauncher) {
+        Remove-Item -Path $illiadLauncher -Force -ErrorAction Stop
+        Write-Host "  ILLiad VBScript launcher removed" -ForegroundColor Green
+        $removedItems += "ILLiad VBScript launcher"
+    } else {
+        Write-Host "  Launcher not found (may already be removed)" -ForegroundColor Yellow
+    }
+
+    # Remove Ares VBScript launcher
+    Write-Host "`nRemoving Ares VBScript launcher..." -ForegroundColor Cyan
+    Write-Host "  Path: $aresLauncher" -ForegroundColor Gray
+
+    if (Test-Path $aresLauncher) {
+        Remove-Item -Path $aresLauncher -Force -ErrorAction Stop
+        Write-Host "  Ares VBScript launcher removed" -ForegroundColor Green
+        $removedItems += "Ares VBScript launcher"
+    } else {
+        Write-Host "  Launcher not found (may already be removed)" -ForegroundColor Yellow
     }
 
     # Clean up scripts directory if empty
