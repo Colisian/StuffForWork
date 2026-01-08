@@ -1,19 +1,24 @@
 # Uninstall-IlliadODBC.ps1
-# Removes ILLiad ODBC Setup desktop shortcut and optionally cleans up ODBC DSN
+# Removes ILLiad and Ares ODBC Setup desktop shortcuts and scripts
 # For use with Intune Win32 App uninstallation
+#
+# Note: User ODBC DSN configurations (in HKCU) cannot be removed from SYSTEM context.
+# Users will need to manually remove their DSN entries if needed, or the entries
+# will be overwritten if they re-run the setup scripts.
 
 # Enable transcript logging for troubleshooting
 $transcriptPath = "$env:TEMP\IlliadODBC-Uninstall-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 Start-Transcript -Path $transcriptPath -Force
 
 try {
-    Write-Host "`n=== ILLiad ODBC Uninstall ===" -ForegroundColor Cyan
+    Write-Host "`n=== Atlas ODBC Uninstall (ILLiad & Ares) ===" -ForegroundColor Cyan
     Write-Host "Transcript log: $transcriptPath" -ForegroundColor Gray
     Write-Host "Running as user: $env:USERNAME" -ForegroundColor Gray
 
-    $shortcutName = "ILLiad ODBC Setup.lnk"
-    $dsnName = "ILLiadLink"
-    $scriptPath = "C:\ProgramData\UMDLibraries\scripts\Deploy-IlliadODBC.ps1"
+    $illiadShortcut = "ILLiad ODBC Setup.lnk"
+    $aresShortcut = "Ares ODBC Setup.lnk"
+    $illiadScript = "C:\ProgramData\UMDLibraries\scripts\Deploy-IlliadODBC.ps1"
+    $aresScript = "C:\ProgramData\UMDLibraries\scripts\Deploy-AresODBC.ps1"
     $removedItems = @()
 
     # Get Public Desktop path (SYSTEM context)
@@ -21,72 +26,78 @@ try {
     $desktopPath = Join-Path $env:PUBLIC "Desktop"
     Write-Host "  Desktop: $desktopPath" -ForegroundColor Gray
 
-    # Remove desktop shortcut
-    $shortcutPath = Join-Path $desktopPath $shortcutName
-    Write-Host "`nRemoving desktop shortcut..." -ForegroundColor Cyan
-    Write-Host "  Path: $shortcutPath" -ForegroundColor Gray
+    # Remove ILLiad desktop shortcut
+    $illiadShortcutPath = Join-Path $desktopPath $illiadShortcut
+    Write-Host "`nRemoving ILLiad desktop shortcut..." -ForegroundColor Cyan
+    Write-Host "  Path: $illiadShortcutPath" -ForegroundColor Gray
 
-    if (Test-Path $shortcutPath) {
-        Remove-Item -Path $shortcutPath -Force -ErrorAction Stop
-        Write-Host " Desktop shortcut removed" -ForegroundColor Green
-        $removedItems += "Desktop shortcut"
+    if (Test-Path $illiadShortcutPath) {
+        Remove-Item -Path $illiadShortcutPath -Force -ErrorAction Stop
+        Write-Host "  ILLiad desktop shortcut removed" -ForegroundColor Green
+        $removedItems += "ILLiad desktop shortcut"
     } else {
         Write-Host "  Shortcut not found (may already be removed)" -ForegroundColor Yellow
     }
 
-    # Remove PowerShell script from shared scripts directory
-    Write-Host "`nRemoving PowerShell script..." -ForegroundColor Cyan
-    Write-Host "  Path: $scriptPath" -ForegroundColor Gray
+    # Remove Ares desktop shortcut
+    $aresShortcutPath = Join-Path $desktopPath $aresShortcut
+    Write-Host "`nRemoving Ares desktop shortcut..." -ForegroundColor Cyan
+    Write-Host "  Path: $aresShortcutPath" -ForegroundColor Gray
 
-    if (Test-Path $scriptPath) {
-        Remove-Item -Path $scriptPath -Force -ErrorAction Stop
-        Write-Host " PowerShell script removed" -ForegroundColor Green
-        $removedItems += "PowerShell script"
+    if (Test-Path $aresShortcutPath) {
+        Remove-Item -Path $aresShortcutPath -Force -ErrorAction Stop
+        Write-Host "  Ares desktop shortcut removed" -ForegroundColor Green
+        $removedItems += "Ares desktop shortcut"
+    } else {
+        Write-Host "  Shortcut not found (may already be removed)" -ForegroundColor Yellow
+    }
+
+    # Remove ILLiad PowerShell script
+    Write-Host "`nRemoving ILLiad PowerShell script..." -ForegroundColor Cyan
+    Write-Host "  Path: $illiadScript" -ForegroundColor Gray
+
+    if (Test-Path $illiadScript) {
+        Remove-Item -Path $illiadScript -Force -ErrorAction Stop
+        Write-Host "  ILLiad PowerShell script removed" -ForegroundColor Green
+        $removedItems += "ILLiad PowerShell script"
     } else {
         Write-Host "  Script not found (may already be removed)" -ForegroundColor Yellow
     }
 
-    # Clean up ODBC DSN if it exists
-    Write-Host "`nChecking for ODBC DSN configuration..." -ForegroundColor Cyan
-    $regPath = "HKCU:\SOFTWARE\ODBC\ODBC.INI\$dsnName"
-    $regListPath = "HKCU:\SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources"
+    # Remove Ares PowerShell script
+    Write-Host "`nRemoving Ares PowerShell script..." -ForegroundColor Cyan
+    Write-Host "  Path: $aresScript" -ForegroundColor Gray
 
-    if (Test-Path $regPath) {
-        Write-Host "  Found ODBC DSN configuration, removing..." -ForegroundColor Gray
-
-        # Detect Office architecture for proper ODBC cmdlet usage
-        $officeArch = (Get-ItemProperty "HKLM:\Software\Microsoft\Office\ClickToRun\Configuration" -ErrorAction SilentlyContinue).Platform
-        $platform = if ($officeArch -eq "x64") { "64-bit" } else { "32-bit" }
-        Write-Host "  Detected platform: $platform" -ForegroundColor Gray
-
-        # Remove using PowerShell cmdlet
-        Remove-OdbcDsn -Name $dsnName -DsnType User -Platform $platform -ErrorAction SilentlyContinue
-
-        # Clean up registry entries
-        if (Test-Path $regPath) {
-            Remove-Item -Path $regPath -Recurse -Force -ErrorAction Stop
-            Write-Host " Removed DSN registry key" -ForegroundColor Green
-            $removedItems += "ODBC DSN registry configuration"
-        }
-
-        # Remove from DSN list
-        if (Test-Path $regListPath) {
-            $dsnList = Get-ItemProperty -Path $regListPath -ErrorAction SilentlyContinue
-            if ($dsnList.$dsnName) {
-                Remove-ItemProperty -Path $regListPath -Name $dsnName -Force -ErrorAction SilentlyContinue
-                Write-Host " Removed from ODBC Data Sources list" -ForegroundColor Green
-            }
-        }
+    if (Test-Path $aresScript) {
+        Remove-Item -Path $aresScript -Force -ErrorAction Stop
+        Write-Host "  Ares PowerShell script removed" -ForegroundColor Green
+        $removedItems += "Ares PowerShell script"
     } else {
-        Write-Host "  No ODBC DSN configuration found" -ForegroundColor Gray
+        Write-Host "  Script not found (may already be removed)" -ForegroundColor Yellow
     }
+
+    # Clean up scripts directory if empty
+    $scriptsDir = "C:\ProgramData\UMDLibraries\scripts"
+    if (Test-Path $scriptsDir) {
+        $remainingFiles = Get-ChildItem -Path $scriptsDir -Force -ErrorAction SilentlyContinue
+        if (-not $remainingFiles) {
+            Remove-Item -Path $scriptsDir -Force -ErrorAction SilentlyContinue
+            Write-Host "`nRemoved empty scripts directory" -ForegroundColor Gray
+        }
+    }
+
+    # Note about user DSN configurations
+    Write-Host "`n--- Note ---" -ForegroundColor Yellow
+    Write-Host "User ODBC DSN configurations (ILLiadLink, AresLink) are stored in" -ForegroundColor Yellow
+    Write-Host "each user's registry (HKCU) and cannot be removed from SYSTEM context." -ForegroundColor Yellow
+    Write-Host "Users can remove these manually via ODBC Data Sources if needed." -ForegroundColor Yellow
 
     # Summary
     Write-Host "`n=== Uninstall Complete ===" -ForegroundColor Cyan
     if ($removedItems.Count -gt 0) {
         Write-Host "Removed items:" -ForegroundColor Green
         foreach ($item in $removedItems) {
-            Write-Host " $item" -ForegroundColor Green
+            Write-Host "  $item" -ForegroundColor Green
         }
     } else {
         Write-Host "No items found to remove (may already be uninstalled)" -ForegroundColor Yellow
