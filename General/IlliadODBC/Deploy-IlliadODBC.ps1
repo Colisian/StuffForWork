@@ -128,8 +128,17 @@ $regPath = "HKCU:\SOFTWARE\ODBC\ODBC.INI\$dsnName"
 $regListPath = "HKCU:\SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources"
 
 try {
-    $null = New-Item -Path "HKCU:\SOFTWARE\ODBC\ODBC.INI" -Force -ErrorAction SilentlyContinue
-    $null = New-Item -Path $regListPath -Force -ErrorAction SilentlyContinue
+    # Only create parent paths if they don't exist (avoid wiping existing DSNs)
+    if (-not (Test-Path "HKCU:\SOFTWARE\ODBC\ODBC.INI")) {
+        $null = New-Item -Path "HKCU:\SOFTWARE\ODBC\ODBC.INI" -Force -ErrorAction SilentlyContinue
+    }
+    if (-not (Test-Path $regListPath)) {
+        $null = New-Item -Path $regListPath -Force -ErrorAction SilentlyContinue
+    }
+    # Remove and recreate the specific DSN key
+    if (Test-Path $regPath) {
+        Remove-Item -Path $regPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
     $null = New-Item -Path $regPath -Force -ErrorAction Stop
 } catch {
     $errorMessage = @"
