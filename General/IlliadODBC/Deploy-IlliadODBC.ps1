@@ -25,7 +25,7 @@ function Get-PasswordDialog {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ILLiad ODBC Setup"
-        Height="220" Width="450"
+        Height="250" Width="450"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         Background="#F3F3F3"

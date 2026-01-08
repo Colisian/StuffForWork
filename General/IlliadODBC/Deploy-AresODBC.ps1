@@ -25,7 +25,7 @@ function Get-PasswordDialog {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Ares ODBC Setup"
-        Height="240" Width="450"
+        Height="270" Width="450"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         Background="#F3F3F3"
