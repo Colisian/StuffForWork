@@ -53,12 +53,14 @@ $CsvPath  = Join-Path $ExportFolder "$SafeName`_Members.csv"
 try {
     $Members = Get-ADGroupMember -Identity $GroupName -Server $ServerName -Recursive -ErrorAction Stop |
         Where-Object { $_.ObjectClass -eq 'user' } |
-        Get-ADUser -Server $ServerName -Properties DisplayName, EmailAddress, PasswordLastSet |
+        Get-ADUser -Server $ServerName -Properties DisplayName, EmailAddress, PasswordLastSet, LastLogonDate, Enabled |
         Select-Object @{Name='SamAccountName';Expression={$_.SamAccountName}},
                       @{Name='Name';        Expression={$_.Name}},
                       @{Name='DisplayName'; Expression={$_.DisplayName}},
                       @{Name='Email';       Expression={$_.EmailAddress}},
-                      @{Name='PasswordLastSet'; Expression={if ($_.PasswordLastSet) { $_.PasswordLastSet.ToString('yyyy-MM-dd') } else { 'Never' }}}
+                      @{Name='Enabled';     Expression={$_.Enabled}},
+                      @{Name='PasswordLastSet'; Expression={if ($_.PasswordLastSet) { $_.PasswordLastSet.ToString('yyyy-MM-dd') } else { 'Never' }}},
+                      @{Name='LastLogonDate';   Expression={if ($_.LastLogonDate) { $_.LastLogonDate.ToString('yyyy-MM-dd') } else { 'Never' }}}
                       
     $Members | Export-Csv -Path $CsvPath -NoTypeInformation -Encoding UTF8
 
