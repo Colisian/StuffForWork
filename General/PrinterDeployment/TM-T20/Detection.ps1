@@ -1,32 +1,28 @@
+<#
+.SYNOPSIS
+    Detects if the Epson TM-T20II printer is installed.
+.DESCRIPTION
+    Intune detection script. Checks for the auto-created printer
+    on the Dynamic Print Monitor USB port. Returns exit 0 if found.
+.NOTES
+    Author: Oji
+    Date: 2026-02-10
+    Version: 2.0
+#>
+
 Start-Transcript -Path c:\windows\temp\printer_detection.log
 
-#Define list of printers to detect - Update this with the names of your printers
-$Printers = @(
-                'EPSON TM-T20II'
-                'EPSON TM-T20II Receipt5'
+$PrinterName = 'EPSON TM-T20II Receipt5'
 
-)
-
-#Check every defined printer in the list to see if it's installed
-$numberofprintersfound = 0
-Write-Host ("[Detecting Installed Printers(s)]")  -ForegroundColor Cyan -BackgroundColor Black
-foreach ($printer in $printers) {
-    try {
-        Get-Printer -Name $printer -ErrorAction Stop | Out-Null
-        $numberofprintersfound++
-    }
-    catch {
-        "- $($printer) was not found"
-    }
-}
-
-#If all printers are installed, exit 0
-if ($numberofprintersfound -eq $printers.count) {
-    write-host ("[Found $numberofprintersfound/$($printers.count) Printers]")  -ForegroundColor Cyan -BackgroundColor Black
+Write-Host ("[Detecting Installed Printer]") -ForegroundColor Cyan -BackgroundColor Black
+try {
+    $printer = Get-Printer -Name $PrinterName -ErrorAction Stop
+    Write-Host ("Found: {0} on port {1}" -f $printer.Name, $printer.PortName) -ForegroundColor Green
+    Stop-Transcript
     exit 0
 }
-else {
-    write-host ("[Found $numberofprintersfound/$($printers.count) Printers]")  -ForegroundColor Red -BackgroundColor Black
+catch {
+    Write-Host ("Printer '{0}' was not found" -f $PrinterName) -ForegroundColor Red
+    Stop-Transcript
     exit 1
 }
-Stop-Transcript
