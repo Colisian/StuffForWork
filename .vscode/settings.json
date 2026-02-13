@@ -1,3 +1,7 @@
 {
-    "claude-code.useTerminal": true
-}
+    "claude-code.useTerminal": true,
+    "files.eol": "\n",
+    "[shellscript]": {
+      "files.eol": "\n"
+    }
+  }
