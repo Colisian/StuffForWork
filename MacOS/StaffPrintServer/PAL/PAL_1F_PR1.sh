@@ -2,7 +2,7 @@
 # =============================================================================
 # UMD Libraries - Staff Printer Installation Script (macOS / Jamf Self Service)
 # =============================================================================
-# Installs a single staff printer via SMB to the Windows print server.
+# Installs a single staff printer via LPD to the Windows print server.
 # The Canon UFR II driver package must be deployed BEFORE this script runs.
 # Jamf should pair this script with the Canon driver package in the same policy,
 # or ensure the driver is a prerequisite policy.
@@ -44,7 +44,7 @@ PRINTER_LOC="Performance Art Library, 1st Floor"
 # SHARED CONFIGURATION - Same for all staff printers (do not change)
 # =============================================================================
 PRINT_SERVER="LIBRPS403v.ad.umd.edu"
-PRINTER_URI="smb://${PRINT_SERVER}/${PRINTER_NAME}"
+PRINTER_URI="LPD://${PRINT_SERVER}/${PRINTER_NAME}"
 PPD_FILE="CNPZUIRAC5030ZU.ppd.gz"
 PPD_DIR="/Library/Printers/PPDs/Contents/Resources"
 SCRIPT_VERSION="1.0"
