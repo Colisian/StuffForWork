@@ -44,7 +44,7 @@ PRINTER_LOC="Performance Art Library, 1st Floor"
 # SHARED CONFIGURATION - Same for all staff printers (do not change)
 # =============================================================================
 PRINT_SERVER="LIBRPS403v.ad.umd.edu"
-PRINTER_URI="LPD://${PRINT_SERVER}/${PRINTER_NAME}"
+PRINTER_URI="lpd://${PRINT_SERVER}/${PRINTER_NAME}"
 PPD_FILE="CNPZUIRAC5030ZU.ppd.gz"
 PPD_DIR="/Library/Printers/PPDs/Contents/Resources"
 SCRIPT_VERSION="1.0"
