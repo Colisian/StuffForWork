@@ -33,23 +33,12 @@ function main() {
     local total_freed_kb=0
 
     for user_home in /Users/*; do
-        [[ -e "$user_home" ]] || continue
-        [[ -d "$user_home" ]] || continue
-
         local username
         username=$(basename "$user_home")
 
         # Skip hidden/system folders
-        if [[ "$username" == .* ]]; then
-            echo "SKIP  $username (hidden/system folder)"
-            ((skipped++)) || true
-            continue
-        fi
-        if is_excluded_user "$username"; then
-            echo "SKIP  $username (explicitly excluded)"
-            ((skipped++)) || true
-            continue
-        fi
+        [[ "$username" == .* ]] && continue
+        [[ " ${EXCLUDE_USERS[*]} " =~ " ${username} " ]] && continue
 
         # Skip system accounts (UID < 500)
         local uid
@@ -60,20 +49,11 @@ function main() {
             continue
         fi
 
-        # Skip local admins; this script is intended to delete non-admin accounts only
-        if is_admin_user "$username"; then
-            echo "SKIP  $username (admin account)"
-            ((skipped++)) || true
-            continue
-        fi
-
         # Calculate profile size before deletion (in KB for accurate math)
         local profile_size
         local profile_kb
         profile_size=$(du -sh "$user_home" 2>/dev/null | awk '{print $1}')
         profile_kb=$(du -sk "$user_home" 2>/dev/null | awk '{print $1}')
-        profile_size="${profile_size:-unknown}"
-        profile_kb="${profile_kb:-0}"
 
         if [[ "$DRY_RUN" = true ]]; then
             echo "WOULD DELETE  $username — Profile size: $profile_size"
@@ -95,46 +75,12 @@ function main() {
 
 function active_session_guard() {
     local current_user
-    current_user=$(stat -f "%Su" /dev/console 2>/dev/null || true)
+    current_user=$(stat -f "%Su" /dev/console 2>/dev/null)
 
     if [[ -n "$current_user" && "$current_user" != "root" && "$current_user" != "loginwindow" ]]; then
-        if ! is_excluded_user "$current_user"; then
-            EXCLUDE_USERS+=("$current_user")
-        fi
-        echo "WARNING — Console user $current_user is currently logged in. Their profile will be skipped."
+        echo "WARNING — $current_user is currently logged in. Their profile will be skipped."
+        EXCLUDE_USERS+=("$current_user")
     fi
-
-    # Also protect users with active local/remote sessions (e.g., FUS/SSH).
-    local session_user
-    while read -r session_user _; do
-        [[ -n "$session_user" ]] || continue
-        [[ "$session_user" == "root" ]] && continue
-        if ! is_excluded_user "$session_user"; then
-            EXCLUDE_USERS+=("$session_user")
-            echo "WARNING — Active session detected for $session_user. Their profile will be skipped."
-        fi
-    done < <(who 2>/dev/null || true)
-}
-
-function is_excluded_user() {
-    local username="$1"
-    local excluded
-
-    for excluded in "${EXCLUDE_USERS[@]}"; do
-        if [[ "$username" == "$excluded" ]]; then
-            return 0
-        fi
-    done
-
-    return 1
-}
-
-function is_admin_user() {
-    local username="$1"
-    local membership
-
-    membership=$(/usr/sbin/dseditgroup -o checkmember -m "$username" admin 2>/dev/null || true)
-    [[ "$membership" == *"yes"* ]]
 }
 
 function print_header() {
