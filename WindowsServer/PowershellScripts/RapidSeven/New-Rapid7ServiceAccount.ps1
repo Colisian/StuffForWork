@@ -1,263 +1,281 @@
 #Requires -Version 5.1
-#Requires -Modules ActiveDirectory
 <#
 .SYNOPSIS
-    Creates and configures a Rapid7 InsightVM service account in Active Directory
-    with the minimum permissions needed for authenticated vulnerability scanning.
+    Creates and configures a local Rapid7 InsightVM service account with the
+    minimum permissions needed for authenticated vulnerability scanning.
 
 .DESCRIPTION
-    Per Rapid7 best practices, this script creates a dedicated service account with:
-      - Domain Users membership (base)
-      - Local Administrators group on target machines (via GPO is preferred, but
-        this script can add to local admin on individual machines)
-      - Password never expires (service account)
-      - Account description and metadata for audit trail
+    This script creates a dedicated local admin account on the current machine
+    for Rapid7 InsightVM scanning. It handles:
+      - Local account creation with a secure password
+      - Administrators group membership
+      - UAC registry key (LocalAccountTokenFilterPolicy) so remote scans
+        can authenticate without being stripped of admin rights
 
-    The Rapid7 docs recommend a domain admin or local admin account for the most
-    exhaustive scan results. This script creates a dedicated service account
-    rather than reusing an existing admin account (least-privilege principle).
-
-    IMPORTANT: After creating the account, you still need to:
-      1. Add the account to Local Administrators on target machines (GPO recommended)
-      2. Set the UAC registry key if using local admin (see notes)
+    Run this script manually on each VM that DIT will scan.
 
 .PARAMETER AccountName
-    The sAMAccountName for the service account. Default: svc-rapid7-scan
+    Name for the local service account. Must be alphanumeric, hyphens, or
+    underscores only. Default: LIBR-InsightVM
 
 .PARAMETER DisplayName
-    Display name in AD. Default: Rapid7 InsightVM Scanner
+    Full name / display name for the local account.
+    Default: Rapid7 InsightVM Scanner - Library IT
 
-.PARAMETER OUPath
-    Distinguished Name of the OU to create the account in.
-    Default: Auto-detects service accounts OU.
-
-.PARAMETER AddToLocalAdmin
-    If specified, also adds the service account to the local Administrators
-    group on target machines via Invoke-Command.
-
-.PARAMETER TargetComputers
-    List of computers to add the service account to local Administrators.
-    Only used with -AddToLocalAdmin.
+.PARAMETER Remove
+    Removes the service account, its Administrators membership, and reverts
+    the LocalAccountTokenFilterPolicy registry key.
 
 .EXAMPLE
     # Create the service account (will prompt for password)
     .\New-Rapid7ServiceAccount.ps1
 
 .EXAMPLE
-    # Create and add to local admin on specific machines
-    .\New-Rapid7ServiceAccount.ps1 -AddToLocalAdmin -TargetComputers "LIBWS001","LIBWS002"
+    # Preview changes without applying
+    .\New-Rapid7ServiceAccount.ps1 -WhatIf
+
+.EXAMPLE
+    # Remove the account and undo registry changes
+    .\New-Rapid7ServiceAccount.ps1 -Remove
 
 .NOTES
     Author:     Oji McLeod - UMD Libraries IT
+    Date:       2026-03-02
+    Version:    2.0
     Reference:  https://docs.rapid7.com/insightvm/authentication-on-windows-best-practices/
 #>
 
-[CmdletBinding(SupportsShouldProcess)]
+[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
-    [string]$AccountName = "svc-rapid7-scan",
+    [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^[a-zA-Z0-9\-_]+$')]
+    [string]$AccountName = "LIBR-InsightVM",
+
     [string]$DisplayName = "Rapid7 InsightVM Scanner - Library IT",
 
-    [string]$OUPath,  # Set to your service accounts OU, e.g.:
-                       # "OU=Service Accounts,OU=Library IT,DC=ad,DC=umd,DC=edu"
-
-    [switch]$AddToLocalAdmin,
-
-    [string[]]$TargetComputers
+    [switch]$Remove
 )
 
-#region --- Pre-flight Checks ---
-Write-Host "`n=== Rapid7 InsightVM Service Account Setup ===" -ForegroundColor Cyan
-Write-Host "Domain: $env:USERDNSDOMAIN" -ForegroundColor Cyan
-Write-Host "Account: $AccountName" -ForegroundColor Cyan
-Write-Host ""
+begin {
+    $ErrorActionPreference = 'Stop'
 
-# Check if running with appropriate privileges
-$currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
-$principal = New-Object Security.Principal.WindowsPrincipal($currentUser)
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Warning "This script should be run as Administrator for local admin group changes."
-}
+    $RegistryPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+    $RegistryName = 'LocalAccountTokenFilterPolicy'
+    $Description  = "Account for InsightVM vulnerability scanning."
 
-# Check if account already exists
-$existingAccount = Get-ADUser -Filter "SamAccountName -eq '$AccountName'" -ErrorAction SilentlyContinue
-if ($existingAccount) {
-    Write-Warning "Account '$AccountName' already exists in AD."
-    Write-Host "DN: $($existingAccount.DistinguishedName)" -ForegroundColor Yellow
+    #region --- Pre-flight Checks ---
+    Write-Host "`n=== Rapid7 InsightVM Local Service Account Setup ===" -ForegroundColor Cyan
+    Write-Host "Computer: $env:COMPUTERNAME" -ForegroundColor Cyan
+    Write-Host "Account:  $AccountName" -ForegroundColor Cyan
     Write-Host ""
 
-    $continue = Read-Host "Skip account creation and proceed to local admin setup? (Y/N)"
-    if ($continue -ne 'Y') {
-        Write-Host "Exiting." -ForegroundColor Yellow
+    # Elevation is required for local user/group/registry changes
+    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal   = New-Object Security.Principal.WindowsPrincipal($currentUser)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-Error "This script must be run as Administrator. Right-click PowerShell > Run as Administrator."
         return
     }
-    $ServiceAccount = $existingAccount
+    #endregion
 }
-#endregion
 
-#region --- Create AD Service Account ---
-if (-not $existingAccount) {
-    # Prompt for password securely
+process {
+    #region --- Remove Mode ---
+    if ($Remove) {
+        Write-Host "--- Remove Mode ---" -ForegroundColor Yellow
+
+        # Remove from Administrators group
+        $members = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
+        if ($members.Name -match [regex]::Escape($AccountName)) {
+            if ($PSCmdlet.ShouldProcess($AccountName, "Remove from local Administrators group")) {
+                try {
+                    Remove-LocalGroupMember -Group "Administrators" -Member $AccountName -ErrorAction Stop
+                    Write-Host "[OK] Removed '$AccountName' from Administrators." -ForegroundColor Green
+                }
+                catch {
+                    Write-Warning "Could not remove from Administrators: $($_.Exception.Message)"
+                }
+            }
+        }
+        else {
+            Write-Host "[--] '$AccountName' is not in Administrators. Skipping." -ForegroundColor Gray
+        }
+
+        # Remove the local account
+        $existing = Get-LocalUser -Name $AccountName -ErrorAction SilentlyContinue
+        if ($existing) {
+            if ($PSCmdlet.ShouldProcess($AccountName, "Remove local user account")) {
+                try {
+                    Remove-LocalUser -Name $AccountName -ErrorAction Stop
+                    Write-Host "[OK] Local account '$AccountName' removed." -ForegroundColor Green
+                }
+                catch {
+                    Write-Error "Failed to remove account: $($_.Exception.Message)"
+                    return
+                }
+            }
+        }
+        else {
+            Write-Host "[--] Account '$AccountName' does not exist. Skipping." -ForegroundColor Gray
+        }
+
+        # Revert registry key
+        $currentValue = Get-ItemProperty -Path $RegistryPath -Name $RegistryName -ErrorAction SilentlyContinue
+        if ($null -ne $currentValue -and $currentValue.$RegistryName -eq 1) {
+            if ($PSCmdlet.ShouldProcess($RegistryName, "Revert registry key to 0")) {
+                Set-ItemProperty -Path $RegistryPath -Name $RegistryName -Value 0 -Type DWord -Force
+                Write-Host "[OK] Registry key '$RegistryName' reverted to 0." -ForegroundColor Green
+            }
+        }
+        else {
+            Write-Host "[--] Registry key already absent or set to 0. Skipping." -ForegroundColor Gray
+        }
+
+        Write-Host "`nRemoval complete.`n" -ForegroundColor Green
+        return
+    }
+    #endregion
+
+    #region --- Password Prompt ---
     $Password = Read-Host -AsSecureString "Enter password for $AccountName"
     $PasswordConfirm = Read-Host -AsSecureString "Confirm password"
 
-    # Convert to plaintext for comparison only
-    $BSTR1 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
-    $BSTR2 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($PasswordConfirm)
-    $Plain1 = [Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR1)
-    $Plain2 = [Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR2)
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR1)
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR2)
+    $plain1 = [System.Net.NetworkCredential]::new('', $Password).Password
+    $plain2 = [System.Net.NetworkCredential]::new('', $PasswordConfirm).Password
 
-    if ($Plain1 -ne $Plain2) {
+    if ($plain1 -ne $plain2) {
         Write-Error "Passwords do not match. Exiting."
         return
     }
-    # Clear plaintext from memory
-    $Plain1 = $null
-    $Plain2 = $null
+    Remove-Variable plain1, plain2
+    #endregion
 
-    # Auto-detect OU if not specified
-    if (-not $OUPath) {
-        Write-Warning "No OU specified. You should set -OUPath to your service accounts OU."
-        Write-Host "Example: -OUPath 'OU=Service Accounts,OU=Library IT,DC=ad,DC=umd,DC=edu'" -ForegroundColor Yellow
-        Write-Host ""
-        $OUPath = Read-Host "Enter the target OU Distinguished Name"
-        if (-not $OUPath) {
-            Write-Error "OU path is required. Exiting."
+    #region --- Create or Verify Local Account ---
+    $existingAccount = Get-LocalUser -Name $AccountName -ErrorAction SilentlyContinue
+
+    if ($existingAccount) {
+        Write-Warning "Local account '$AccountName' already exists on $env:COMPUTERNAME."
+        if (-not $PSCmdlet.ShouldContinue(
+            "Account '$AccountName' already exists. Skip creation and ensure Administrators membership?",
+            "Account Exists"
+        )) {
+            Write-Host "Exiting." -ForegroundColor Yellow
             return
         }
     }
-
-    $AccountParams = @{
-        Name                  = $AccountName
-        SamAccountName        = $AccountName
-        UserPrincipalName     = "$AccountName@ad.umd.edu"
-        DisplayName           = $DisplayName
-        Description           = "Service account for DIT Rapid7 InsightVM authenticated vulnerability scanning. Do not disable without coordinating with DIT security team."
-        Path                  = $OUPath
-        AccountPassword       = $Password
-        Enabled               = $true
-        PasswordNeverExpires  = $true
-        CannotChangePassword  = $false
-        ChangePasswordAtLogon = $false
-    }
-
-    if ($PSCmdlet.ShouldProcess($AccountName, "Create AD service account")) {
-        try {
-            New-ADUser @AccountParams -ErrorAction Stop
-            Write-Host "[OK] Service account '$AccountName' created successfully." -ForegroundColor Green
-
-            $ServiceAccount = Get-ADUser -Identity $AccountName
-            Write-Host "     DN: $($ServiceAccount.DistinguishedName)" -ForegroundColor Gray
-        }
-        catch {
-            Write-Error "Failed to create service account: $($_.Exception.Message)"
-            return
-        }
-    }
-}
-#endregion
-
-#region --- UAC Registry Key Reminder ---
-Write-Host "`n--- UAC Registry Key (Required for local admin scanning) ---" -ForegroundColor Yellow
-Write-Host @"
-
-  Per Rapid7 docs, if using a local admin account with UAC, you must set:
-
-    Registry Key:  HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
-    Value Name:    LocalAccountTokenFilterPolicy
-    Value Type:    DWORD
-    Value Data:    1
-
-  PowerShell (run on each target, or deploy via GPO/Intune):
-
-    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' ``
-        -Name 'LocalAccountTokenFilterPolicy' -Value 1 -Type DWord
-
-  NOTE: This may not be needed if using a DOMAIN admin account, but is required
-        for local admin accounts to bypass UAC remote restrictions.
-
-"@ -ForegroundColor Gray
-#endregion
-
-#region --- Add to Local Administrators on Target Machines ---
-if ($AddToLocalAdmin -and $TargetComputers) {
-    Write-Host "`n--- Adding to Local Administrators ---" -ForegroundColor Cyan
-
-    $DomainPrefix = ($env:USERDNSDOMAIN -split '\.')[0].ToUpper()  # e.g., "AD"
-    $FullAccount = "$DomainPrefix\$AccountName"
-
-    foreach ($Computer in $TargetComputers) {
-        Write-Host "  Target: $Computer ... " -NoNewline
-
-        if ($PSCmdlet.ShouldProcess($Computer, "Add $FullAccount to local Administrators")) {
+    else {
+        if ($PSCmdlet.ShouldProcess($AccountName, "Create local service account")) {
             try {
-                Invoke-Command -ComputerName $Computer -ScriptBlock {
-                    param($Account)
-                    Add-LocalGroupMember -Group "Administrators" -Member $Account -ErrorAction Stop
-                } -ArgumentList $FullAccount -ErrorAction Stop
-
-                Write-Host "OK" -ForegroundColor Green
+                $userParams = @{
+                    Name                 = $AccountName
+                    Password             = $Password
+                    FullName             = $DisplayName
+                    Description          = $Description
+                    PasswordNeverExpires = $true
+                    AccountNeverExpires  = $true
+                    UserMayNotChangePassword = $false
+                }
+                New-LocalUser @userParams -ErrorAction Stop | Out-Null
+                Write-Host "[OK] Local account '$AccountName' created." -ForegroundColor Green
             }
             catch {
-                if ($_.Exception.Message -match "already a member") {
-                    Write-Host "ALREADY MEMBER" -ForegroundColor Yellow
-                }
-                else {
-                    Write-Host "FAILED - $($_.Exception.Message)" -ForegroundColor Red
-                }
+                Write-Error "Failed to create local account: $($_.Exception.Message)"
+                return
             }
         }
     }
+    #endregion
+
+    #region --- Add to Local Administrators ---
+    if ($PSCmdlet.ShouldProcess($AccountName, "Add to local Administrators group")) {
+        try {
+            Add-LocalGroupMember -Group "Administrators" -Member $AccountName -ErrorAction Stop
+            Write-Host "[OK] '$AccountName' added to Administrators." -ForegroundColor Green
+        }
+        catch {
+            if ($_.Exception.Message -match "already a member") {
+                Write-Host "[OK] '$AccountName' is already in Administrators." -ForegroundColor Yellow
+            }
+            else {
+                Write-Error "Failed to add to Administrators: $($_.Exception.Message)"
+                return
+            }
+        }
+    }
+    #endregion
+
+    #region --- Set UAC Registry Key ---
+    if ($PSCmdlet.ShouldProcess($RegistryName, "Set registry key to 1 (allow remote admin for local accounts)")) {
+        try {
+            if (-not (Test-Path $RegistryPath)) {
+                New-Item -Path $RegistryPath -Force | Out-Null
+            }
+            Set-ItemProperty -Path $RegistryPath -Name $RegistryName -Value 1 -Type DWord -Force
+            Write-Host "[OK] Registry key '$RegistryName' set to 1." -ForegroundColor Green
+        }
+        catch {
+            Write-Error "Failed to set registry key: $($_.Exception.Message)"
+            return
+        }
+    }
+    #endregion
 }
-elseif ($AddToLocalAdmin -and -not $TargetComputers) {
-    Write-Warning "-AddToLocalAdmin requires -TargetComputers. Skipping local admin setup."
-}
-#endregion
 
-#region --- Summary & Next Steps ---
-Write-Host "`n$('=' * 60)" -ForegroundColor Green
-Write-Host "  SETUP COMPLETE - NEXT STEPS" -ForegroundColor Green
-Write-Host "$('=' * 60)" -ForegroundColor Green
-Write-Host @"
+end {
+    # Skip summary if we were in Remove mode (already returned)
+    if ($Remove) { return }
 
-  1. ADD TO LOCAL ADMINS (if not done above):
-     Preferred: Create a GPO that adds '$AccountName' to the local
-     Administrators group on all library workstations/servers.
+    #region --- Verification ---
+    Write-Host "`n--- Verification ---" -ForegroundColor Cyan
 
-     GPO Path: Computer Configuration > Preferences > Control Panel Settings
-               > Local Users and Groups > Administrators (built-in)
-               > Add: AD\$AccountName
+    # Account info
+    $acct = Get-LocalUser -Name $AccountName -ErrorAction SilentlyContinue
+    if ($acct) {
+        Write-Host "  Account:  $($acct.Name)" -ForegroundColor White
+        Write-Host "  Enabled:  $($acct.Enabled)" -ForegroundColor White
+        Write-Host "  FullName: $($acct.FullName)" -ForegroundColor White
+    }
 
-  2. VERIFY REMOTE ACCESS:
-     From a target machine, test that the account can authenticate:
+    # Administrators membership
+    $adminMembers = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
+    $isMember = $adminMembers | Where-Object { $_.Name -match [regex]::Escape($AccountName) }
+    if ($isMember) {
+        Write-Host "  Admins:   YES" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  Admins:   NO (check manually)" -ForegroundColor Red
+    }
 
-       runas /user:AD\$AccountName "cmd /c whoami"
+    # Registry key
+    $regValue = Get-ItemProperty -Path $RegistryPath -Name $RegistryName -ErrorAction SilentlyContinue
+    if ($null -ne $regValue) {
+        Write-Host "  $RegistryName = $($regValue.$RegistryName)" -ForegroundColor White
+    }
+    #endregion
 
-  3. VERIFY WMI ACCESS (critical for Rapid7 scans):
+    #region --- Next Steps ---
+    Write-Host "`n$('=' * 60)" -ForegroundColor Green
+    Write-Host "  SETUP COMPLETE - NEXT STEPS" -ForegroundColor Green
+    Write-Host "$('=' * 60)" -ForegroundColor Green
+    Write-Host @"
 
-       # Run from a machine where the service account has admin rights
-       Get-WmiObject -Class Win32_OperatingSystem -ComputerName <TARGET> ``
-           -Credential (Get-Credential AD\$AccountName)
+  1. VERIFY WMI ACCESS (critical for Rapid7 scans):
 
-  4. ENSURE REMOTE REGISTRY (if using CIFS instead of WMI):
-     The Remote Registry service must be running on scan targets:
+       Get-WmiObject -Class Win32_OperatingSystem -Credential `
+           (Get-Credential $AccountName)
 
-       Get-Service -Name RemoteRegistry -ComputerName <TARGET>
-       Set-Service -Name RemoteRegistry -StartupType Automatic -ComputerName <TARGET>
-       Start-Service -Name RemoteRegistry -ComputerName <TARGET>
-
-  5. PROVIDE CREDENTIALS TO DIT:
+  2. PROVIDE CREDENTIALS TO DIT:
      Send the account name and password to the DIT security team
      via a secure channel (NOT email). Use a password manager or
      encrypted file transfer.
 
-     Account:  AD\$AccountName
-     UPN:      $AccountName@ad.umd.edu
+       Computer: $env:COMPUTERNAME
+       Account:  $AccountName
 
-  6. FIREWALL RULES:
+  3. FIREWALL RULES:
      Run Deploy-Rapid7FirewallRules.ps1 to open the scanning subnet
-     (128.8.236.64/27) on all managed Windows hosts.
+     (128.8.236.64/27) on this host.
 
 "@ -ForegroundColor White
-#endregion
+    #endregion
+}

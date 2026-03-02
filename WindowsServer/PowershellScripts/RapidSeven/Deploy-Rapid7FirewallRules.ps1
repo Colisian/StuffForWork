@@ -209,15 +209,15 @@ process {
         try {
             if ($Computer -eq $env:COMPUTERNAME) {
                 if ($PSCmdlet.ShouldProcess($Computer, "Configure Rapid7 firewall rules")) {
-                    $result = & $ScriptBlock -Rules $Rules -RulePrefix $RulePrefix -Remove:$Remove
-                    $Results.AddRange($result)
+                    $result = @(& $ScriptBlock -Rules $Rules -RulePrefix $RulePrefix -Remove:$Remove)
+                    foreach ($r in $result) { $Results.Add($r) }
                 }
             }
             else {
                 if ($PSCmdlet.ShouldProcess($Computer, "Configure Rapid7 firewall rules (remote)")) {
-                    $result = Invoke-Command -ComputerName $Computer -ScriptBlock $ScriptBlock `
-                        -ArgumentList $Rules, $RulePrefix, $Remove.IsPresent -ErrorAction Stop
-                    $Results.AddRange($result)
+                    $result = @(Invoke-Command -ComputerName $Computer -ScriptBlock $ScriptBlock `
+                        -ArgumentList $Rules, $RulePrefix, $Remove.IsPresent -ErrorAction Stop)
+                    foreach ($r in $result) { $Results.Add($r) }
                 }
             }
         }
