@@ -162,12 +162,14 @@ begin {
                         $svc | Stop-Service -Force -ErrorAction Stop
                         Write-Log "Stopped service: $($svc.Name)" "ACTION"
                     }
-                    & sc.exe delete $svc.Name 2>&1 | Out-Null
-                    if ($LASTEXITCODE -ne 0) {
-                        Write-Log "sc.exe delete returned exit code $LASTEXITCODE for $($svc.Name)" "WARN"
-                    } else {
-                        Write-Log "Deleted service: $($svc.Name)" "SUCCESS"
-                        $removed++
+                    if ($PSCmdlet.ShouldProcess($svc.Name, "sc.exe delete")) {
+                        & sc.exe delete $svc.Name 2>&1 | Out-Null
+                        if ($LASTEXITCODE -ne 0) {
+                            Write-Log "sc.exe delete returned exit code $LASTEXITCODE for $($svc.Name)" "WARN"
+                        } else {
+                            Write-Log "Deleted service: $($svc.Name)" "SUCCESS"
+                            $removed++
+                        }
                     }
                 } catch {
                     Write-Log "Failed to remove service $($svc.Name): $_" "ERROR"
@@ -317,17 +319,19 @@ begin {
                     Write-Log "Failed to remove directory ${path}: $_" "ERROR"
                     # Robocopy mirror trick as fallback for stubborn dirs
                     Write-Log "Attempting robocopy fallback for: $path" "WARN"
-                    try {
-                        $emptyDir = [System.IO.Path]::GetTempFileName()
-                        Remove-Item $emptyDir -Force
-                        New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
-                        & robocopy.exe $emptyDir $path /MIR /NFL /NDL /NJH /NJS /NC /NS | Out-Null
-                        Remove-Item $emptyDir -Recurse -Force -ErrorAction SilentlyContinue
-                        Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
-                        Write-Log "Robocopy fallback succeeded: $path" "SUCCESS"
-                        $removed++
-                    } catch {
-                        Write-Log "Robocopy fallback also failed for ${path}: $_" "ERROR"
+                    if ($PSCmdlet.ShouldProcess($path, "robocopy /MIR fallback")) {
+                        try {
+                            $emptyDir = [System.IO.Path]::GetTempFileName()
+                            Remove-Item $emptyDir -Force
+                            New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
+                            & robocopy.exe $emptyDir $path /MIR /NFL /NDL /NJH /NJS /NC /NS | Out-Null
+                            Remove-Item $emptyDir -Recurse -Force -ErrorAction SilentlyContinue
+                            Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+                            Write-Log "Robocopy fallback succeeded: $path" "SUCCESS"
+                            $removed++
+                        } catch {
+                            Write-Log "Robocopy fallback also failed for ${path}: $_" "ERROR"
+                        }
                     }
                 }
             }
@@ -345,6 +349,15 @@ begin {
     function Test-RemnantsExist {
         [CmdletBinding()]
         param()
+
+        # Check running processes
+        $remainingProcs = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.Path -like "*JWrapper*" -or
+            $_.Path -like "*SimpleHelp*" -or
+            $_.Name -like "*JWrapper*" -or
+            $_.Name -like "*SimpleHelp*"
+        }
+        if ($remainingProcs) { return $true }
 
         # Check directories
         foreach ($path in $TargetPaths) {
