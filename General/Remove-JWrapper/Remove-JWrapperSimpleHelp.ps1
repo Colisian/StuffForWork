@@ -109,7 +109,7 @@ begin {
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
         $entry = "[$timestamp] [$Level] $Message"
         Write-Output $entry
-        Add-Content -Path $LogFile -Value $entry -ErrorAction SilentlyContinue
+        Add-Content -Path $LogFile -Value $entry -ErrorAction SilentlyContinue -WhatIf:$false
     }
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -308,29 +308,31 @@ begin {
         foreach ($path in $TargetPaths) {
             if (Test-Path $path) {
                 Write-Log "Found directory: $path — removing..." "ACTION"
-                try {
-                    # Force-remove read-only attributes first
-                    Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue |
-                        ForEach-Object { $_.Attributes = 'Normal' }
-                    Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
-                    Write-Log "Removed directory: $path" "SUCCESS"
-                    $removed++
-                } catch {
-                    Write-Log "Failed to remove directory ${path}: $_" "ERROR"
-                    # Robocopy mirror trick as fallback for stubborn dirs
-                    Write-Log "Attempting robocopy fallback for: $path" "WARN"
-                    if ($PSCmdlet.ShouldProcess($path, "robocopy /MIR fallback")) {
-                        try {
-                            $emptyDir = [System.IO.Path]::GetTempFileName()
-                            Remove-Item $emptyDir -Force
-                            New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
-                            & robocopy.exe $emptyDir $path /MIR /NFL /NDL /NJH /NJS /NC /NS | Out-Null
-                            Remove-Item $emptyDir -Recurse -Force -ErrorAction SilentlyContinue
-                            Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
-                            Write-Log "Robocopy fallback succeeded: $path" "SUCCESS"
-                            $removed++
-                        } catch {
-                            Write-Log "Robocopy fallback also failed for ${path}: $_" "ERROR"
+                if ($PSCmdlet.ShouldProcess($path, "Remove directory")) {
+                    try {
+                        # Force-remove read-only attributes first
+                        Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue |
+                            ForEach-Object { $_.Attributes = 'Normal' }
+                        Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+                        Write-Log "Removed directory: $path" "SUCCESS"
+                        $removed++
+                    } catch {
+                        Write-Log "Failed to remove directory ${path}: $_" "ERROR"
+                        # Robocopy mirror trick as fallback for stubborn dirs
+                        Write-Log "Attempting robocopy fallback for: $path" "WARN"
+                        if ($PSCmdlet.ShouldProcess($path, "robocopy /MIR fallback")) {
+                            try {
+                                $emptyDir = [System.IO.Path]::GetTempFileName()
+                                Remove-Item $emptyDir -Force
+                                New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
+                                & robocopy.exe $emptyDir $path /MIR /NFL /NDL /NJH /NJS /NC /NS | Out-Null
+                                Remove-Item $emptyDir -Recurse -Force -ErrorAction SilentlyContinue
+                                Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+                                Write-Log "Robocopy fallback succeeded: $path" "SUCCESS"
+                                $removed++
+                            } catch {
+                                Write-Log "Robocopy fallback also failed for ${path}: $_" "ERROR"
+                            }
                         }
                     }
                 }
