@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+ #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Removes JWrapper Remote Access / SimpleHelp from Windows endpoints.
@@ -461,3 +461,4 @@ process {
 
     exit $exitCode
 }
+ 
