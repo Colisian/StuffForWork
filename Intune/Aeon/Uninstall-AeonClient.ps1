@@ -33,8 +33,19 @@ process {
         exit 0
     }
 
-    $productGuid = $app.PSChildName
-    Write-Output "Found $productName ($productGuid). Uninstalling..."
+    Write-Output "Found $productName — Registry key: $($app.PSChildName)"
+    Write-Output "  DisplayName    : $($app.DisplayName)"
+    Write-Output "  UninstallString: $($app.UninstallString)"
+
+    # Prefer the UninstallString from the registry; extract the GUID from it
+    # Typical format: MsiExec.exe /I{GUID} or MsiExec.exe /X{GUID}
+    if ($app.UninstallString -match '\{[A-F0-9\-]+\}') {
+        $productGuid = $Matches[0]
+    } else {
+        # Fall back to the registry key name if it looks like a GUID
+        $productGuid = $app.PSChildName
+    }
+    Write-Output "Using product GUID: $productGuid"
 
     $uninstallArgs = "/x `"$productGuid`" /qn /norestart /l*v `"$logFile`""
     $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $uninstallArgs -Wait -PassThru
