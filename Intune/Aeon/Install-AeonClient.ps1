@@ -31,7 +31,7 @@ process {
     }
 
     Write-Output "Installing Aeon Client from $msiFile"
-    $installArgs = "/i `"$msiFile`" /qn /norestart /l*v `"$logFile`""
+    $installArgs = "/i `"$msiFile`" /qn /norestart ALLUSERS=1 /l*v `"$logFile`""
     $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $installArgs -Wait -PassThru
 
     if ($process.ExitCode -ne 0) {
