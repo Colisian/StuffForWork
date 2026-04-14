@@ -40,24 +40,34 @@ process {
     }
     Write-Output "Aeon Client installed successfully."
 
-    # --- Remove unwanted shortcuts ---
-    $publicDesktop = 'C:\Users\Public\Desktop'
+    # --- Remove unwanted shortcuts from all user desktops ---
+    # Running as SYSTEM, so $env:USERNAME is "SYSTEM" — must enumerate user profiles directly
+    $desktopPaths = @('C:\Users\Public\Desktop')
+    $excludedProfiles = @('Public', 'Default', 'Default User', 'All Users')
+
+    Get-ChildItem -Path 'C:\Users' -Directory |
+        Where-Object { $_.Name -notin $excludedProfiles } |
+        ForEach-Object { $desktopPaths += Join-Path $_.FullName 'Desktop' }
 
     # Poll for up to 15 seconds in case shortcuts appear after install
     $timeout = 15
     $elapsed = 0
     while ($elapsed -lt $timeout) {
-        $found = $unwantedShortcuts | Where-Object { Test-Path (Join-Path $publicDesktop $_) }
+        $found = foreach ($desktop in $desktopPaths) {
+            $unwantedShortcuts | Where-Object { Test-Path (Join-Path $desktop $_) }
+        }
         if ($found) { break }
         Start-Sleep -Seconds 5
         $elapsed += 5
     }
 
-    foreach ($shortcut in $unwantedShortcuts) {
-        $shortcutPath = Join-Path -Path $publicDesktop -ChildPath $shortcut
-        if (Test-Path $shortcutPath) {
-            Remove-Item -Path $shortcutPath -Force
-            Write-Output "Removed $shortcutPath"
+    foreach ($desktop in $desktopPaths) {
+        foreach ($shortcut in $unwantedShortcuts) {
+            $shortcutPath = Join-Path -Path $desktop -ChildPath $shortcut
+            if (Test-Path $shortcutPath) {
+                Remove-Item -Path $shortcutPath -Force
+                Write-Output "Removed $shortcutPath"
+            }
         }
     }
     Write-Output "Shortcut cleanup completed."

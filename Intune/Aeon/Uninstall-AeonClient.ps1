@@ -56,19 +56,26 @@ process {
     }
     Write-Output "$productName uninstalled successfully."
 
-    # --- Clean up any leftover shortcuts ---
-    $publicDesktop = 'C:\Users\Public\Desktop'
+    # --- Clean up any leftover shortcuts from all user desktops ---
+    $desktopPaths = @('C:\Users\Public\Desktop')
+    $excludedProfiles = @('Public', 'Default', 'Default User', 'All Users')
     $shortcuts = @(
         'Customization Manager.lnk',
         'Staff Manager.lnk',
         'Aeon Client.lnk'
     )
 
-    foreach ($shortcut in $shortcuts) {
-        $shortcutPath = Join-Path -Path $publicDesktop -ChildPath $shortcut
-        if (Test-Path $shortcutPath) {
-            Remove-Item -Path $shortcutPath -Force
-            Write-Output "Removed $shortcutPath"
+    Get-ChildItem -Path 'C:\Users' -Directory |
+        Where-Object { $_.Name -notin $excludedProfiles } |
+        ForEach-Object { $desktopPaths += Join-Path $_.FullName 'Desktop' }
+
+    foreach ($desktop in $desktopPaths) {
+        foreach ($shortcut in $shortcuts) {
+            $shortcutPath = Join-Path -Path $desktop -ChildPath $shortcut
+            if (Test-Path $shortcutPath) {
+                Remove-Item -Path $shortcutPath -Force
+                Write-Output "Removed $shortcutPath"
+            }
         }
     }
     Write-Output "Cleanup completed."
