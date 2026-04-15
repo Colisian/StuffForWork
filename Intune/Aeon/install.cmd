@@ -1,6 +1,6 @@
 @echo off
 REM Install the Illiad Client MSI
-msiexec /i "%~dp0AeonClientInstaller_6.0.5.0.msi" /qn /norestart
+msiexec /i "%~dp0AeonClientInstaller_6.0.6.0.msi" /qn /norestart ALLUSERS=1
 echo Aeon Client Installed
 
 REM Run Powershell script to hide shortcuts
