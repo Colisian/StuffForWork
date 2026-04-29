@@ -3,5 +3,13 @@
     "files.eol": "\n",
     "[shellscript]": {
       "files.eol": "\n"
-    }
+    },
+    "cSpell.words": [
+      "aeonlogon",
+      "HKLM",
+      "Intune",
+      "msiexec",
+      "norestart",
+      "Overwitten"
+    ]
   }
