@@ -1,6 +1,6 @@
 #Define source folder and destination folder
 
-$sourceFolder = "Fonts_Rick" 
+$sourceFolder = "Fonts_ArialUnicode" 
 $destinationFolder = "C:\Windows\Fonts"
 
 #Check if source folder exists
@@ -27,7 +27,7 @@ foreach ($font in $fonts){
     $destinationFontPath = Join-Path -Path $destinationFolder -ChildPath $font.Name
     try {
         Copy-Item -Path $font.FullName -Destination $destinationFontPath -Force -ErrorAction Stop
-        Write-Output "Installed/Overwitten font: $($font.Name)"
+        Write-Output "Installed/Overwritten font: $($font.Name)"
 
         #Register the font
         $fontName = [System.IO.Path]::GetFileNameWithoutExtension($font.Name)
@@ -35,7 +35,7 @@ foreach ($font in $fonts){
         Set-ItemProperty -Path $fontRegistryPath -Name $fontName -Value $font.Name -Force -ErrorAction Stop
         Write-Output "Registered font: $($font.Name)"
     } catch {
-        Write-Output "Error installing font: $($font.Name) - Errot: $($_.Exception.Message)"
+        Write-Output "Error installing font: $($font.Name) - Error: $($_.Exception.Message)"
     }
 }
 
