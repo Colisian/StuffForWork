@@ -1,3 +1,3 @@
 @echo off
-PowerShell.exe -ExecutionPolicy Bypass -File "%~dp0InstallFonts.ps1"
-exit /b 0
+PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0InstallFonts.ps1"
+exit /b %ERRORLEVEL%

@@ -1,19 +1,18 @@
 <#
 .SYNOPSIS
-    Installs Arial Unicode MS fonts machine-wide for Intune Win32 deployment.
+    Removes Arial Unicode MS fonts deployed by InstallFonts.ps1.
 
 .DESCRIPTION
-    Copies the OpenType font files bundled in .\Fonts_ArialUnicode into
-    %WINDIR%\Fonts, registers each in HKLM, loads them into the current GDI
-    session via AddFontResource, and broadcasts WM_FONTCHANGE so running
-    applications see the new fonts without requiring a logoff.
+    Unloads each font from the GDI session, deletes its HKLM registry entry,
+    removes the font file from %WINDIR%\Fonts, and broadcasts WM_FONTCHANGE so
+    running apps drop the font handles.
 
     Designed for SYSTEM-context execution from the Intune Management Extension.
 
 .NOTES
     Author : Oji McLeod (cmcleod1@umd.edu)
     Date   : 2026-05-01
-    Version: 1.1.0
+    Version: 1.0.0
 #>
 
 [CmdletBinding()]
@@ -21,19 +20,18 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
-# ---- Manifest of fonts to install ---------------------------------------
-# Edit this list when adding/removing fonts in .\Fonts_ArialUnicode.
+# ---- Manifest -----------------------------------------------------------
+# Must stay in sync with InstallFonts.ps1.
 $fontManifest = @(
     @{ File = 'arial unicode ms.otf';      RegName = 'Arial Unicode MS (OpenType)' }
     @{ File = 'arial unicode ms bold.otf'; RegName = 'Arial Unicode MS Bold (OpenType)' }
 )
 
 # ---- Configuration ------------------------------------------------------
-$sourceFolder   = Join-Path $PSScriptRoot     'Fonts_ArialUnicode'
 $destinationDir = Join-Path $env:windir       'Fonts'
 $registryPath   = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
 $logDir         = Join-Path $env:ProgramData  'UMDLibraries\Logs'
-$logFile        = Join-Path $logDir           'InstallFonts.log'
+$logFile        = Join-Path $logDir           'UninstallFonts.log'
 
 # ---- Logging ------------------------------------------------------------
 if (-not (Test-Path $logDir)) {
@@ -46,7 +44,7 @@ function Write-Log {
     Write-Output $line
 }
 
-# ---- P/Invoke: GDI font load + WM_FONTCHANGE broadcast ------------------
+# ---- P/Invoke -----------------------------------------------------------
 if (-not ('UMD.FontInterop' -as [type])) {
     Add-Type -TypeDefinition @"
 using System;
@@ -70,36 +68,30 @@ namespace UMD {
 }
 
 # ---- Main ---------------------------------------------------------------
-Write-Log "==== InstallFonts started ===="
-Write-Log "Source     : $sourceFolder"
-Write-Log "Destination: $destinationDir"
-
-if (-not (Test-Path -Path $sourceFolder -PathType Container)) {
-    Write-Log "Source folder not found: $sourceFolder" 'ERROR'
-    exit 1
-}
+Write-Log "==== UninstallFonts started ===="
 
 $failed = 0
 foreach ($entry in $fontManifest) {
-    $sourcePath = Join-Path $sourceFolder   $entry.File
-    $destPath   = Join-Path $destinationDir $entry.File
+    $destPath = Join-Path $destinationDir $entry.File
 
     try {
-        if (-not (Test-Path -Path $sourcePath -PathType Leaf)) {
-            throw "Source font missing: $sourcePath"
+        # Unload from GDI. RemoveFontResource only succeeds if the path matches
+        # what AddFontResource was originally called with.
+        if (Test-Path -Path $destPath -PathType Leaf) {
+            [void][UMD.FontInterop]::RemoveFontResource($destPath)
+            Write-Log "Unloaded: $($entry.File)"
         }
 
-        Copy-Item -Path $sourcePath -Destination $destPath -Force
-        Write-Log "Copied  : $($entry.File)"
+        # Remove the registry value (ignore if already absent).
+        if (Get-ItemProperty -Path $registryPath -Name $entry.RegName -ErrorAction SilentlyContinue) {
+            Remove-ItemProperty -Path $registryPath -Name $entry.RegName -Force
+            Write-Log "Unregistered: $($entry.RegName)"
+        }
 
-        Set-ItemProperty -Path $registryPath -Name $entry.RegName -Value $entry.File -Type String -Force
-        Write-Log "Register: '$($entry.RegName)' => '$($entry.File)'"
-
-        $loaded = [UMD.FontInterop]::AddFontResource($destPath)
-        if ($loaded -le 0) {
-            Write-Log "AddFontResource returned $loaded for $($entry.File); font may not load until reboot." 'WARN'
-        } else {
-            Write-Log "Loaded  : $($entry.File)"
+        # Delete the file.
+        if (Test-Path -Path $destPath -PathType Leaf) {
+            Remove-Item -Path $destPath -Force
+            Write-Log "Deleted : $destPath"
         }
     } catch {
         $failed++
@@ -107,7 +99,7 @@ foreach ($entry in $fontManifest) {
     }
 }
 
-# Notify running apps. SendMessageTimeout avoids hangs on unresponsive windows.
+# Notify running apps.
 try {
     $result = [IntPtr]::Zero
     [void][UMD.FontInterop]::SendMessageTimeout(
@@ -121,8 +113,8 @@ try {
 }
 
 if ($failed -gt 0) {
-    Write-Log "==== InstallFonts completed with $failed failure(s) ====" 'ERROR'
+    Write-Log "==== UninstallFonts completed with $failed failure(s) ====" 'ERROR'
     exit 1
 }
-Write-Log "==== InstallFonts completed successfully ===="
+Write-Log "==== UninstallFonts completed successfully ===="
 exit 0
