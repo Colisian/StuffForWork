@@ -271,6 +271,72 @@ if ($PSCmdlet.ShouldProcess($regPath, "Set bUpdater = 0")) {
 
 Write-Log "--- STEP 5: Uninstalling Adobe Products ---"
 
+# ----------------------------------------------------------------------------
+# Stop Adobe services and processes that hold file locks
+# ----------------------------------------------------------------------------
+# Adobe CC services and helper processes routinely keep files open in
+# Program Files\Adobe and Common Files\Adobe. If we don't stop them first,
+# both msiexec /x and the CC Uninstaller commonly fail with "files in use".
+
+$adobeServicesToStop = @(
+    "AGSService",            # Adobe Genuine Software Integrity Service
+    "AGMService",            # Adobe Genuine Monitor Service
+    "AdobeUpdateService",
+    "Adobe Update Service",
+    "AdobeARMservice"        # may have been disabled in Step 4 but could still be running
+)
+
+foreach ($svcName in $adobeServicesToStop) {
+    $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -eq "Running") {
+        if ($PSCmdlet.ShouldProcess($svcName, "Stop service")) {
+            try {
+                Stop-Service -Name $svcName -Force -ErrorAction Stop
+                Write-Log "Stopped service: $svcName"
+            }
+            catch {
+                Write-Log "Could not stop service ${svcName}: $_" -Level WARN
+            }
+        }
+    }
+}
+
+# Process names (no .exe extension — Get-Process strips it)
+$adobeProcessesToKill = @(
+    "Creative Cloud",
+    "Creative Cloud Helper",
+    "CCXProcess",
+    "CCLibrary",
+    "Adobe Desktop Service",
+    "AdobeIPCBroker",
+    "AdobeUpdateService",
+    "AGSService",
+    "AGMService",
+    "armsvc",
+    "Adobe CEF Helper",
+    "Acrobat",
+    "AcroRd32",
+    "AcroCEF"
+)
+
+foreach ($procName in $adobeProcessesToKill) {
+    $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
+    foreach ($proc in $procs) {
+        if ($PSCmdlet.ShouldProcess("$procName (PID $($proc.Id))", "Stop process")) {
+            try {
+                Stop-Process -Id $proc.Id -Force -ErrorAction Stop
+                Write-Log "Killed process: $procName (PID $($proc.Id))"
+            }
+            catch {
+                Write-Log "Could not kill process ${procName}: $_" -Level WARN
+            }
+        }
+    }
+}
+
+# Brief pause to let handles release before invoking installers
+Start-Sleep -Seconds 2
+
 # Enumerate Adobe products via the Uninstall registry keys.
 # Avoid Win32_Product — querying it triggers an MSI consistency check /
 # self-repair on every installed product on the machine.
