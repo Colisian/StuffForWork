@@ -109,8 +109,8 @@ EXEC dbo.sp_add_jobstep
     @on_fail_action = 2,
     @command = N'
 EXEC msdb.dbo.sp_send_dbmail
-    @profile_name = N''REPLACE_WITH_DBMAIL_PROFILE'',
-    @recipients = N''REPLACE_WITH_RECIPIENT_EMAIL'',
+    @profile_name = N''Pharos_Reports'',
+    @recipients = N''cmcleod1@umd.edu'',
     @subject = N''Pharos Daily Printer Summary - '' + CONVERT(nvarchar(10), GETDATE(), 120),
     @body = N''Attached is the Pharos daily printer summary for '' + CONVERT(nvarchar(10), GETDATE(), 120) + N''.'',
     @query = N''
