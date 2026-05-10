@@ -37,6 +37,7 @@ BEGIN
                 WHEN pt.print_group LIKE 'LIB-PAL%'      THEN 'LIB-PAL'
                 WHEN pt.print_group LIKE 'LIB-Arch%'     THEN 'LIB-Arch'
                 WHEN pt.print_group LIKE 'LIB-Art%'      THEN 'LIB-Art'
+                WHEN pt.print_group LIKE 'LIB-HBK%'      THEN 'LIB-HBK'
                 WHEN pt.print_group LIKE 'LIB-Mdroom%'   THEN 'LIB-Mdroom'
                 ELSE pt.print_group
             END AS printgroup_summary

@@ -16,6 +16,14 @@ This folder contains a SQL Server report script for the `pharos` database.
     - `color_pages`
     - `total_pages`
     - `total_charged` (positive dollars from negative transaction amounts)
+- `pharos_printer_summary_csv_job.sql`
+  - Creates `dbo.printer_summary_rollup_history` if needed
+  - Creates a SQL Server Agent job that saves the current day's report output
+  - Exports that saved output to a CSV with `sqlcmd`
+- `pharos_printer_summary_email_job.sql`
+  - Creates a SQL Server Agent job that saves the current day's report output
+  - Exports that saved output to a CSV with `sqlcmd`
+  - Emails the same day's saved output as a CSV attachment with Database Mail
 
 ## How the query works
 
@@ -26,6 +34,7 @@ This folder contains a SQL Server report script for the `pharos` database.
    - aggregated `transaction_print_attributes`
 3. Maps raw `print_group` names into combined groups (`LIB-Mckeldin`, `LIB-EPSL`, etc.).
 4. Uses `ROLLUP` to produce detail + subtotal + grand total rows.
+5. Maps `LIB-HBK...` print groups into `LIB-HBK`.
 
 ## Run manually
 
@@ -105,3 +114,54 @@ GO
 
 - SQL Server Agent service must be running.
 - The SQL login/credential used by the job needs permission to execute the procedure and read source tables.
+
+## Export to CSV
+
+Use [pharos_printer_summary_csv_job.sql](/Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos/pharos_printer_summary_csv_job.sql) when you want each daily run saved and exported to disk.
+
+What it does:
+
+1. Saves one result set per day into `dbo.printer_summary_rollup_history`.
+2. Exports the saved rows for `CAST(GETDATE() AS date)` to a CSV file.
+3. Names the file with SQL Server Agent start-date and start-time tokens.
+
+Important prerequisites:
+
+- Confirm this export path exists on the SQL Server:
+  - `D:\Reports\Pharos\`
+- Confirm the SQL Server Agent service account can write to that folder.
+- Confirm `sqlcmd` is installed on the SQL Server.
+- If you already created the earlier report job, delete or disable it before enabling the CSV export job to avoid duplicate runs.
+
+CSV behavior:
+
+- The T-SQL step stores the current calendar day's report.
+- The `CmdExec` step then exports that saved data to CSV.
+- The CSV file includes the grand total row, subtotal rows, and detail rows exactly as the stored procedure returns them.
+
+## Email the report
+
+Use [pharos_printer_summary_email_job.sql](/Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos/pharos_printer_summary_email_job.sql) when you want the daily run exported to CSV and emailed.
+
+What it does:
+
+1. Saves the daily report rows into `dbo.printer_summary_rollup_history`.
+2. Exports those rows to `D:\Reports\Pharos`.
+3. Sends an email through Database Mail with a CSV attachment generated from the saved rows.
+
+Important prerequisites:
+
+- Database Mail must already be configured on the SQL Server instance.
+- Replace these placeholders in the script before running it:
+  - `REPLACE_WITH_DBMAIL_PROFILE`
+  - `REPLACE_WITH_RECIPIENT_EMAIL`
+- If you already have the CSV-only job enabled, disable or delete it before enabling the mail-enabled job so you do not run both every night.
+
+Recommended test order:
+
+1. Send a plain Database Mail test message first.
+2. Run the mail-enabled job manually once.
+3. Verify:
+   - rows were inserted into `dbo.printer_summary_rollup_history`
+   - a CSV was written to `D:\Reports\Pharos`
+   - the email was delivered with the attached report
