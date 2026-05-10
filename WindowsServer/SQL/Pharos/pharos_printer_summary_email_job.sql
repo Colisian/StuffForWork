@@ -10,13 +10,29 @@ Purpose:
 
 Before running:
 - Confirm dbo.usp_rpt_printer_summary_rollup already exists in pharos.
-- Confirm dbo.printer_summary_rollup_history already exists, or run pharos_printer_summary_csv_job.sql first.
 - Confirm D:\Reports\Pharos exists on the SQL Server.
 - Confirm the SQL Server Agent service account can write to that folder.
 - Confirm sqlcmd is installed on the SQL Server.
-- Replace the Database Mail profile and recipient placeholders below.
 - Confirm Database Mail is enabled and working on the SQL Server instance.
 */
+
+IF OBJECT_ID('dbo.printer_summary_rollup_history', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.printer_summary_rollup_history (
+        history_id int IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        run_time datetime2 NOT NULL
+            CONSTRAINT DF_printer_summary_rollup_history_run_time DEFAULT SYSDATETIME(),
+        report_date date NOT NULL,
+        summary_group nvarchar(255) NOT NULL,
+        detail_group nvarchar(255) NOT NULL,
+        jobs int NOT NULL,
+        copies int NOT NULL,
+        color_pages int NOT NULL,
+        total_pages int NOT NULL,
+        total_charged decimal(12,2) NOT NULL
+    );
+END;
+GO
 
 USE [msdb];
 GO
@@ -97,7 +113,7 @@ EXEC dbo.sp_add_jobstep
     @subsystem = N'CmdExec',
     @on_success_action = 3,
     @on_fail_action = 2,
-    @command = N'sqlcmd -E -S $(ESCAPE_NONE(SRVR)) -d pharos -W -s "," -Q "SET NOCOUNT ON; SELECT report_date, summary_group, detail_group, jobs, copies, color_pages, total_pages, total_charged FROM dbo.printer_summary_rollup_history WHERE report_date = CAST(GETDATE() AS date) ORDER BY history_id;" -o "D:\Reports\Pharos\PharosPrinterSummary_$(ESCAPE_NONE(STRTDT))_$(ESCAPE_NONE(STRTTM)).csv"';
+    @command = N'sqlcmd -E -S $(ESCAPE_NONE(SRVR)) -d pharos -W -s "," -Q "SET NOCOUNT ON; SELECT report_date, summary_group, detail_group, jobs, copies, color_pages, total_pages, total_charged FROM dbo.printer_summary_rollup_history WHERE report_date = (SELECT MAX(report_date) FROM dbo.printer_summary_rollup_history) ORDER BY history_id;" -o "D:\Reports\Pharos\PharosPrinterSummary_$(ESCAPE_NONE(STRTDT))_$(ESCAPE_NONE(STRTTM)).csv"';
 GO
 
 EXEC dbo.sp_add_jobstep
@@ -108,11 +124,18 @@ EXEC dbo.sp_add_jobstep
     @on_success_action = 1,
     @on_fail_action = 2,
     @command = N'
+DECLARE @report_date date = (
+    SELECT MAX(report_date)
+    FROM pharos.dbo.printer_summary_rollup_history
+);
+DECLARE @subject nvarchar(255) = N''Pharos Daily Printer Summary - '' + CONVERT(nvarchar(10), @report_date, 120);
+DECLARE @body nvarchar(max) = N''Attached is the Pharos daily printer summary for '' + CONVERT(nvarchar(10), @report_date, 120) + N''.'';
+
 EXEC msdb.dbo.sp_send_dbmail
     @profile_name = N''Pharos_Reports'',
     @recipients = N''cmcleod1@umd.edu'',
-    @subject = N''Pharos Daily Printer Summary - '' + CONVERT(nvarchar(10), GETDATE(), 120),
-    @body = N''Attached is the Pharos daily printer summary for '' + CONVERT(nvarchar(10), GETDATE(), 120) + N''.'',
+    @subject = @subject,
+    @body = @body,
     @query = N''
 SET NOCOUNT ON;
 SELECT
@@ -125,7 +148,7 @@ SELECT
     total_pages,
     total_charged
 FROM pharos.dbo.printer_summary_rollup_history
-WHERE report_date = CAST(GETDATE() AS date)
+WHERE report_date = (SELECT MAX(report_date) FROM pharos.dbo.printer_summary_rollup_history)
 ORDER BY history_id;
 '',
     @attach_query_result_as_file = 1,
@@ -151,16 +174,3 @@ GO
 EXEC dbo.sp_add_jobserver
     @job_name = N'Pharos Printer Summary Daily CSV Export and Email';
 GO
-
-/*
-Update these placeholders before running:
-- REPLACE_WITH_DBMAIL_PROFILE
-- REPLACE_WITH_RECIPIENT_EMAIL
-
-Optional Database Mail test:
-EXEC msdb.dbo.sp_send_dbmail
-    @profile_name = N'YourProfile',
-    @recipients = N'you@example.com',
-    @subject = N'Database Mail test',
-    @body = N'Database Mail is working.';
-*/
