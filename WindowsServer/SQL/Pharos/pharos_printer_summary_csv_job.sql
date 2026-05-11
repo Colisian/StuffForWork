@@ -109,7 +109,7 @@ EXEC dbo.sp_add_jobstep
     @job_name = N'Pharos Printer Summary Daily CSV Export',
     @step_name = N'Export daily rollup to CSV',
     @subsystem = N'CmdExec',
-    @command = N'sqlcmd -E -S $(ESCAPE_NONE(SRVR)) -d pharos -W -s "," -Q "SET NOCOUNT ON; SELECT report_date, summary_group, detail_group, jobs, copies, color_pages, total_pages, total_charged FROM dbo.printer_summary_rollup_history WHERE report_date = CAST(GETDATE() AS date) ORDER BY history_id;" -o "D:\Reports\Pharos\PharosPrinterSummary_$(ESCAPE_NONE(STRTDT))_$(ESCAPE_NONE(STRTTM)).csv"',
+    @command = N'sqlcmd -E -S $(ESCAPE_NONE(SRVR)) -d pharos -W -s "," -Q "SET NOCOUNT ON; SELECT DISTINCT report_date, summary_group, detail_group, jobs, copies, color_pages, total_pages, total_charged FROM dbo.printer_summary_rollup_history WHERE report_date = (SELECT MAX(report_date) FROM dbo.printer_summary_rollup_history) ORDER BY report_date, summary_group, detail_group;" -o "D:\Reports\Pharos\PharosPrinterSummary_$(ESCAPE_NONE(STRTDT))_$(ESCAPE_NONE(STRTTM)).csv"',
     @on_success_action = 1,
     @on_fail_action = 2;
 GO
