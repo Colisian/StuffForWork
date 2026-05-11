@@ -31,7 +31,6 @@ BEGIN
             SUM(ISNULL([Copies], 0)) AS copies,
             SUM(ISNULL([Pages], 0)) AS pages,
             SUM(ISNULL([Color Pages], 0)) AS color_pages,
-            SUM(ISNULL([Sheets], 0)) AS sheets,
             CAST(SUM(ISNULL(-1.0 * [Amount Charged], 0)) AS decimal(12, 2)) AS total_charged
         FROM dbo.rpt_print_transactions
         WHERE [Date/Time] >= @start_time
@@ -48,7 +47,6 @@ BEGIN
             COALESCE(a.copies, 0) AS copies,
             COALESCE(a.pages, 0) AS pages,
             COALESCE(a.color_pages, 0) AS color_pages,
-            COALESCE(a.sheets, 0) AS sheets,
             COALESCE(a.total_charged, 0.00) AS total_charged
         FROM printer_list p
         LEFT JOIN device_activity a
@@ -77,7 +75,6 @@ BEGIN
             copies,
             pages,
             color_pages,
-            sheets,
             total_charged,
             0 AS sort_order
         FROM detail_rows
@@ -93,7 +90,6 @@ BEGIN
             SUM(copies),
             SUM(pages),
             SUM(color_pages),
-            SUM(sheets),
             CAST(SUM(total_charged) AS decimal(12, 2)),
             1 AS sort_order
         FROM detail_rows
@@ -107,7 +103,6 @@ BEGIN
         copies,
         pages,
         color_pages,
-        sheets,
         total_charged
     FROM final_rows
     ORDER BY

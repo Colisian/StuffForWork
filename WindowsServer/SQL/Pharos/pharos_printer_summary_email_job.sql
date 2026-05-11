@@ -51,7 +51,6 @@ BEGIN
         copies int NOT NULL,
         pages int NOT NULL,
         color_pages int NOT NULL,
-        sheets int NOT NULL,
         total_charged decimal(12,2) NOT NULL
     );
 END;
@@ -154,7 +153,6 @@ CREATE TABLE #device_summary (
     copies int,
     pages int,
     color_pages int,
-    sheets int,
     total_charged decimal(12,2)
 );
 
@@ -173,7 +171,6 @@ INSERT INTO dbo.printer_device_summary_history (
     copies,
     pages,
     color_pages,
-    sheets,
     total_charged
 )
 SELECT
@@ -186,7 +183,6 @@ SELECT
     copies,
     pages,
     color_pages,
-    sheets,
     total_charged
 FROM #device_summary;
 ';
@@ -207,7 +203,7 @@ EXEC dbo.sp_add_jobstep
     @subsystem = N'CmdExec',
     @on_success_action = 3,
     @on_fail_action = 2,
-    @command = N'sqlcmd -E -S $(ESCAPE_NONE(SRVR)) -d pharos -W -s "," -Q "SET NOCOUNT ON; SELECT DISTINCT report_date, printer_id, print_device, printer_type, device_type, jobs, copies, pages, color_pages, sheets, total_charged FROM dbo.printer_device_summary_history WHERE report_date = (SELECT MAX(report_date) FROM dbo.printer_device_summary_history) ORDER BY report_date, print_device;" -o "D:\Reports\Pharos\PharosPrinterDeviceSummary.csv"';
+    @command = N'sqlcmd -E -S $(ESCAPE_NONE(SRVR)) -d pharos -W -s "," -Q "SET NOCOUNT ON; SELECT DISTINCT report_date, printer_id, print_device, printer_type, device_type, jobs, copies, pages, color_pages, total_charged FROM dbo.printer_device_summary_history WHERE report_date = (SELECT MAX(report_date) FROM dbo.printer_device_summary_history) ORDER BY report_date, print_device;" -o "D:\Reports\Pharos\PharosPrinterDeviceSummary.csv"';
 GO
 
 EXEC dbo.sp_add_jobstep
