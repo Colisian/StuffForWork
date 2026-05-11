@@ -48,29 +48,95 @@ BEGIN
             ON tpa.transaction_id = t.transaction_id
         WHERE t.[time] >= @start_time
           AND t.[time] <= @end_time
+    ),
+    expected_groups AS (
+        SELECT 'LIB-Arch' AS summary_group, 'LIB-ArchMobileGroup' AS detail_group
+        UNION ALL SELECT 'LIB-Art', 'LIB-ArtMobileGroup'
+        UNION ALL SELECT 'LIB-Art', 'LIB-ArtPrintGroup'
+        UNION ALL SELECT 'LIB-EPSL', 'LIB-EPSLCanonMobileGroup'
+        UNION ALL SELECT 'LIB-EPSL', 'LIB-EPSLCanonPrintGroup'
+        UNION ALL SELECT 'LIB-HBK', 'LIB-HBKCanonPrintGroup'
+        UNION ALL SELECT 'LIB-Mckeldin', 'LIB-MckeldinCanonPrintGroup'
+        UNION ALL SELECT 'LIB-Mckeldin', 'LIB-MckeldinMobilePrintGroup'
+        UNION ALL SELECT 'LIB-Mdroom', 'LIB-MdroomPrintGroup'
+        UNION ALL SELECT 'LIB-PAL', 'LIB-PALCanonMobileGroupBW'
+        UNION ALL SELECT 'LIB-PAL', 'LIB-PALCanonMobileGroupColor'
+        UNION ALL SELECT 'LIB-PAL', 'LIB-PALCanonPrintGroupBW'
+        UNION ALL SELECT 'LIB-PAL', 'LIB-PALCanonPrintGroupColor'
+    ),
+    detail_rows AS (
+        SELECT
+            eg.summary_group,
+            eg.detail_group,
+            COUNT(b.transaction_id) AS jobs,
+            COALESCE(SUM(b.copies), 0) AS copies,
+            COALESCE(SUM(b.color_pages), 0) AS color_pages,
+            COALESCE(SUM(b.total_pages), 0) AS total_pages,
+            CAST(COALESCE(SUM(-1.0 * b.amount), 0) AS decimal(12, 2)) AS total_charged
+        FROM expected_groups eg
+        LEFT JOIN base b
+            ON b.printgroup_summary = eg.summary_group
+           AND b.print_group = eg.detail_group
+        GROUP BY
+            eg.summary_group,
+            eg.detail_group
+    ),
+    final_rows AS (
+        SELECT
+            summary_group,
+            detail_group,
+            jobs,
+            copies,
+            color_pages,
+            total_pages,
+            total_charged,
+            0 AS sort_group,
+            CASE WHEN detail_group = 'SUBTOTAL' THEN 1 WHEN detail_group = 'GRAND TOTAL' THEN 2 ELSE 0 END AS sort_detail
+        FROM detail_rows
+
+        UNION ALL
+
+        SELECT
+            summary_group,
+            'SUBTOTAL' AS detail_group,
+            SUM(jobs),
+            SUM(copies),
+            SUM(color_pages),
+            SUM(total_pages),
+            CAST(SUM(total_charged) AS decimal(12, 2)) AS total_charged,
+            0 AS sort_group,
+            1 AS sort_detail
+        FROM detail_rows
+        GROUP BY summary_group
+
+        UNION ALL
+
+        SELECT
+            'GRAND TOTAL' AS summary_group,
+            'GRAND TOTAL' AS detail_group,
+            SUM(jobs),
+            SUM(copies),
+            SUM(color_pages),
+            SUM(total_pages),
+            CAST(SUM(total_charged) AS decimal(12, 2)) AS total_charged,
+            1 AS sort_group,
+            2 AS sort_detail
+        FROM detail_rows
     )
     SELECT
-        CASE
-            WHEN GROUPING(printgroup_summary) = 1 THEN 'GRAND TOTAL'
-            ELSE printgroup_summary
-        END AS summary_group,
-        CASE
-            WHEN GROUPING(print_group) = 1 AND GROUPING(printgroup_summary) = 0 THEN 'SUBTOTAL'
-            WHEN GROUPING(print_group) = 1 AND GROUPING(printgroup_summary) = 1 THEN 'GRAND TOTAL'
-            ELSE print_group
-        END AS detail_group,
-        COUNT(*) AS jobs,
-        SUM(copies) AS copies,
-        SUM(color_pages) AS color_pages,
-        SUM(total_pages) AS total_pages,
-        CAST(SUM(-1.0 * amount) AS decimal(12, 2)) AS total_charged
-    FROM base
-    GROUP BY ROLLUP (printgroup_summary, print_group)
+        summary_group,
+        detail_group,
+        jobs,
+        copies,
+        color_pages,
+        total_pages,
+        total_charged
+    FROM final_rows
     ORDER BY
-        CASE WHEN GROUPING(printgroup_summary) = 1 THEN 1 ELSE 0 END,
-        printgroup_summary,
-        CASE WHEN GROUPING(print_group) = 1 THEN 1 ELSE 0 END,
-        print_group;
+        sort_group,
+        summary_group,
+        sort_detail,
+        detail_group;
 END;
 GO
 
