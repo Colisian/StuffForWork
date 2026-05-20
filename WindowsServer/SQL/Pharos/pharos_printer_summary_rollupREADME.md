@@ -38,6 +38,15 @@ This folder contains a SQL Server report script for the `pharos` database.
 - `pharos_finals_2025_daily_devices.sql`
   - Returns a day-by-day device view for the same two finals periods
   - Uses the current excluded-device list from the device summary report
+- `pharos_finals_2024_daily_print_groups.sql`
+  - Returns a day-by-day print-group view for:
+    - Spring 2024 finals: May 11, 2024 through May 17, 2024
+    - Fall 2024 finals: December 11, 2024 through December 17, 2024
+  - Includes a grand total row at the end of each day
+- `pharos_finals_2024_daily_devices.sql`
+  - Returns a day-by-day device view for the same two 2024 finals periods
+  - Uses the current excluded-device list from the device summary report
+  - Includes a grand total row at the end of each day
 
 ## How the query works
 
@@ -175,3 +184,4 @@ Notes:
 - The print-group finals query only returns rows where activity exists for that day/group.
 - The device finals query cross joins the finals dates to the printer list, so it can show zero-usage devices for a given day.
 - The device finals query uses the same exclusion list as `dbo.usp_rpt_printer_device_summary`.
+- The 2024 finals scripts follow the same pattern as the 2025 finals scripts and include daily grand total rows.

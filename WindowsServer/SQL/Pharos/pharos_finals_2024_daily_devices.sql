@@ -4,25 +4,27 @@ GO
 /*
 Purpose:
 - Returns a day-by-day view of individual printer/device activity for the two finals periods:
-  - Spring 2025: May 15, 2025 through May 21, 2025
-  - Fall 2025: December 15, 2025 through December 20, 2025
+  - Spring 2024: May 11, 2024 through May 17, 2024
+  - Fall 2024: December 11, 2024 through December 17, 2024
 - Uses the existing device exclusion list.
+- Includes a grand total row at the end of each day.
 */
 
 WITH report_dates AS (
-    SELECT CAST('2025-05-15' AS date) AS report_date, 'Spring 2025 Finals' AS finals_period
-    UNION ALL SELECT '2025-05-16', 'Spring 2025 Finals'
-    UNION ALL SELECT '2025-05-17', 'Spring 2025 Finals'
-    UNION ALL SELECT '2025-05-18', 'Spring 2025 Finals'
-    UNION ALL SELECT '2025-05-19', 'Spring 2025 Finals'
-    UNION ALL SELECT '2025-05-20', 'Spring 2025 Finals'
-    UNION ALL SELECT '2025-05-21', 'Spring 2025 Finals'
-    UNION ALL SELECT '2025-12-15', 'Fall 2025 Finals'
-    UNION ALL SELECT '2025-12-16', 'Fall 2025 Finals'
-    UNION ALL SELECT '2025-12-17', 'Fall 2025 Finals'
-    UNION ALL SELECT '2025-12-18', 'Fall 2025 Finals'
-    UNION ALL SELECT '2025-12-19', 'Fall 2025 Finals'
-    UNION ALL SELECT '2025-12-20', 'Fall 2025 Finals'
+    SELECT CAST('2024-05-11' AS date) AS report_date, 'Spring 2024 Finals' AS finals_period
+    UNION ALL SELECT '2024-05-12', 'Spring 2024 Finals'
+    UNION ALL SELECT '2024-05-13', 'Spring 2024 Finals'
+    UNION ALL SELECT '2024-05-14', 'Spring 2024 Finals'
+    UNION ALL SELECT '2024-05-15', 'Spring 2024 Finals'
+    UNION ALL SELECT '2024-05-16', 'Spring 2024 Finals'
+    UNION ALL SELECT '2024-05-17', 'Spring 2024 Finals'
+    UNION ALL SELECT '2024-12-11', 'Fall 2024 Finals'
+    UNION ALL SELECT '2024-12-12', 'Fall 2024 Finals'
+    UNION ALL SELECT '2024-12-13', 'Fall 2024 Finals'
+    UNION ALL SELECT '2024-12-14', 'Fall 2024 Finals'
+    UNION ALL SELECT '2024-12-15', 'Fall 2024 Finals'
+    UNION ALL SELECT '2024-12-16', 'Fall 2024 Finals'
+    UNION ALL SELECT '2024-12-17', 'Fall 2024 Finals'
 ),
 printer_list AS (
     SELECT
@@ -56,8 +58,8 @@ device_activity AS (
         CAST(SUM(ISNULL(-1.0 * [Amount Charged], 0)) AS decimal(12,2)) AS total_charged
     FROM dbo.rpt_print_transactions
     WHERE CAST([Date/Time] AS date) IN (
-        '2025-05-15','2025-05-16','2025-05-17','2025-05-18','2025-05-19','2025-05-20','2025-05-21',
-        '2025-12-15','2025-12-16','2025-12-17','2025-12-18','2025-12-19','2025-12-20'
+        '2024-05-11','2024-05-12','2024-05-13','2024-05-14','2024-05-15','2024-05-16','2024-05-17',
+        '2024-12-11','2024-12-12','2024-12-13','2024-12-14','2024-12-15','2024-12-16','2024-12-17'
     )
     GROUP BY
         CAST([Date/Time] AS date),
