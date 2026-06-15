@@ -31,6 +31,22 @@ This folder contains a SQL Server report script for the `pharos` database.
   - Summarizes print activity by individual print device
   - Includes a grand total row
   - Excludes a fixed list of devices you chose not to report on
+- `pharos_finals_2025_daily_print_groups.sql`
+  - Returns a day-by-day print-group view for:
+    - Spring 2025 finals: May 15, 2025 through May 21, 2025
+    - Fall 2025 finals: December 15, 2025 through December 20, 2025
+- `pharos_finals_2025_daily_devices.sql`
+  - Returns a day-by-day device view for the same two finals periods
+  - Uses the current excluded-device list from the device summary report
+- `pharos_finals_2024_daily_print_groups.sql`
+  - Returns a day-by-day print-group view for:
+    - Spring 2024 finals: May 11, 2024 through May 17, 2024
+    - Fall 2024 finals: December 11, 2024 through December 17, 2024
+  - Includes a grand total row at the end of each day
+- `pharos_finals_2024_daily_devices.sql`
+  - Returns a day-by-day device view for the same two 2024 finals periods
+  - Uses the current excluded-device list from the device summary report
+  - Includes a grand total row at the end of each day
 
 ## How the query works
 
@@ -128,3 +144,44 @@ Email job behavior:
 - Step 5 emails both CSV files as attachments.
 - The export queries de-duplicate identical saved rows before sending output.
 - Using the latest saved `report_date` in the export steps avoids midnight crossover issues where a job starts before midnight and finishes after midnight.
+
+## Finals Queries
+
+Use these scripts when you need historical day-by-day finals-period reporting rather than the scheduled daily summaries.
+
+Print groups:
+
+- [pharos_finals_2025_daily_print_groups.sql](/Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos/pharos_finals_2025_daily_print_groups.sql)
+- Output columns:
+  - `finals_period`
+  - `report_date`
+  - `summary_group`
+  - `detail_group`
+  - `jobs`
+  - `copies`
+  - `color_pages`
+  - `total_pages`
+  - `total_charged`
+
+Devices:
+
+- [pharos_finals_2025_daily_devices.sql](/Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos/pharos_finals_2025_daily_devices.sql)
+- Output columns:
+  - `finals_period`
+  - `report_date`
+  - `printer_id`
+  - `print_device`
+  - `printer_type`
+  - `device_type`
+  - `jobs`
+  - `copies`
+  - `total_pages`
+  - `color_pages`
+  - `total_charged`
+
+Notes:
+
+- The print-group finals query only returns rows where activity exists for that day/group.
+- The device finals query cross joins the finals dates to the printer list, so it can show zero-usage devices for a given day.
+- The device finals query uses the same exclusion list as `dbo.usp_rpt_printer_device_summary`.
+- The 2024 finals scripts follow the same pattern as the 2025 finals scripts and include daily grand total rows.
