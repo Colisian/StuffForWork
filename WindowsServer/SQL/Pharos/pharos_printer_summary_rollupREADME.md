@@ -53,6 +53,11 @@ This folder contains a SQL Server report script for the `pharos` database.
   - Uses Database Mail profile `Pharos_Reports`
   - Sends to `cmcleod1@umd.edu`
   - Defaults to running on the 1st day of each month at 8:00 AM
+- `pharos_report_cleanup_monthly_job.sql`
+  - Creates a SQL Server Agent job that deletes old CSV files from `D:\Reports\Pharos`
+  - Keeps the current month and the immediately previous month
+  - Deletes files older than the first day of the previous month
+  - Defaults to running on the 1st day of each month at 7:00 AM
 
 ## How the query works
 
@@ -167,6 +172,26 @@ Notes:
 
 - The script recreates the job if it already exists.
 - If you want a different monthly day or time, change the SQL Server Agent schedule after creating the job.
+
+## Monthly Report Cleanup
+
+Use [pharos_report_cleanup_monthly_job.sql](/Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos/pharos_report_cleanup_monthly_job.sql) when you want SQL Server Agent to remove older CSV files from `D:\Reports\Pharos`.
+
+Behavior:
+
+- Deletes `*.csv` files whose `LastWriteTime` is older than the first day of the previous month
+- Keeps files from the current month and the immediately previous month
+- Defaults to running on the 1st day of each month at `7:00 AM` server local time
+
+Example:
+
+- On `July 1`, files from `May` and earlier are deleted
+- Files from `June` and `July` are kept
+
+Notes:
+
+- This job is intentionally separate from the monthly email job.
+- The SQL Server Agent service account must have delete permission on `D:\Reports\Pharos`.
 
 ## Finals Queries
 
