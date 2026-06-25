@@ -47,6 +47,17 @@ This folder contains a SQL Server report script for the `pharos` database.
   - Returns a day-by-day device view for the same two 2024 finals periods
   - Uses the current excluded-device list from the device summary report
   - Includes a grand total row at the end of each day
+- `pharos_printer_summary_monthly_email_job.sql`
+  - Creates a SQL Server Agent job that emails the previous calendar month's print-group rollup once per month
+  - Uses `dbo.usp_rpt_printer_summary_rollup`
+  - Uses Database Mail profile `Pharos_Reports`
+  - Sends to `cmcleod1@umd.edu`
+  - Defaults to running on the 1st day of each month at 8:00 AM
+- `pharos_report_cleanup_monthly_job.sql`
+  - Creates a SQL Server Agent job that deletes old CSV files from `D:\Reports\Pharos`
+  - Keeps the current month and the immediately previous month
+  - Deletes files older than the first day of the previous month
+  - Defaults to running on the 1st day of each month at 7:00 AM
 
 ## How the query works
 
@@ -144,6 +155,43 @@ Email job behavior:
 - Step 5 emails both CSV files as attachments.
 - The export queries de-duplicate identical saved rows before sending output.
 - Using the latest saved `report_date` in the export steps avoids midnight crossover issues where a job starts before midnight and finishes after midnight.
+
+## Monthly Summary Email
+
+Use [pharos_printer_summary_monthly_email_job.sql](/Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos/pharos_printer_summary_monthly_email_job.sql) when you want a separate monthly email for the print-group rollup using the previous calendar month as the reporting window.
+
+Behavior:
+
+- Sends one email with the procedure output attached as `PharosPrinterSummary_YYYY-MM.csv`
+- Uses Database Mail profile `Pharos_Reports`
+- Sends to `cmcleod1@umd.edu`
+- Defaults to the 1st day of each month at `8:00 AM` server local time
+- Reports on the previous calendar month each time it runs
+
+Notes:
+
+- The script recreates the job if it already exists.
+- If you want a different monthly day or time, change the SQL Server Agent schedule after creating the job.
+
+## Monthly Report Cleanup
+
+Use [pharos_report_cleanup_monthly_job.sql](/Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos/pharos_report_cleanup_monthly_job.sql) when you want SQL Server Agent to remove older CSV files from `D:\Reports\Pharos`.
+
+Behavior:
+
+- Deletes `*.csv` files whose `LastWriteTime` is older than the first day of the previous month
+- Keeps files from the current month and the immediately previous month
+- Defaults to running on the 1st day of each month at `7:00 AM` server local time
+
+Example:
+
+- On `July 1`, files from `May` and earlier are deleted
+- Files from `June` and `July` are kept
+
+Notes:
+
+- This job is intentionally separate from the monthly email job.
+- The SQL Server Agent service account must have delete permission on `D:\Reports\Pharos`.
 
 ## Finals Queries
 
