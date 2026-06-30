@@ -60,6 +60,25 @@ process {
         }
     }
 
+    # --- Set permissions so the Aeon client can write to .dbc files ---
+    try {
+        $acl = Get-Acl -Path $destinationPath
+        $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            "Authenticated Users",
+            "Modify",
+            "ContainerInherit,ObjectInherit",
+            "None",
+            "Allow"
+        )
+        $acl.SetAccessRule($accessRule)
+        Set-Acl -Path $destinationPath -AclObject $acl
+        Write-Output "Permissions set: Authenticated Users have Modify access to $destinationPath"
+    }
+    catch {
+        Write-Error "Failed to set permissions on destination folder: $_"
+        exit 1
+    }
+
     # --- Set registry value ---
     if (-not (Test-Path $registryPath)) {
         try {
