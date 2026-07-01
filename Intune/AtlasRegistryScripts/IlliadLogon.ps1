@@ -27,7 +27,7 @@ try {
     
     # Define the access rule: Everyone with Modify rights
     $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-        "Everyone",
+        "Authenticated Users",
         "Modify",
         "ContainerInherit,ObjectInherit",
         "None",
