@@ -37,7 +37,7 @@ $rules = @(
     New-Object System.Security.AccessControl.FileSystemAccessRule(
         'Users','ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')
 )
-# Snapshot to array first — iterating the live AccessRuleCollection while
+# Snapshot to array first - iterating the live AccessRuleCollection while
 # removing from it can silently skip rules.
 @($acl.Access) | ForEach-Object { $acl.RemoveAccessRule($_) | Out-Null }
 $rules | ForEach-Object { $acl.AddAccessRule($_) }
@@ -52,7 +52,7 @@ Write-Host "[+] Harvester deployed."
 auditpol /set /subcategory:"Process Creation"    /success:enable | Out-Null
 auditpol /set /subcategory:"Process Termination" /success:enable | Out-Null
 
-# Verify — auditpol /set silently no-ops if Advanced Audit Policy is overridden
+# Verify - auditpol /set silently no-ops if Advanced Audit Policy is overridden
 # by GPO (SCENoApplyLegacyAuditPolicy). This is the #1 silent-failure mode.
 $auditCheck = @(
     @{ Name = 'Process Creation';    Result = (auditpol /get /subcategory:"Process Creation"    | Out-String) }
@@ -60,7 +60,7 @@ $auditCheck = @(
 )
 foreach ($c in $auditCheck) {
     if ($c.Result -notmatch 'Success') {
-        Write-Warning "'$($c.Name)' auditing does not show Success — likely overridden by GPO. Harvester will collect nothing until this is resolved."
+        Write-Warning "'$($c.Name)' auditing does not show Success - likely overridden by GPO. Harvester will collect nothing until this is resolved."
     }
 }
 Write-Host "[+] Process Creation + Termination auditing enabled."
@@ -87,10 +87,10 @@ $trigger = @(
     New-ScheduledTaskTrigger -AtStartup
     New-ScheduledTaskTrigger -Once -At (Get-Date) `
         -RepetitionInterval (New-TimeSpan -Minutes $IntervalMin) `
-        -RepetitionDuration ([TimeSpan]::MaxValue)
+        -RepetitionDuration (New-TimeSpan -Days 3650)
 )
 
-# Use the fully-qualified account name — the short form 'SYSTEM' breaks on
+# Use the fully-qualified account name - the short form 'SYSTEM' breaks on
 # non-English Windows locales.
 $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' `
                 -LogonType ServiceAccount -RunLevel Highest

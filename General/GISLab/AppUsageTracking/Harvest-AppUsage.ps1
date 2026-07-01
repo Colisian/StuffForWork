@@ -128,6 +128,14 @@ foreach ($e in $events) {
         $leaf = ([System.IO.Path]::GetFileName($exePath)).ToLowerInvariant()
         if (-not $watch.ContainsKey($leaf)) { continue }
 
+        # Skip service-account launches (SYSTEM, LOCAL SERVICE, NETWORK SERVICE)
+        # so background updaters, telemetry, and Windows itself don't inflate
+        # LaunchCount. Only user-attributed process starts are counted.
+        # 4689 events pass through unfiltered - if we didn't record the start,
+        # the stop falls through the existing "no matching start" branch.
+        $subjectSid = $data['SubjectUserSid']
+        if ($subjectSid -in @('S-1-5-18','S-1-5-19','S-1-5-20')) { continue }
+
         $pidHex = $data['NewProcessId']            # e.g. "0x1a2b"
         $pidDec = [Convert]::ToInt64($pidHex, 16)
         $key    = "$pidDec|$leaf"
