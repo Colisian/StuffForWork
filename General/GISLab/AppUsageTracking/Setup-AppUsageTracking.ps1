@@ -1,204 +1,105 @@
 <#
 .SYNOPSIS
-    Harvests application launch counts and total runtime from the Windows
-    Security log (Event IDs 4688 / 4689) into a durable per-machine CSV.
-
-.DESCRIPTION
-    Designed to run on a schedule (e.g. every 15 min) as SYSTEM on lab PCs.
-    - Reads only NEW events since the last run (bookmark by RecordId).
-    - Filters to a configurable watch list of executables.
-    - Pairs ProcessStart (4688) with ProcessStop (4689) by ProcessId to
-      compute per-launch duration.
-    - Upserts a running tally: LaunchCount += 1, TotalSeconds += duration.
-    - Output is machine-wide, in C:\ProgramData\LabUsage, surviving user logoff.
+    One-time setup on a lab PC: enables process auditing, deploys the harvester,
+    registers a scheduled task, and ACLs the data folder against tampering.
 
 .NOTES
-    Requires: "Process Creation" + "Process Termination" auditing enabled.
-    Run context: SYSTEM (needs read access to the Security log).
-    Author: UMD Libraries ITFO
+    Run as Administrator (or via GPO startup script / Intune as SYSTEM).
+    Idempotent: safe to re-run.
 #>
 
 [CmdletBinding()]
 param(
-    # Executables to track. Match is case-insensitive on the leaf file name.
-    [string[]]$WatchList = @(
-        'chrome.exe','msedge.exe','firefox.exe',
-        'WINWORD.EXE','EXCEL.EXE','POWERPNT.EXE','OUTLOOK.EXE',
-        'Acrobat.exe','AcroRd32.exe',
-        'Code.exe','powershell.exe','pwsh.exe',
-        'matlab.exe','Rgui.exe','python.exe'
-    ),
-
-    [string]$DataDir   = "$env:ProgramData\LabUsage",
-    [string]$CsvPath   = "$env:ProgramData\LabUsage\usage.csv",
-    [string]$StatePath = "$env:ProgramData\LabUsage\.bookmark.json"
+    [string]$ScriptSource = "$PSScriptRoot\Harvest-AppUsage.ps1",
+    [string]$InstallDir   = "$env:ProgramData\LabUsage",
+    [int]   $IntervalMin  = 15,
+    [switch]$IncludeCmdLine   # only set if your security review approves it
 )
 
-# ---------------------------------------------------------------------------
-# 0. Setup
-# ---------------------------------------------------------------------------
-if (-not (Test-Path $DataDir)) {
-    New-Item -Path $DataDir -ItemType Directory -Force | Out-Null
+$ErrorActionPreference = 'Stop'
+
+# --- 0. Preflight ----------------------------------------------------------
+if (-not (Test-Path $ScriptSource)) {
+    throw "Harvester source not found: $ScriptSource"
 }
 
-# Normalize watch list to a fast lookup (lowercase leaf names)
-$watch = @{}
-foreach ($w in $WatchList) { $watch[$w.ToLowerInvariant()] = $true }
+# --- 1. Folder + ACL (deny ordinary Users write/delete) --------------------
+if (-not (Test-Path $InstallDir)) {
+    New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
+}
+$acl = Get-Acl $InstallDir
+$acl.SetAccessRuleProtection($true, $false)   # break inheritance
+$rules = @(
+    New-Object System.Security.AccessControl.FileSystemAccessRule(
+        'SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow')
+    New-Object System.Security.AccessControl.FileSystemAccessRule(
+        'Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow')
+    New-Object System.Security.AccessControl.FileSystemAccessRule(
+        'Users','ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')
+)
+# Snapshot to array first — iterating the live AccessRuleCollection while
+# removing from it can silently skip rules.
+@($acl.Access) | ForEach-Object { $acl.RemoveAccessRule($_) | Out-Null }
+$rules | ForEach-Object { $acl.AddAccessRule($_) }
+Set-Acl -Path $InstallDir -AclObject $acl
+Write-Host "[+] Data folder secured: $InstallDir"
 
-# ---------------------------------------------------------------------------
-# 1. Determine where we left off (bookmark by max RecordId processed)
-# ---------------------------------------------------------------------------
-$lastRecordId = 0
-if (Test-Path $StatePath) {
-    try {
-        $state = Get-Content $StatePath -Raw | ConvertFrom-Json
-        if ($state.LastRecordId) { $lastRecordId = [int64]$state.LastRecordId }
-    } catch {
-        Write-Warning "Bookmark unreadable, starting fresh: $_"
+# --- 2. Copy the harvester into place --------------------------------------
+Copy-Item $ScriptSource (Join-Path $InstallDir 'Harvest-AppUsage.ps1') -Force
+Write-Host "[+] Harvester deployed."
+
+# --- 3. Enable process auditing --------------------------------------------
+auditpol /set /subcategory:"Process Creation"    /success:enable | Out-Null
+auditpol /set /subcategory:"Process Termination" /success:enable | Out-Null
+
+# Verify — auditpol /set silently no-ops if Advanced Audit Policy is overridden
+# by GPO (SCENoApplyLegacyAuditPolicy). This is the #1 silent-failure mode.
+$auditCheck = @(
+    @{ Name = 'Process Creation';    Result = (auditpol /get /subcategory:"Process Creation"    | Out-String) }
+    @{ Name = 'Process Termination'; Result = (auditpol /get /subcategory:"Process Termination" | Out-String) }
+)
+foreach ($c in $auditCheck) {
+    if ($c.Result -notmatch 'Success') {
+        Write-Warning "'$($c.Name)' auditing does not show Success — likely overridden by GPO. Harvester will collect nothing until this is resolved."
     }
 }
+Write-Host "[+] Process Creation + Termination auditing enabled."
 
-# ---------------------------------------------------------------------------
-# 2. Pull new 4688 (start) and 4689 (stop) events from the Security log
-# ---------------------------------------------------------------------------
-$filter = @{ LogName = 'Security'; Id = 4688, 4689 }
-
-try {
-    $events = Get-WinEvent -FilterHashtable $filter -ErrorAction Stop |
-              Where-Object { $_.RecordId -gt $lastRecordId } |
-              Sort-Object RecordId
-} catch {
-    if ($_.Exception.Message -match 'No events were found') {
-        $events = @()
-    } else {
-        Write-Error "Failed to read Security log: $_"
-        exit 1
-    }
+if ($IncludeCmdLine) {
+    $reg = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit"
+    New-Item -Path $reg -Force | Out-Null
+    Set-ItemProperty $reg 'ProcessCreationIncludeCmdLine_Enabled' 1 -Type DWord
+    Write-Host "[+] Command-line capture enabled (review security implications)."
 }
 
-if (-not $events -or $events.Count -eq 0) {
-    Write-Verbose "No new events since RecordId $lastRecordId."
-    exit 0
-}
+# --- 4. Register scheduled task (SYSTEM, every N minutes) -------------------
+$taskName = 'LabAppUsageHarvester'
+$psExe    = (Get-Command powershell.exe).Source
+$harvest  = Join-Path $InstallDir 'Harvest-AppUsage.ps1'
 
-$maxRecordId = ($events | Measure-Object RecordId -Maximum).Maximum
+$action  = New-ScheduledTaskAction -Execute $psExe `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$harvest`""
 
-# ---------------------------------------------------------------------------
-# 3. Parse events. Track open processes (started, awaiting stop) across runs.
-# ---------------------------------------------------------------------------
-# Open-process state persists between runs so a launch in one window and an
-# exit in the next still produce a correct duration.
-$openPath = Join-Path $DataDir ".open.json"
-$open = @{}   # key: "ProcessId|exe"  value: start DateTime (ticks)
-if (Test-Path $openPath) {
-    try {
-        (Get-Content $openPath -Raw | ConvertFrom-Json).PSObject.Properties |
-            ForEach-Object { $open[$_.Name] = [int64]$_.Value }
-    } catch { }
-}
+# Boot trigger so the task resumes after reboot without waiting for the next
+# interval. Repeating trigger needs an explicit RepetitionDuration; without it
+# some Windows versions treat the schedule as one-shot.
+$trigger = @(
+    New-ScheduledTaskTrigger -AtStartup
+    New-ScheduledTaskTrigger -Once -At (Get-Date) `
+        -RepetitionInterval (New-TimeSpan -Minutes $IntervalMin) `
+        -RepetitionDuration ([TimeSpan]::MaxValue)
+)
 
-# Accumulators for this batch:  exe -> @{ Launches; Seconds }
-$batch = @{}
-function Add-Stat([string]$exe,[int]$launches,[double]$seconds) {
-    if (-not $batch.ContainsKey($exe)) {
-        $batch[$exe] = [pscustomobject]@{ Launches = 0; Seconds = 0.0 }
-    }
-    $batch[$exe].Launches += $launches
-    $batch[$exe].Seconds  += $seconds
-}
+# Use the fully-qualified account name — the short form 'SYSTEM' breaks on
+# non-English Windows locales.
+$principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' `
+                -LogonType ServiceAccount -RunLevel Highest
+$settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+                -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
 
-foreach ($e in $events) {
-    $xml = [xml]$e.ToXml()
-    $data = @{}
-    foreach ($d in $xml.Event.EventData.Data) { $data[$d.Name] = $d.'#text' }
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
+    -Principal $principal -Settings $settings -Force | Out-Null
+Write-Host "[+] Scheduled task '$taskName' registered (every $IntervalMin min)."
 
-    if ($e.Id -eq 4688) {
-        # Process start
-        $exePath = $data['NewProcessName']
-        if (-not $exePath) { continue }
-        $leaf = ([System.IO.Path]::GetFileName($exePath)).ToLowerInvariant()
-        if (-not $watch.ContainsKey($leaf)) { continue }
-
-        $pidHex = $data['NewProcessId']            # e.g. "0x1a2b"
-        $pidDec = [Convert]::ToInt64($pidHex, 16)
-        $key    = "$pidDec|$leaf"
-
-        # Count the launch immediately (duration added at stop)
-        Add-Stat $leaf 1 0
-        $open[$key] = $e.TimeCreated.Ticks
-    }
-    elseif ($e.Id -eq 4689) {
-        # Process stop
-        $exePath = $data['ProcessName']
-        if (-not $exePath) { continue }
-        $leaf = ([System.IO.Path]::GetFileName($exePath)).ToLowerInvariant()
-        if (-not $watch.ContainsKey($leaf)) { continue }
-
-        $pidHex = $data['ProcessId']
-        $pidDec = [Convert]::ToInt64($pidHex, 16)
-        $key    = "$pidDec|$leaf"
-
-        if ($open.ContainsKey($key)) {
-            $startTicks = $open[$key]
-            $dur = ($e.TimeCreated.Ticks - $startTicks) / 1e7   # ticks -> sec
-            if ($dur -ge 0) { Add-Stat $leaf 0 $dur }
-            $open.Remove($key)
-        }
-        # else: stop with no matching start in our window -> ignore duration
-    }
-}
-
-# ---------------------------------------------------------------------------
-# 4. Load existing CSV, merge batch totals, write back
-# ---------------------------------------------------------------------------
-$rows = @{}
-if (Test-Path $CsvPath) {
-    Import-Csv $CsvPath | ForEach-Object {
-        $rows[$_.Application] = [pscustomobject]@{
-            Application  = $_.Application
-            LaunchCount  = [int64]$_.LaunchCount
-            TotalSeconds = [double]$_.TotalSeconds
-            TotalHours   = 0.0
-            LastUpdated  = $_.LastUpdated
-        }
-    }
-}
-
-$now = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-foreach ($exe in $batch.Keys) {
-    if (-not $rows.ContainsKey($exe)) {
-        $rows[$exe] = [pscustomobject]@{
-            Application  = $exe
-            LaunchCount  = 0
-            TotalSeconds = 0.0
-            TotalHours   = 0.0
-            LastUpdated  = $now
-        }
-    }
-    $rows[$exe].LaunchCount  += $batch[$exe].Launches
-    $rows[$exe].TotalSeconds += $batch[$exe].Seconds
-    $rows[$exe].LastUpdated   = $now
-}
-
-# Recompute hours and emit, sorted by most-used
-$out = $rows.Values | ForEach-Object {
-    $_.TotalSeconds = [math]::Round($_.TotalSeconds, 1)
-    $_.TotalHours   = [math]::Round($_.TotalSeconds / 3600, 2)
-    $_
-} | Sort-Object TotalSeconds -Descending
-
-$out | Export-Csv -Path $CsvPath -NoTypeInformation -Encoding UTF8
-
-# ---------------------------------------------------------------------------
-# 5. Persist state (bookmark + still-open processes)
-# ---------------------------------------------------------------------------
-@{ LastRecordId = $maxRecordId; UpdatedAt = $now } |
-    ConvertTo-Json | Set-Content $StatePath -Encoding UTF8
-
-# Prune very old open entries (>24h) so a missed 4689 doesn't leak forever
-$cutoff = (Get-Date).AddHours(-24).Ticks
-$openClean = @{}
-foreach ($k in $open.Keys) { if ($open[$k] -ge $cutoff) { $openClean[$k] = $open[$k] } }
-($openClean | ConvertTo-Json) | Set-Content $openPath -Encoding UTF8
-
-Write-Verbose "Processed $($events.Count) events up to RecordId $maxRecordId."
+Write-Host "`nSetup complete. First data will appear after the next interval."
+Write-Host "CSV: $(Join-Path $InstallDir 'usage.csv')"

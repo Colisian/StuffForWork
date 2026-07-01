@@ -34,12 +34,18 @@ param(
     [string]$StatePath = "$env:ProgramData\LabUsage\.bookmark.json"
 )
 
+$ErrorActionPreference = 'Stop'
+
 # ---------------------------------------------------------------------------
 # 0. Setup
 # ---------------------------------------------------------------------------
 if (-not (Test-Path $DataDir)) {
     New-Item -Path $DataDir -ItemType Directory -Force | Out-Null
 }
+
+# Transcript so SYSTEM-scheduled runs leave a trail on failure.
+$logPath = Join-Path $DataDir 'harvest.log'
+Start-Transcript -Path $logPath -Append -ErrorAction SilentlyContinue | Out-Null
 
 # Normalize watch list to a fast lookup (lowercase leaf names)
 $watch = @{}
@@ -61,23 +67,26 @@ if (Test-Path $StatePath) {
 # ---------------------------------------------------------------------------
 # 2. Pull new 4688 (start) and 4689 (stop) events from the Security log
 # ---------------------------------------------------------------------------
-$filter = @{ LogName = 'Security'; Id = 4688, 4689 }
+# Push both the event-ID and RecordID filter into the XPath query so we don't
+# materialize the entire Security log every run.
+$xpath = "*[System[(EventID=4688 or EventID=4689) and (EventRecordID > $lastRecordId)]]"
 
 try {
-    $events = Get-WinEvent -FilterHashtable $filter -ErrorAction Stop |
-              Where-Object { $_.RecordId -gt $lastRecordId } |
+    $events = Get-WinEvent -LogName Security -FilterXPath $xpath -ErrorAction Stop |
               Sort-Object RecordId
 } catch {
     if ($_.Exception.Message -match 'No events were found') {
         $events = @()
     } else {
         Write-Error "Failed to read Security log: $_"
+        Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
         exit 1
     }
 }
 
 if (-not $events -or $events.Count -eq 0) {
     Write-Verbose "No new events since RecordId $lastRecordId."
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
     exit 0
 }
 
@@ -149,6 +158,33 @@ foreach ($e in $events) {
 }
 
 # ---------------------------------------------------------------------------
+# 3b. Credit still-running processes with elapsed time so long GIS sessions
+#     (ArcGIS Pro left open all day, etc.) actually show up in TotalSeconds
+#     instead of counting only at process exit.
+# ---------------------------------------------------------------------------
+$creditPath = Join-Path $DataDir '.credited.json'
+$credited = @{}
+if (Test-Path $creditPath) {
+    try {
+        (Get-Content $creditPath -Raw | ConvertFrom-Json).PSObject.Properties |
+            ForEach-Object { $credited[$_.Name] = [int64]$_.Value }
+    } catch { }
+}
+
+$nowTicks = (Get-Date).Ticks
+foreach ($k in @($open.Keys)) {
+    $leaf     = ($k -split '\|', 2)[1]
+    $lastMark = if ($credited.ContainsKey($k)) { $credited[$k] } else { $open[$k] }
+    $delta    = ($nowTicks - $lastMark) / 1e7
+    if ($delta -gt 0) { Add-Stat $leaf 0 $delta }
+    $credited[$k] = $nowTicks
+}
+# Drop credit entries for processes that have since exited.
+foreach ($k in @($credited.Keys)) {
+    if (-not $open.ContainsKey($k)) { $credited.Remove($k) }
+}
+
+# ---------------------------------------------------------------------------
 # 4. Load existing CSV, merge batch totals, write back
 # ---------------------------------------------------------------------------
 $rows = @{}
@@ -187,10 +223,23 @@ $out = $rows.Values | ForEach-Object {
     $_
 } | Sort-Object TotalSeconds -Descending
 
-$out | Export-Csv -Path $CsvPath -NoTypeInformation -Encoding UTF8
+# Write CSV via temp file + Move-Item so a partial write can't corrupt the
+# existing file. If write fails (e.g. Excel has usage.csv open), bail without
+# advancing the bookmark so the same events get retried next run.
+$tmp = "$CsvPath.tmp"
+try {
+    $out | Export-Csv -Path $tmp -NoTypeInformation -Encoding UTF8
+    Move-Item -Path $tmp -Destination $CsvPath -Force
+} catch {
+    Write-Error "CSV write failed, not advancing bookmark: $_"
+    if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+    exit 1
+}
 
 # ---------------------------------------------------------------------------
-# 5. Persist state (bookmark + still-open processes)
+# 5. Persist state (bookmark + still-open processes + credit marks)
+#    Only reached on successful CSV write above.
 # ---------------------------------------------------------------------------
 @{ LastRecordId = $maxRecordId; UpdatedAt = $now } |
     ConvertTo-Json | Set-Content $StatePath -Encoding UTF8
@@ -201,4 +250,10 @@ $openClean = @{}
 foreach ($k in $open.Keys) { if ($open[$k] -ge $cutoff) { $openClean[$k] = $open[$k] } }
 ($openClean | ConvertTo-Json) | Set-Content $openPath -Encoding UTF8
 
+# Persist credit marks aligned with the pruned open set.
+$creditClean = @{}
+foreach ($k in $credited.Keys) { if ($openClean.ContainsKey($k)) { $creditClean[$k] = $credited[$k] } }
+($creditClean | ConvertTo-Json) | Set-Content $creditPath -Encoding UTF8
+
 Write-Verbose "Processed $($events.Count) events up to RecordId $maxRecordId."
+Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
