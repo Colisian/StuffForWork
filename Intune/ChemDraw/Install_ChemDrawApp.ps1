@@ -26,7 +26,7 @@ function Run-Exe([string]$exe, $arguments = $null) {
         }
 
         $exit = 0
-        if ($p -and $p.ExitCode -ne $null) { $exit = [int]$p.ExitCode }
+        if ($p -and $null -ne $p.ExitCode) { $exit = [int]$p.ExitCode }
         Log "ExitCode: $exit"
         return $exit
     } catch {
