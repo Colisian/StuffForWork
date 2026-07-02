@@ -3,7 +3,12 @@
     "allow": [
       "Bash(mkdir:*)",
       "Bash(find /Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos -maxdepth 4 -name \"pharos_printer_summary_email_job.sql\" 2>/dev/null)",
-      "Bash(awk 'NR==87 || NR==130 || NR==193 || NR==201 || NR==210 || NR==220 || NR==234 {printf \"Line %d: \", NR; print | \"cat -A\"}' /Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos/pharos_printer_summary_email_job.sql)"
+      "Bash(awk 'NR==87 || NR==130 || NR==193 || NR==201 || NR==210 || NR==220 || NR==234 {printf \"Line %d: \", NR; print | \"cat -A\"}' /Users/cmcleod1/Library/CloudStorage/OneDrive-UniversityofMaryland/Documents/Work/StuffForWork/WindowsServer/SQL/Pharos/pharos_printer_summary_email_job.sql)",
+      "Bash(mkdir -p archive)",
+      "Bash(git mv *)",
+      "Bash(mv \"install_printers-LIBRMCK194PQ2576.sh\" archive/)",
+      "Bash(mv \"install_CanonPrinters.sh\" archive/)",
+      "Bash(mv \"install_printers.sh\" archive/)"
     ],
     "deny": [],
     "ask": []
