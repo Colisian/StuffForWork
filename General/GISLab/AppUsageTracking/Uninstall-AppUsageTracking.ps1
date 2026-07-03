@@ -42,6 +42,9 @@ $ErrorActionPreference = 'Stop'
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($task) {
     if ($PSCmdlet.ShouldProcess($TaskName, 'Unregister scheduled task')) {
+        # Kill any in-flight harvest first: a live transcript handle on
+        # harvest.log would make the data-folder move below throw.
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
         Write-Host "[-] Scheduled task '$TaskName' removed."
     }
@@ -80,14 +83,19 @@ if (Test-Path $InstallDir) {
 # --- 3. Optionally revert audit policy -------------------------------------
 if ($DisableAuditing) {
     if ($PSCmdlet.ShouldProcess('Process Creation/Termination', 'Disable auditing')) {
-        auditpol /set /subcategory:"Process Creation"    /success:disable | Out-Null
-        auditpol /set /subcategory:"Process Termination" /success:disable | Out-Null
+        # Subcategory GUIDs, not names - the names are localized (matches Setup).
+        $sub = @{
+            'Process Creation'    = '{0CCE922B-69AE-11D9-BED3-505054503030}'
+            'Process Termination' = '{0CCE922C-69AE-11D9-BED3-505054503030}'
+        }
+        auditpol /set /subcategory:"$($sub['Process Creation'])"    /success:disable | Out-Null
+        auditpol /set /subcategory:"$($sub['Process Termination'])" /success:disable | Out-Null
         Write-Host "[-] Process Creation + Termination auditing disabled."
 
         # Verify - GPO may re-enforce audit policy at next refresh.
         $check = @(
-            @{ Name = 'Process Creation';    Result = (auditpol /get /subcategory:"Process Creation"    | Out-String) }
-            @{ Name = 'Process Termination'; Result = (auditpol /get /subcategory:"Process Termination" | Out-String) }
+            @{ Name = 'Process Creation';    Result = (auditpol /get /subcategory:"$($sub['Process Creation'])"    | Out-String) }
+            @{ Name = 'Process Termination'; Result = (auditpol /get /subcategory:"$($sub['Process Termination'])" | Out-String) }
         )
         foreach ($c in $check) {
             if ($c.Result -match 'Success') {

@@ -44,7 +44,11 @@ if (-not (Test-Path $DataDir)) {
 }
 
 # Transcript so SYSTEM-scheduled runs leave a trail on failure.
+# Roll it when large - a 15-minute cadence grows an appended log forever.
 $logPath = Join-Path $DataDir 'harvest.log'
+if ((Test-Path $logPath) -and (Get-Item $logPath).Length -gt 1MB) {
+    Move-Item $logPath "$logPath.old" -Force -ErrorAction SilentlyContinue
+}
 Start-Transcript -Path $logPath -Append -ErrorAction SilentlyContinue | Out-Null
 
 # Normalize watch list to a fast lookup (lowercase leaf names)
@@ -54,14 +58,33 @@ foreach ($w in $WatchList) { $watch[$w.ToLowerInvariant()] = $true }
 # ---------------------------------------------------------------------------
 # 1. Determine where we left off (bookmark by max RecordId processed)
 # ---------------------------------------------------------------------------
-$lastRecordId = 0
+$lastRecordId = -1
 if (Test-Path $StatePath) {
     try {
         $state = Get-Content $StatePath -Raw | ConvertFrom-Json
-        if ($state.LastRecordId) { $lastRecordId = [int64]$state.LastRecordId }
+        if ($null -ne $state.LastRecordId) { $lastRecordId = [int64]$state.LastRecordId }
     } catch {
-        Write-Warning "Bookmark unreadable, starting fresh: $_"
+        Write-Warning "Bookmark unreadable: $_"
     }
+}
+
+$newestRecordId = 0
+$newest = Get-WinEvent -LogName Security -MaxEvents 1 -ErrorAction SilentlyContinue
+if ($newest) { $newestRecordId = [int64]$newest.RecordId }
+
+if ($lastRecordId -lt 0) {
+    # No usable bookmark (first run, or corrupt file). Start from the newest
+    # record instead of backfilling the entire Security log - historic events
+    # would pollute the tally and a huge first pass can outlive the task's
+    # execution time limit, killing the run before the bookmark is ever saved.
+    $lastRecordId = $newestRecordId
+    Write-Warning "No bookmark - seeding at RecordId $lastRecordId (harvesting starts from now)."
+}
+elseif ($newestRecordId -lt $lastRecordId) {
+    # RecordIds restart from 1 when the Security log is cleared; a stale
+    # bookmark above them would match nothing forever.
+    Write-Warning "Newest RecordId ($newestRecordId) is behind bookmark ($lastRecordId) - Security log was likely cleared. Resetting bookmark."
+    $lastRecordId = 0
 }
 
 # ---------------------------------------------------------------------------
@@ -75,7 +98,9 @@ try {
     $events = Get-WinEvent -LogName Security -FilterXPath $xpath -ErrorAction Stop |
               Sort-Object RecordId
 } catch {
-    if ($_.Exception.Message -match 'No events were found') {
+    # Category check is locale-proof; the message match is a fallback.
+    if ($_.CategoryInfo.Category -eq 'ObjectNotFound' -or
+        $_.Exception.Message -match 'No events were found') {
         $events = @()
     } else {
         Write-Error "Failed to read Security log: $_"
@@ -90,7 +115,8 @@ if (-not $events -or $events.Count -eq 0) {
     exit 0
 }
 
-$maxRecordId = ($events | Measure-Object RecordId -Maximum).Maximum
+# Measure-Object returns a double; cast back so the bookmark JSON stays integral
+$maxRecordId = [int64]($events | Measure-Object RecordId -Maximum).Maximum
 
 # ---------------------------------------------------------------------------
 # 3. Parse events. Track open processes (started, awaiting stop) across runs.
@@ -103,6 +129,19 @@ if (Test-Path $openPath) {
     try {
         (Get-Content $openPath -Raw | ConvertFrom-Json).PSObject.Properties |
             ForEach-Object { $open[$_.Name] = [int64]$_.Value }
+    } catch { }
+}
+
+# Credit marks: how far each still-open process has already been credited by
+# section 3b in earlier runs. Loaded here (not in 3b) because the 4689 stop
+# handler must subtract banked time, otherwise a session gets its incremental
+# credits PLUS the full start-to-stop duration at exit - double counting.
+$creditPath = Join-Path $DataDir '.credited.json'
+$credited = @{}   # key: "ProcessId|exe"  value: credited-up-to DateTime (ticks)
+if (Test-Path $creditPath) {
+    try {
+        (Get-Content $creditPath -Raw | ConvertFrom-Json).PSObject.Properties |
+            ForEach-Object { $credited[$_.Name] = [int64]$_.Value }
     } catch { }
 }
 
@@ -156,10 +195,16 @@ foreach ($e in $events) {
         $key    = "$pidDec|$leaf"
 
         if ($open.ContainsKey($key)) {
-            $startTicks = $open[$key]
-            $dur = ($e.TimeCreated.Ticks - $startTicks) / 1e7   # ticks -> sec
-            if ($dur -ge 0) { Add-Stat $leaf 0 $dur }
+            # Base the duration on the last credit mark if 3b already banked
+            # part of this session; the exit adds only the uncredited tail.
+            $baseTicks = $open[$key]
+            if ($credited.ContainsKey($key) -and $credited[$key] -gt $baseTicks) {
+                $baseTicks = $credited[$key]
+            }
+            $dur = ($e.TimeCreated.Ticks - $baseTicks) / 1e7   # ticks -> sec
+            if ($dur -gt 0) { Add-Stat $leaf 0 $dur }
             $open.Remove($key)
+            $credited.Remove($key)
         }
         # else: stop with no matching start in our window -> ignore duration
     }
@@ -170,15 +215,7 @@ foreach ($e in $events) {
 #     (ArcGIS Pro left open all day, etc.) actually show up in TotalSeconds
 #     instead of counting only at process exit.
 # ---------------------------------------------------------------------------
-$creditPath = Join-Path $DataDir '.credited.json'
-$credited = @{}
-if (Test-Path $creditPath) {
-    try {
-        (Get-Content $creditPath -Raw | ConvertFrom-Json).PSObject.Properties |
-            ForEach-Object { $credited[$_.Name] = [int64]$_.Value }
-    } catch { }
-}
-
+# ($credited was loaded alongside $open in section 3.)
 $nowTicks = (Get-Date).Ticks
 foreach ($k in @($open.Keys)) {
     $leaf     = ($k -split '\|', 2)[1]

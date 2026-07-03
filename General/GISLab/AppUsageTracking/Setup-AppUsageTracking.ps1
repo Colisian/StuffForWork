@@ -1,3 +1,5 @@
+#Requires -RunAsAdministrator
+
 <#
 .SYNOPSIS
     One-time setup on a lab PC: enables process auditing, deploys the harvester,
@@ -29,13 +31,18 @@ if (-not (Test-Path $InstallDir)) {
 }
 $acl = Get-Acl $InstallDir
 $acl.SetAccessRuleProtection($true, $false)   # break inheritance
+# Well-known SIDs instead of account names - 'Users'/'Administrators' are
+# localized and fail to resolve on non-English Windows.
+$sidSystem = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-18'
+$sidAdmins = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-32-544'
+$sidUsers  = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-32-545'
 $rules = @(
     New-Object System.Security.AccessControl.FileSystemAccessRule(
-        'SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow')
+        $sidSystem,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
     New-Object System.Security.AccessControl.FileSystemAccessRule(
-        'Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow')
+        $sidAdmins,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
     New-Object System.Security.AccessControl.FileSystemAccessRule(
-        'Users','ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')
+        $sidUsers,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')
 )
 # Snapshot to array first - iterating the live AccessRuleCollection while
 # removing from it can silently skip rules.
@@ -48,15 +55,35 @@ Write-Host "[+] Data folder secured: $InstallDir"
 Copy-Item $ScriptSource (Join-Path $InstallDir 'Harvest-AppUsage.ps1') -Force
 Write-Host "[+] Harvester deployed."
 
+# --- 2b. Seed the bookmark at the log's current position --------------------
+# Without this the first harvest backfills the entire Security log: historic
+# events pollute the tally, and a huge first pass can exceed the task's
+# execution time limit - killed before the bookmark is written, forever.
+# Never overwrite an existing bookmark (re-runs must not lose position).
+$bookmarkPath = Join-Path $InstallDir '.bookmark.json'
+if (-not (Test-Path $bookmarkPath)) {
+    $newest = Get-WinEvent -LogName Security -MaxEvents 1 -ErrorAction SilentlyContinue
+    $seed   = if ($newest) { [int64]$newest.RecordId } else { 0 }
+    @{ LastRecordId = $seed; UpdatedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss') } |
+        ConvertTo-Json | Set-Content $bookmarkPath -Encoding UTF8
+    Write-Host "[+] Bookmark seeded at RecordId $seed (harvesting starts from now)."
+}
+
 # --- 3. Enable process auditing --------------------------------------------
-auditpol /set /subcategory:"Process Creation"    /success:enable | Out-Null
-auditpol /set /subcategory:"Process Termination" /success:enable | Out-Null
+# Subcategory GUIDs, not names - the names are localized and auditpol fails
+# to match them on non-English Windows.
+$sub = @{
+    'Process Creation'    = '{0CCE922B-69AE-11D9-BED3-505054503030}'
+    'Process Termination' = '{0CCE922C-69AE-11D9-BED3-505054503030}'
+}
+auditpol /set /subcategory:"$($sub['Process Creation'])"    /success:enable | Out-Null
+auditpol /set /subcategory:"$($sub['Process Termination'])" /success:enable | Out-Null
 
 # Verify - auditpol /set silently no-ops if Advanced Audit Policy is overridden
 # by GPO (SCENoApplyLegacyAuditPolicy). This is the #1 silent-failure mode.
 $auditCheck = @(
-    @{ Name = 'Process Creation';    Result = (auditpol /get /subcategory:"Process Creation"    | Out-String) }
-    @{ Name = 'Process Termination'; Result = (auditpol /get /subcategory:"Process Termination" | Out-String) }
+    @{ Name = 'Process Creation';    Result = (auditpol /get /subcategory:"$($sub['Process Creation'])"    | Out-String) }
+    @{ Name = 'Process Termination'; Result = (auditpol /get /subcategory:"$($sub['Process Termination'])" | Out-String) }
 )
 foreach ($c in $auditCheck) {
     if ($c.Result -notmatch 'Success') {
