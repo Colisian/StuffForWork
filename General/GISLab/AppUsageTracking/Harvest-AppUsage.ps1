@@ -23,10 +23,10 @@ param(
     # Executables to track. Match is case-insensitive on the leaf file name.
     [string[]]$WatchList = @(
         'chrome.exe','msedge.exe','firefox.exe',
-        'WINWORD.EXE','EXCEL.EXE','POWERPNT.EXE','OUTLOOK.EXE',
         'Acrobat.exe','AcroRd32.exe', 'ArcGISPro.exe', 'ArcMap.exe', 'ArcCatalog.exe',
         'Code.exe','powershell.exe','pwsh.exe',
-        'matlab.exe','Rgui.exe','python.exe'
+        'matlab.exe','Rgui.exe','python.exe', 'jupyter-notebook.exe','jupyter-lab.exe', 'stats.exe', 'GeoDA.exe',
+        'qgis-bin.exe', 'tabpublic.exe', 'Tableau.exe', 'TableauDesktop.exe', 'maplex.exe'
     ),
 
     [string]$DataDir   = "$env:ProgramData\LabUsage",
