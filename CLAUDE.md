@@ -2,10 +2,11 @@
 
 ## Identity & Environment
 
-- **Role**: Lead IT Engineer — hybrid enterprise (Windows Server, macOS/Jamf, Linux, AWS)
+- **Role**: Lead IT Engineer, ITFO / Digital Services & Technologies — hybrid enterprise (Windows/Intune, macOS/Jamf Pro, Linux, AWS EC2)
 - **Domain**: `AD.UMD.EDU`
-- **Primary languages**: PowerShell 7.4+, Bash. Learning: Python, Rust, TypeScript, Terraform, Ansible.
-- **Dev environment**: WSL2, Docker, VS Code, Kitty terminal, zsh/Powerlevel10k
+- **Primary languages**: PowerShell 7.4+, Bash. Learning: Python, Terraform, Ansible, Kubernetes.
+- **Cert path**: AWS CloudOps Associate → SAA-C03 → DOP-C02; Terraform Associate + CKA in parallel.
+- **Dev environment**: WSL2, Docker, VS Code, Kitty terminal, zsh/Powerlevel10k. Notes live in Obsidian (`Colisian/obsidian-vault`, Git-synced).
 
 ## Code Conventions
 
@@ -15,63 +16,58 @@
 - Every function: `[CmdletBinding()]`, comment-based help (`.SYNOPSIS`, `.NOTES` with Author/Date/Version).
 - State-changing functions: `SupportsShouldProcess` + `$PSCmdlet.ShouldProcess()`.
 - `$ErrorActionPreference = 'Stop'` in `begin{}`. Wrap risky ops in `try/catch`.
-- Structure: `begin{} / process{} / end{}`.
+- Intune scripts must run non-interactively as SYSTEM; log to `C:\ProgramData\<Component>\<script>.log` via `Start-Transcript` or custom logger.
 
 ### Bash
 
-- Shebang + header (description, author, date, version).
-- `set -euo pipefail`. Log to `/var/log/<script_name>.log` via `tee`.
-- `trap 'echo "Error on line $LINENO"; exit 1' ERR`.
-- Define functions first, call `main "$@"` last.
+- Shebang + header (description, author, date, version). `set -euo pipefail`.
+- `trap 'echo "Error on line $LINENO"; exit 1' ERR`. Functions first, `main "$@"` last.
+- Jamf scripts: parameters start at `$4`; user-context actions run as console user via `su - "$loggedInUser" -c '...'`.
 
 ### General
 
-- Never hardcode credentials. Use: SecureString (PS), AWS Secrets Manager, Azure Key Vault, macOS Keychain.
-- All scripts get inline comments on non-obvious logic and a header block.
+- Never hardcode credentials. Use: SecureString (PS), AWS Secrets Manager, macOS Keychain, Jamf/Intune parameters.
 - Provide verification/test commands alongside any solution.
+- Runbooks/docs should be Obsidian-compatible Markdown.
 
 ## Infrastructure Reference
 
 | System | Details |
 |---|---|
-| AD Domain | `AD.UMD.EDU` |
-| Pharos Print Server | `LIBRPS406DV.AD.UMD.EDU` |
-| Common OU | `OU=LIBR,DC=ad,DC=umd,DC=edu` |
-| Campus IP Range | `128.8.x.x` |
-| Printer Naming | `LIB-[LOCATION]-[TYPE]` (e.g., `LIB-McKMobileBW`) |
-| macOS Mgmt | Jamf Pro |
-| Windows Mgmt | Microsoft Intune / Entra ID |
-| Code Signing Team ID | `PBMCJ9DTL3` |
-| Apple ID (notarization) | `cmcleod1@umd.edu` |
-| Keychain Profile | `UMD-Notary` |
-| Package Identifier Prefix | `edu.umd.libraries.*` |
+| AD Domain / OU | `AD.UMD.EDU`; LIBR OU: `OU=LIBR,OU=Departments,OU=UMD,DC=ad,DC=umd,DC=edu` |
+| IP space | Campus public `128.8.x.x` / `129.2.x.x`; library device ranges `10.176.200.0/24`, `10.177.0.0/24` (Infoblox, DIT-controlled `/16` containers) |
+| Print servers | `LIBRPS406DV` (Pharos Uniprint), `LIBRPS403V`; printers `LIB-[LOCATION]-[TYPE]`, Canon UFR II/PPD |
+| ILLiad/Aeon server | `LIBRAP013V` — public `129.2.176.37` / private `10.126.5.89` split; **use private IP in connection strings** (DNS split-brain history) |
+| Ticketing | SysAid on Tomcat: `ticketing.lib.umd.edu` (prod), `ticketingdev` (dev); InCommon/Sectigo certs — use **Replace**, not Renew; include `USERTrust RSA` intermediate |
+| File storage | Isilon NAS (SMB shares); DIT migrating shares to VPN-only access |
+| Security stack | CrowdStrike Falcon, Rapid7 InsightVM (EC2 agents via SSM Run Command) |
+| macOS signing | Team ID `PBMCJ9DTL3`, Apple ID `cmcleod1@umd.edu`, keychain profile `UMD-Notary`, pkg IDs `edu.umd.libraries.*` |
 | GitHub | `@Colisian` |
 
-## macOS Packaging Workflow
+## Deployment Doctrine
 
-Order: `pkgbuild` → `productsign` → `xcrun notarytool submit --wait` → upload to Jamf.
-Scripts must be named exactly `preinstall` / `postinstall` (no extension), `chmod +x`.
-Printer setup uses `lpadmin` with `lpd://PHAROS_SERVER/PRINTER_IP` and Canon UFR II PPDs.
-
-## Common Deployment Patterns
-
-- **Network drives (Intune)**: `net use` with `/persistent:yes`, remove existing first with `/delete /y`.
-- **Registry (Intune)**: `Test-Path` → `New-Item -Force` → `Set-ItemProperty -Force`.
-- **File copy**: Validate source exists, create destination dir, `Copy-Item -Force`, exit 1 on failure.
-- **EC2 domain join**: Secrets Manager → `ConvertTo-SecureString` → `Add-Computer` to `OU=EC2,OU=Servers,OU=LIBR,...`.
+- **Windows: Intune-native only — never GPO.** Entire fleet (including lab PCs) is Intune-managed. Use Win32 apps, Settings Catalog, Remediations, Platform Scripts.
+- **Win32 apps**: package with `IntuneWinAppUtil`; PowerShell install/uninstall wrappers, custom detection scripts, meaningful exit codes (0 success, 1 failure, 3010 reboot).
+- **Remediations**: detection exits 0 (compliant) / 1 (remediate); keep stdout <2048 chars.
+- **Registry**: `Test-Path` → `New-Item -Force` → `Set-ItemProperty -Force`.
+- **EC2 domain join**: Secrets Manager → `ConvertTo-SecureString` → `Add-Computer` to `OU=EC2,OU=Servers,OU=LIBR,...`; fleet ops via SSM Run Command.
+- **macOS packaging**: `pkgbuild` → `productsign` → `xcrun notarytool submit --wait` → Jamf. Scripts named exactly `preinstall`/`postinstall`, `chmod +x`.
+- **Kiosk/signage**: prefer All Users Startup folder for auto-launch apps (AxisTV Engage pattern).
 
 ## Behavioral Rules
 
-1. **Diagnose first** — start with quick checks before deep troubleshooting.
+1. **Diagnose first** — quick checks before deep troubleshooting.
 2. **Multiple paths** — offer alternatives with pros/cons when there's a real choice.
-3. **Security callouts** — flag implications and mitigations proactively.
-4. **Beginner framing** for Terraform, Ansible, and AWS topics — relate to existing PS/Bash knowledge.
-5. **Output as files** — create downloadable/copy-paste-ready scripts, not inline-only.
-6. **Platform differences** — note Windows vs macOS vs Linux when behavior diverges.
+3. **Security callouts** — flag implications and mitigations proactively (CrowdStrike/Rapid7 detection impact included).
+4. **Beginner framing** for Terraform, Ansible, AWS, Kubernetes — relate to existing PS/Bash knowledge; include short learning roadmaps.
+5. **Output as files** — downloadable, copy-paste-ready scripts and Obsidian-ready runbooks, not inline-only.
+6. **Platform differences** — note Windows vs macOS vs Linux divergence.
+7. **Stakeholder comms** — when asked, produce plain-language versions for non-technical library staff.
 
 ## Current Projects
 
-- MCP plugin development for PowerShell in Claude Code
-- Terraform: S3 + CloudFront static site hosting
-- JAMF Skills for Claude Code
-- Equipment database / asset lifecycle management
+- Infoblox DHCP: awaiting DIT `/24` network objects (`10.176.200.0/24`, `10.177.0.0/24`) before adding fixed-address reservations
+- `av.lib.umd.edu` access migration: Intune/Jamf device groups → DIT-provisioned IP range → AWS Security Group rules
+- Lab app-usage tracking: Event ID 4688/4689 auditing → harvester CSV at `C:\ProgramData\LabUsage\usage.csv`
+- MCP plugin development for PowerShell in Claude Code; Jamf skills for Claude Code
+- Terraform: S3 + CloudFront static site; equipment/asset lifecycle database
