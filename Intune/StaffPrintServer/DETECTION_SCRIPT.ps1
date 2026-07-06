@@ -3,9 +3,18 @@
     Detection script for staff printer installations.
 
 .DESCRIPTION
-    Detects whether all or any staff printers are installed and available on the system.
-    Used by Intune to determine if an app/script needs to be deployed or updated.
-    Returns exit code 0 if required printers are installed, 1 if not found.
+    Detects whether ANY staff printer is installed and available on the system.
+    Returns exit code 0 if at least one staff printer is installed, 1 if none found.
+
+    WARNING: Do NOT use this as the detection script for a single-printer Win32 app -
+    it exits 0 when ANY staff printer is present, so Intune would mark the app installed
+    even if that app's specific printer is missing. Use the per-printer scripts in
+    DetectionScripts\ instead. This script is only appropriate for an "all staff
+    printers" bundle app paired with UNINSTALL_TEMPLATE.ps1.
+
+    NOTE: Win32 app detection scripts run as SYSTEM, which cannot see per-user printer
+    connections created by Add-Printer -ConnectionName. Verify detection behavior on a
+    test device before relying on Get-Printer-based detection.
 
 .NOTES
     Print Server: LIBRPS403v.ad.umd.edu
@@ -14,12 +23,16 @@
 
 # Parameters - All Staff Printers
 $PrinterNames = @(
+    "ARCH_1F_PR2",
+    "ART_1F_PR1",
     "EPL_1F_PR1",
+    "HBK_1F_PR1",
     "HBK_1F_PR2",
     "HBK_2F_PR1",
     "HBK_2F_PR3",
     "HBK_3F_PR1",
     "HBK_4F_PR1",
+    "HBK_4F_PR2",
     "MCK_1F_PR2",
     "MCK_1F_PR3",
     "MCK_1F_PR4",
@@ -40,6 +53,7 @@ $PrinterNames = @(
     "PAL_1F_PR1",
     "PAL_1F_PR2",
     "PAL_2F_PR1",
+    "STM_1F_CIRC",
     "SVN_1F_PR2"
 )
 
@@ -47,8 +61,7 @@ $PrintServer = "LIBRPS403v.ad.umd.edu"
 $installedPrinters = @()
 $missingPrinters = @()
 
-Write-Host "Detecting staff printer installations..."
-
+# Note: keep stdout compact - Intune detection/remediation output should stay under 2048 chars
 foreach ($PrinterName in $PrinterNames) {
     try {
         # Check if printer exists by short name
@@ -61,35 +74,23 @@ foreach ($PrinterName in $PrinterNames) {
         }
 
         if ($printer) {
-            $printerStatus = $printer.PrinterStatus
-            Write-Host " Found '$PrinterName' - Status: $printerStatus"
             $installedPrinters += $PrinterName
         } else {
-            Write-Host " Missing '$PrinterName'"
             $missingPrinters += $PrinterName
         }
 
     } catch {
-        Write-Warning " Error detecting '$PrinterName': $($_.Exception.Message)"
         $missingPrinters += $PrinterName
     }
 }
 
-Write-Host ""
-Write-Host "Detection Summary:"
-Write-Host "  Installed: $($installedPrinters.Count) / $($PrinterNames.Count)"
-Write-Host "  Missing:   $($missingPrinters.Count) / $($PrinterNames.Count)"
-
 # Check if at least ONE printer is installed
 if ($installedPrinters.Count -gt 0) {
-    Write-Host ""
-    Write-Host "SUCCESS: At least one staff printer detected ($($installedPrinters.Count) found)"
-    Write-Host "Installed printers: $($installedPrinters -join ', ')"
+    Write-Host "SUCCESS: $($installedPrinters.Count)/$($PrinterNames.Count) staff printers detected: $($installedPrinters -join ', ')"
     # Exit 0 indicates printer(s) are installed (no action needed)
     exit 0
 } else {
-    Write-Host ""
-    Write-Host "FAILED: No staff printers found"
+    Write-Host "FAILED: No staff printers found (0/$($PrinterNames.Count))"
     # Exit 1 indicates no printers are installed (trigger installation)
     exit 1
 }

@@ -5,20 +5,24 @@
 .DESCRIPTION
     Removes existing printer if found, then reconnects using the full path. Includes optional driver cache cleanup.
     Intended for deployment via Intune Company Portal or other automation tools.
+    IMPORTANT: Add-Printer -ConnectionName creates a per-user printer connection.
+    Deploy this app in USER context (not SYSTEM).
 
 .NOTES
     Printer: MCK_2F_PR6
     Print Server: LIBRPS403v.ad.umd.edu
 
     INTUNE DEPLOYMENT COMMANDS (Copy & Paste):
-    Install Command:
+    Install Command (assign in USER context):
     powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\MCK_2F_PR6.ps1
 
     Uninstall Command:
     powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\UNINSTALL_TEMPLATE.ps1
 
-    Detection Command:
-    powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File .\DETECTION_SCRIPT.ps1
+    Detection Script:
+    Use DetectionScripts\MCK_2F_PR6_Detection.ps1 (per-printer).
+    Do NOT use the shared DETECTION_SCRIPT.ps1 here - it succeeds if ANY staff printer
+    is present, which would mark this app as installed when other printers exist.
 #>
 
 # Parameters
@@ -26,9 +30,18 @@ $PrinterName     = "MCK_2F_PR6"
 $PrintServer     = "LIBRPS403v.ad.umd.edu"
 $PrinterPath     = "\\$PrintServer\$PrinterName"
 
+# Logging (best effort - never fail the install because logging failed)
+$transcribing = $false
+try {
+    $logDir = 'C:\ProgramData\StaffPrinters'
+    if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
+    Start-Transcript -Path (Join-Path $logDir "$PrinterName-$env:USERNAME.log") -Append -ErrorAction Stop | Out-Null
+    $transcribing = $true
+} catch { }
+
 # Optional: Clear driver cache - ONLY if you're experiencing persistent driver issues
 # Uncomment these lines if needed
-<# 
+<#
 Write-Host "Stopping Print Spooler..."
 Stop-Service spooler -Force
 
@@ -44,12 +57,14 @@ Start-Sleep -Seconds 2
 #>
 
 try {
-    # Remove existing printer if present
-    $existingPrinter = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
-    if ($existingPrinter) {
-        Write-Host "Removing existing printer '$PrinterName'..."
-        Remove-Printer -Name $PrinterName -Confirm:$false
-        Start-Sleep -Seconds 1
+    # Remove existing printer if present - check both short name and UNC connection name
+    foreach ($name in @($PrinterName, $PrinterPath)) {
+        $existingPrinter = Get-Printer -Name $name -ErrorAction SilentlyContinue
+        if ($existingPrinter) {
+            Write-Host "Removing existing printer '$($existingPrinter.Name)'..."
+            Remove-Printer -Name $existingPrinter.Name -Confirm:$false
+            Start-Sleep -Seconds 1
+        }
     }
 
     Write-Host "Adding printer using full UNC path: $PrinterPath"
@@ -57,19 +72,29 @@ try {
 
     Start-Sleep -Seconds 3
 
-    $addedPrinter = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
+    # Verify - printer connections are usually named by their full UNC path
+    $addedPrinter = Get-Printer -Name $PrinterPath -ErrorAction SilentlyContinue
+    if (-not $addedPrinter) {
+        $addedPrinter = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
+    }
+
     if ($addedPrinter) {
-        Write-Host "Successfully added printer '$PrinterName'."
+        Write-Host "Successfully added printer '$($addedPrinter.Name)'."
         Write-Host "    Status: $($addedPrinter.PrinterStatus)"
         Write-Host "    Driver: $($addedPrinter.DriverName)"
     } else {
-        Write-Warning " Printer '$PrinterName' was added, but could not be verified."
+        Write-Error "Printer '$PrinterName' was added, but could not be verified."
+        if ($transcribing) { Stop-Transcript | Out-Null }
+        exit 1
     }
 
 } catch {
     Write-Error "Failed to add printer '$PrinterName': $($_.Exception.Message)"
+    if ($transcribing) { Stop-Transcript | Out-Null }
     exit 1
 }
 
 Write-Host "`n If you experience issues printing, please restart your computer."
 Write-Host "Script completed."
+if ($transcribing) { Stop-Transcript | Out-Null }
+exit 0

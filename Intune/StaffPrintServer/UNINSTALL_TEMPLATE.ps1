@@ -3,9 +3,13 @@
     Removes network printers from the system.
 
 .DESCRIPTION
-    Removes specified network printers installed from the print server.
+    Removes ALL staff network printers installed from the print server.
     Intended for deployment via Intune Company Portal or other automation tools.
     Use the same script for all printer uninstallation packages.
+
+    WARNING: This removes EVERY printer in the list below, not just one. Wired as the
+    uninstall command of a single-printer app, uninstalling that app removes the user's
+    other staff printers too. Keep this list in sync when adding new printer scripts.
 
 .NOTES
     Print Server: LIBRPS403v.ad.umd.edu
@@ -13,12 +17,16 @@
 
 # Parameters - All Staff Printers
 $PrinterNames = @(
+    "ARCH_1F_PR2",
+    "ART_1F_PR1",
     "EPL_1F_PR1",
+    "HBK_1F_PR1",
     "HBK_1F_PR2",
     "HBK_2F_PR1",
     "HBK_2F_PR3",
     "HBK_3F_PR1",
     "HBK_4F_PR1",
+    "HBK_4F_PR2",
     "MCK_1F_PR2",
     "MCK_1F_PR3",
     "MCK_1F_PR4",
@@ -39,6 +47,7 @@ $PrinterNames = @(
     "PAL_1F_PR1",
     "PAL_1F_PR2",
     "PAL_2F_PR1",
+    "STM_1F_CIRC",
     "SVN_1F_PR2"
 )
 

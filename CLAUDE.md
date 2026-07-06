@@ -37,12 +37,24 @@
 | AD Domain / OU | `AD.UMD.EDU`; LIBR OU: `OU=LIBR,OU=Departments,OU=UMD,DC=ad,DC=umd,DC=edu` |
 | IP space | Campus public `128.8.x.x` / `129.2.x.x`; library device ranges `10.176.200.0/24`, `10.177.0.0/24` (Infoblox, DIT-controlled `/16` containers) |
 | Print servers | `LIBRPS406DV` (Pharos Uniprint), `LIBRPS403V`; printers `LIB-[LOCATION]-[TYPE]`, Canon UFR II/PPD |
-| ILLiad/Aeon server | `LIBRAP013V` — public `129.2.176.37` / private `10.126.5.89` split; **use private IP in connection strings** (DNS split-brain history) |
+| ILLiad server | `LIBRAP013V` (`docdel.umd.edu`) — public `129.2.176.37` / private `10.126.5.89` split; **use private IP in connection strings** (DNS split-brain history) |
 | Ticketing | SysAid on Tomcat: `ticketing.lib.umd.edu` (prod), `ticketingdev` (dev); InCommon/Sectigo certs — use **Replace**, not Renew; include `USERTrust RSA` intermediate |
 | File storage | Isilon NAS (SMB shares); DIT migrating shares to VPN-only access |
 | Security stack | CrowdStrike Falcon, Rapid7 InsightVM (EC2 agents via SSM Run Command) |
 | macOS signing | Team ID `PBMCJ9DTL3`, Apple ID `cmcleod1@umd.edu`, keychain profile `UMD-Notary`, pkg IDs `edu.umd.libraries.*` |
 | GitHub | `@Colisian` |
+
+### AWS Servers (Windows Server, VPC — VPN required; ports 80/443 + RDP)
+
+Subnet convention: **PROD = `10.126.5.x`**, **TEST = `10.126.4.x`**. Use private IPs in connection strings.
+
+| Env | Hostname | Private IP | DNS Name | Role |
+|---|---|---|---|---|
+| PROD | `LIBRAP065V` | `10.126.5.22` | `abbyy.lib.umd.edu` | ABBYY high-volume document conversion |
+| PROD | `LIBRAP013V` | `10.126.5.89` | `docdel.umd.edu` | ILLiad interlibrary loan |
+| PROD | `LIBRWS020V` | `10.126.5.109` | `coursereserves.umd.edu` | Ares Course Reserves |
+| TEST | `LIBRAP013TV` | `10.126.4.50` | `illiadtest.umd.edu` | ILLiad test target |
+| TEST | `LIBRWS020TV-01` | `10.126.4.87` | `libarestest.umd.edu` | Ares test target |
 
 ## Deployment Doctrine
 
