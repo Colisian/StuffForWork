@@ -1,20 +1,30 @@
 <#
-  Launcher-GISLab.ps1
-  GIS Lab Check-In Helper (Edge kiosk + confirmation dialog, hides taskbar during session)
-#>
+.SYNOPSIS
+    GIS Lab Check-In Helper - shows the Survey123 check-in form at user logon.
 
+.DESCRIPTION
+    Opens the check-in form in an Edge kiosk window alongside a small
+    attestation dialog (bottom-right). If the user closes Edge before
+    confirming completion, the form is relaunched. The dialog cannot be
+    closed until the user confirms; there is no taskbar manipulation, so
+    a crash or forced kill leaves the desktop untouched.
+
+.NOTES
+    Author:  GIS Lab
+    Date:    2026-07-10
+    Version: 2.0
+#>
+[CmdletBinding()]
 param (
-    [string] $SurveyUrl = "https://go.umd.edu/lib-GIS-lab",
+    [string] $SurveyUrl = 'https://go.umd.edu/lib-GIS-lab',
     [switch] $LaunchArcGISProAfter,
-    [string] $ArcGISProPath = "C:\Program Files\ArcGIS\Pro\bin\ArcGISPro.exe",
-    [int] $StartupDelay = 3,              # Seconds to wait for desktop readiness
-    [switch] $SkipTaskbarHide             # Don't hide the taskbar
+    [string] $ArcGISProPath = 'C:\Program Files\ArcGIS\Pro\bin\ArcGISPro.exe',
+    [int]    $StartupDelay = 3              # Seconds to wait for desktop readiness
 )
 
 # ---------------- Ensure STA (WPF requires Single-Threaded Apartment) ----------------
 if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
-    # Build argument list and forward all bound parameters + any leftover args
-    $argList = @('-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',"`"$PSCommandPath`"")
+    $argList = @('-NoProfile', '-Sta', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$PSCommandPath`"")
     foreach ($key in $PSBoundParameters.Keys) {
         $val = $PSBoundParameters[$key]
         if ($val -is [switch]) {
@@ -23,23 +33,45 @@ if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
             $argList += @("-$key", $val)
         }
     }
-    if ($args) { $argList += $args }
     & powershell.exe @argList
     exit $LASTEXITCODE
 }
 
 # ---------------- Logging ----------------
-$AppName = "GIS Lab Check-In"
-$BaseDir = "C:\ProgramData\GISLab\FormBlocker"
-$LogFile = Join-Path $BaseDir "FormBlocker.log"
-New-Item -ItemType Directory -Path $BaseDir -Force | Out-Null
+# Per-user log file: ProgramData ACLs give other users read-only access to a
+# file the first user created, so a shared log breaks for every user after the first.
+$AppName = 'GIS Lab Check-In'
+$BaseDir = 'C:\ProgramData\GISLab\FormBlocker'
+$LogFile = Join-Path $BaseDir "FormBlocker-$env:USERNAME.log"
+try { New-Item -ItemType Directory -Path $BaseDir -Force | Out-Null } catch {}
 
 function Write-Log {
     param([string]$Msg)
-    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$ts`t$Msg" | Out-File -FilePath $LogFile -Append -Encoding UTF8
+    try {
+        $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+        "$ts`t$Msg" | Out-File -FilePath $LogFile -Append -Encoding UTF8
+    } catch {}
 }
 Write-Log "===== $AppName starting for user [$env:USERNAME] ====="
+
+# ---------------- Single-instance guard ----------------
+# Local\ namespace scopes the mutex to this logon session, so two different
+# users on the same machine (fast user switching) don't block each other.
+[bool]$createdNew = $false
+$mutex = New-Object System.Threading.Mutex($true, 'Local\GISLabCheckIn', [ref]$createdNew)
+if (-not $createdNew) {
+    $owned = $false
+    try {
+        $owned = $mutex.WaitOne(3000, $false)
+    } catch [System.Threading.AbandonedMutexException] {
+        # Previous owner died without releasing; ownership transfers to us
+        $owned = $true
+    }
+    if (-not $owned) {
+        Write-Log 'Another instance is already running in this session. Exiting.'
+        exit 0
+    }
+}
 
 # ---------------- Startup delay for desktop readiness ----------------
 if ($StartupDelay -gt 0) {
@@ -47,76 +79,37 @@ if ($StartupDelay -gt 0) {
     Start-Sleep -Seconds $StartupDelay
 }
 
-# ---------------- Single instance guard with timeout ----------------
-$mutexName = "Global\GISLabFormBlocker-$($env:USERNAME)"
-[bool]$createdNew = $false
-$mutex = $null
-
-try {
-    $mutex = New-Object System.Threading.Mutex($false, $mutexName, [ref]$createdNew)
-
-    if (-not $createdNew) {
-        # Try to acquire with timeout (5 seconds) in case previous instance crashed
-        Write-Log "Mutex exists, waiting up to 5 seconds for release..."
-        $acquired = $mutex.WaitOne(5000, $false)
-        if (-not $acquired) {
-            Write-Log "Could not acquire mutex after timeout; another instance may be running. Exiting."
-            return
-        }
-        Write-Log "Acquired mutex after wait - previous instance likely crashed."
-    }
-} catch {
-    Write-Log "Mutex error: $($_.Exception.Message) - proceeding anyway"
-}
-
-# ---------------- Win32 interop (foreground + taskbar control) ----------------
+# ---------------- Win32 interop (bring Edge to foreground) ----------------
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class Win32 {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-  [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }
 "@
-
-$SW_HIDE = 0
 $SW_SHOW = 5
 
-function Hide-Taskbar {
-  try {
-    foreach ($cls in @('Shell_TrayWnd','Shell_SecondaryTrayWnd')) {
-      $h = [Win32]::FindWindow($cls, $null)
-      if ($h -ne [IntPtr]::Zero) { [Win32]::ShowWindow($h, $SW_HIDE) | Out-Null }
-    }
-    Write-Log "Taskbar hidden."
-  } catch { Write-Log "Hide-Taskbar error: $($_.Exception.Message)" }
-}
-function Show-Taskbar {
-  try {
-    foreach ($cls in @('Shell_TrayWnd','Shell_SecondaryTrayWnd')) {
-      $h = [Win32]::FindWindow($cls, $null)
-      if ($h -ne [IntPtr]::Zero) { [Win32]::ShowWindow($h, $SW_SHOW) | Out-Null }
-    }
-    Write-Log "Taskbar restored."
-  } catch { Write-Log "Show-Taskbar error: $($_.Exception.Message)" }
-}
-
 # ---------------- Edge path resolution ----------------
-$edgeExeDefault = "$Env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe"
-$edgeExeAlt     = "$Env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
-$EdgeExe = if (Test-Path $edgeExeDefault) { $edgeExeDefault } elseif (Test-Path $edgeExeAlt) { $edgeExeAlt } else { "msedge.exe" }
+$edgeCandidates = @(
+    "${Env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+    "$Env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
+)
+$EdgeExe = $edgeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $EdgeExe) { $EdgeExe = 'msedge.exe' }  # resolves via App Paths
 
-# Track PIDs we launch so we only close kiosk instances we created
-$script:EdgePids = @()
+# Track PIDs we launch; scope any fallback matching to this logon session so we
+# never touch kiosk Edge windows belonging to other sessions.
+$script:EdgePids  = @()
+$script:SessionId = (Get-Process -Id $PID).SessionId
 
 function Start-EdgeKiosk {
     try {
         $edgeArgs = @(
-            "--kiosk", $SurveyUrl,
-            "--edge-kiosk-type=fullscreen",
-            "--no-first-run",
-            "--disable-features=Translate,msImplicitScroll"
+            '--kiosk', $SurveyUrl,
+            '--edge-kiosk-type=fullscreen',
+            '--no-first-run',
+            '--disable-features=Translate,msImplicitScroll'
         )
         Write-Log "Launching Edge kiosk: $EdgeExe $($edgeArgs -join ' ')"
         $p = Start-Process -FilePath $EdgeExe -ArgumentList $edgeArgs -PassThru
@@ -128,16 +121,18 @@ function Start-EdgeKiosk {
 
 function Get-KioskEdgeProcs {
     $byPid = @()
-    foreach ($pidItem in $script:EdgePids) {
-        $proc = Get-Process -Id $pidItem -ErrorAction SilentlyContinue
+    foreach ($trackedPid in $script:EdgePids) {
+        $proc = Get-Process -Id $trackedPid -ErrorAction SilentlyContinue
         if ($proc) { $byPid += $proc }
     }
     if ($byPid.Count -gt 0) { return $byPid }
+    # Edge hands off to an existing browser process, so the tracked PID can die
+    # while the kiosk window lives on. Fall back to command-line matching.
     try {
-        $cims = Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" |
-                Where-Object { $_.CommandLine -match '\s--kiosk(\s|$)' }
+        $cims = Get-CimInstance Win32_Process -Filter "Name='msedge.exe' AND SessionId=$($script:SessionId)" |
+                Where-Object { $_.CommandLine -match '--kiosk' }
         if ($cims) {
-            return $cims | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }
+            return @($cims | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
         }
     } catch {}
     return @()
@@ -149,7 +144,7 @@ function Set-EdgeForeground {
     try {
         $p = Get-KioskEdgeProcs | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
         if ($p) {
-            [Win32]::ShowWindow($p.MainWindowHandle, 5) | Out-Null  # SW_SHOW
+            [Win32]::ShowWindow($p.MainWindowHandle, $SW_SHOW) | Out-Null
             [Win32]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
         }
     } catch {
@@ -159,7 +154,7 @@ function Set-EdgeForeground {
 
 function Stop-EdgeKiosk {
     try {
-        Write-Log "Stopping kiosk Edge."
+        Write-Log 'Stopping kiosk Edge.'
         $procs = Get-KioskEdgeProcs
         foreach ($p in $procs) { [void]$p.CloseMainWindow() }
         Start-Sleep -Milliseconds 800
@@ -231,14 +226,23 @@ $xaml = @"
 "@
 
 $window        = [Windows.Markup.XamlReader]::Parse($xaml)
-$OpenFormBtn   = $window.FindName("OpenFormBtn")
-$CloseKioskBtn = $window.FindName("CloseKioskBtn")
-$AttestCheck   = $window.FindName("AttestCheck")
+$OpenFormBtn   = $window.FindName('OpenFormBtn')
+$CloseKioskBtn = $window.FindName('CloseKioskBtn')
+$AttestCheck   = $window.FindName('AttestCheck')
 
 $AttestCheck.Add_Checked(  { $CloseKioskBtn.IsEnabled = $true  })
 $AttestCheck.Add_Unchecked({ $CloseKioskBtn.IsEnabled = $false })
 
 $script:UserConfirmed = $false
+
+# WindowStyle=None has no title bar; allow dragging the dialog out of the way
+$window.Add_MouseLeftButtonDown({ try { $window.DragMove() } catch {} })
+
+# Block Alt+F4 / programmatic close until the user confirms (logoff still force-closes)
+$window.Add_Closing({
+    param($s, $e)
+    if (-not $script:UserConfirmed) { $e.Cancel = $true }
+})
 
 $OpenFormBtn.Add_Click({
     if (-not (IsEdgeOpen)) { Start-EdgeKiosk; Start-Sleep -Milliseconds 500 }
@@ -246,61 +250,50 @@ $OpenFormBtn.Add_Click({
 })
 
 $CloseKioskBtn.Add_Click({
-    Write-Log "User confirmed submission; stopping kiosk and closing dialog."
+    Write-Log 'User confirmed submission; stopping kiosk and closing dialog.'
     $script:UserConfirmed = $true
     try { $timer.Stop() } catch {}
     Stop-EdgeKiosk
     $window.Close()
 })
 
-# Keep Edge alive while user hasn't confirmed
+# Keep the form open while the user hasn't confirmed
 $timer = New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromSeconds(5)
 $timer.Add_Tick({
     if (-not $script:UserConfirmed -and -not (IsEdgeOpen)) {
-        Write-Log "Kiosk Edge closed; relaunching."
+        Write-Log 'Kiosk Edge closed; relaunching.'
         Start-EdgeKiosk
         Start-Sleep -Milliseconds 500
         Set-EdgeForeground
     }
 })
-$timer.Start()
 
-# ---------------- Run (hide taskbar, show dialog, restore taskbar) ----------------
+# ---------------- Run ----------------
 try {
-    if (-not $SkipTaskbarHide) {
-        Hide-Taskbar
-    }
-
     Start-EdgeKiosk
     Start-Sleep -Milliseconds 800
     Set-EdgeForeground
 
-    # Position the window bottom-right
+    # Position the dialog bottom-right
     try {
         $wa = [System.Windows.SystemParameters]::WorkArea
         $window.Left = $wa.Right - $window.Width - 20
         $window.Top  = $wa.Bottom - $window.Height - 20
     } catch {}
 
-    # If dialog gets activated, ensure Edge stays in front (just in case)
-    $window.Add_Activated({ Set-EdgeForeground })
-
+    $timer.Start()
     [void]$window.ShowDialog()
 }
 finally {
-    if (-not $SkipTaskbarHide) {
-        Show-Taskbar
-    }
-    # Release mutex
-    if ($mutex) {
-        try { $mutex.ReleaseMutex() } catch {}
-        try { $mutex.Dispose() } catch {}
-    }
+    try { $timer.Stop() } catch {}
+    Stop-EdgeKiosk
+    try { $mutex.ReleaseMutex() } catch {}
+    try { $mutex.Dispose() } catch {}
 }
 
 if ($LaunchArcGISProAfter -and (Test-Path $ArcGISProPath)) {
-    Write-Log "Launching ArcGIS Pro after check-in."
+    Write-Log 'Launching ArcGIS Pro after check-in.'
     Start-Process -FilePath $ArcGISProPath
 }
 
