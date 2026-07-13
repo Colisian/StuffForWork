@@ -1,107 +1,61 @@
-# Detection script for logged-on user in Remote Desktop Users group
-# Returns exit 0 if current user is in the group, exit 1 if not
+<#
+.SYNOPSIS
+    Intune detection: the logged-on user is a member of Remote Desktop Users.
+.DESCRIPTION
+    Detected/compliant = exit 0 with stdout; not detected = exit 1.
+    The user is resolved from the most recently used non-special profile
+    (preferring a loaded one; falls back to the last-used profile when nobody
+    is logged on, e.g. detection runs at the lock screen). Membership is
+    compared by SID via the ADSI WinNT provider - Get-LocalGroupMember throws
+    on orphaned or Entra SIDs, so ADSI is deliberate.
 
-$logPath = "C:\PerfLogs\AddLoggedOnUser_Detection.log"
-if (-not (Test-Path "C:\PerfLogs")) {
-    New-Item -Path "C:\PerfLogs" -ItemType Directory -Force | Out-Null
-}
+    NOTE: detection is tied to the CURRENT user, so on shared devices a new
+    user logging in flips the device non-compliant until the app reinstalls.
 
-# Function to get the currently logged-in user (works when running as SYSTEM)
-function Get-LoggedOnUser {
-    # Method 1: Try to get from Explorer process owner
-    try {
-        $explorer = Get-WmiObject -Class Win32_Process -Filter "Name='explorer.exe'" -ErrorAction Stop | Select-Object -First 1
-        if ($explorer) {
-            $owner = $explorer.GetOwner()
-            if ($owner.Domain -and $owner.User) {
-                return "$($owner.Domain)\$($owner.User)"
-            }
-        }
-    } catch { }
+    Keep Get-LoggedOnUserSid in sync with the copies in
+    AddLoggedOnUser.ps1 and RemoveLoggedOnUser.ps1.
+.NOTES
+    Author:  cmcleod1@umd.edu
+    Date:    2026-07-13
+    Version: 2.0
+#>
 
-    # Method 2: Query user command
-    try {
-        $queryResult = query user 2>$null | Select-Object -Skip 1 | Select-Object -First 1
-        if ($queryResult) {
-            $username = ($queryResult -split '\s+')[0].TrimStart('>')
-            $profiles = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList" -ErrorAction SilentlyContinue
-            foreach ($profile in $profiles) {
-                $profilePath = (Get-ItemProperty $profile.PSPath).ProfileImagePath
-                if ($profilePath -like "*$username*") {
-                    $sid = $profile.PSChildName
-                    try {
-                        $objSID = New-Object System.Security.Principal.SecurityIdentifier($sid)
-                        $objUser = $objSID.Translate([System.Security.Principal.NTAccount])
-                        return $objUser.Value
-                    } catch { }
-                }
-            }
-            return $username
-        }
-    } catch { }
+$ErrorActionPreference = 'Stop'
 
-    # Method 3: Registry
-    try {
-        $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI"
-        $lastUser = (Get-ItemProperty -Path $regPath -ErrorAction Stop).LastLoggedOnUser
-        if ($lastUser) {
-            return $lastUser
-        }
-    } catch { }
-
+function Get-LoggedOnUserSid {
+    [CmdletBinding()]
+    param()
+    $profiles = Get-CimInstance -ClassName Win32_UserProfile -Filter 'Special=FALSE' |
+        Sort-Object -Property LastUseTime -Descending
+    # Prefer a loaded profile (active session); otherwise last logged-on user
+    $userProfile = ($profiles | Where-Object { $_.Loaded } | Select-Object -First 1)
+    if (-not $userProfile) { $userProfile = $profiles | Select-Object -First 1 }
+    if ($userProfile) { return $userProfile.SID }
     return $null
 }
 
-# Get the logged-on user
-$loggedOnUser = Get-LoggedOnUser
-
-if (-not $loggedOnUser) {
-    "$(Get-Date) - Detection: Could not determine logged-on user" | Out-File -FilePath $logPath -Encoding UTF8
-    exit 1
-}
-
-# Get the Remote Desktop Users group members using ADSI
 try {
-    $remoteDesktopGroup = [ADSI]"WinNT://$env:COMPUTERNAME/Remote Desktop Users,group"
-    $members = @($remoteDesktopGroup.Invoke("Members")) | ForEach-Object {
-        $path = $_.GetType().InvokeMember("ADsPath", "GetProperty", $null, $_, $null)
-        $path.Replace("WinNT://", "").Replace("/", "\")
+    $userSid = Get-LoggedOnUserSid
+    if (-not $userSid) {
+        exit 1
     }
-} catch {
-    "$(Get-Date) - Detection: Error getting group members - $($_.Exception.Message)" | Out-File -FilePath $logPath -Encoding UTF8
+
+    # Resolve the (possibly localized) group name from its well-known SID
+    $groupName = (Get-LocalGroup -SID 'S-1-5-32-555').Name
+    $group = [ADSI]"WinNT://$env:COMPUTERNAME/$groupName,group"
+
+    $memberSids = @($group.Invoke('Members')) | ForEach-Object {
+        $bytes = $_.GetType().InvokeMember('objectSid', 'GetProperty', $null, $_, $null)
+        (New-Object System.Security.Principal.SecurityIdentifier($bytes, 0)).Value
+    }
+
+    if ($memberSids -contains $userSid) {
+        Write-Host "Compliant: logged-on user ($userSid) is a member of Remote Desktop Users."
+        exit 0
+    }
+
     exit 1
-}
-
-# Check if the logged-on user is in the Remote Desktop Users group
-# Need to handle various formats: AzureAD\user@domain.com, DOMAIN\user, etc.
-$loggedOnUserNormalized = $loggedOnUser.ToLower()
-$isCompliant = $false
-
-foreach ($member in $members) {
-    $memberNormalized = $member.ToLower()
-
-    # Direct match
-    if ($memberNormalized -eq $loggedOnUserNormalized) {
-        $isCompliant = $true
-        break
-    }
-
-    # Check if the username portion matches (after the \)
-    $loggedOnUserPart = ($loggedOnUser -split '\\')[-1].ToLower()
-    $memberPart = ($member -split '\\')[-1].ToLower()
-
-    if ($loggedOnUserPart -eq $memberPart) {
-        $isCompliant = $true
-        break
-    }
-}
-
-if ($isCompliant) {
-    "$(Get-Date) - Detection SUCCESS: '$loggedOnUser' is a member of Remote Desktop Users" | Out-File -FilePath $logPath -Encoding UTF8
-    Write-Host "User '$loggedOnUser' is a member of Remote Desktop Users group"
-    exit 0
-} else {
-    "$(Get-Date) - Detection FAILED: '$loggedOnUser' is NOT a member of Remote Desktop Users" | Out-File -FilePath $logPath -Encoding UTF8
-    Write-Host "User '$loggedOnUser' is NOT a member of Remote Desktop Users group"
+} catch {
+    # Any failure counts as not detected so Intune remediates
     exit 1
 }

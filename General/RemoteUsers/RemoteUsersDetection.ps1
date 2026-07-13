@@ -1,53 +1,36 @@
-# Define the location and name of the log file that indicates a successful configuration.
-$logFilePath = "C:\PerfLogs\RemoteDesktopUsersDetection.log"
+<#
+.SYNOPSIS
+    Intune detection: Authenticated Users is a member of Remote Desktop Users.
+.DESCRIPTION
+    Detected/compliant = exit 0 with stdout; not detected = exit 1.
+    Members are enumerated via the ADSI WinNT provider deliberately:
+    Get-LocalGroupMember throws on orphaned or Entra SIDs. Membership is
+    compared by SID (S-1-5-11) so localized account names don't matter.
+.NOTES
+    Author:  cmcleod1@umd.edu
+    Date:    2026-07-13
+    Version: 2.0
+#>
 
-if (-not (Test-Path "C:\PerfLogs")) {
-    New-Item -Path "C:\PerfLogs" -ItemType Directory -Force | Out-Null
-}
+$ErrorActionPreference = 'Stop'
 
-# Get the Remote Desktop Users group using ADSI.
-$remoteDesktopGroup = [ADSI]"WinNT://$env:COMPUTERNAME/Remote Desktop Users,group"
+try {
+    # Resolve the (possibly localized) group name from its well-known SID
+    $groupName = (Get-LocalGroup -SID 'S-1-5-32-555').Name
+    $group = [ADSI]"WinNT://$env:COMPUTERNAME/$groupName,group"
 
-# Retrieve all current members of the group.
-$members = @($remoteDesktopGroup.Invoke("Members")) | ForEach-Object {
-    # Get the ADsPath property for each member.
-    $path = $_.GetType().InvokeMember("ADsPath", "GetProperty", $null, $_, $null)
-    # Format the path into a typical "ComputerName\Username" format.
-    $name = $path.Replace("WinNT://", "").Replace("/", "\")
-    $name
-}
-
-# Define the expected group that must be in the Remote Desktop Users group.
-# "Authenticated Users" is a well-known group represented as "NT AUTHORITY\Authenticated Users" or "Authenticated Users"
-$expectedGroup = "Authenticated Users"
-
-# Check if the expected group is in the Remote Desktop Users group.
-# The group might appear as "NT AUTHORITY\Authenticated Users" or "Authenticated Users" depending on the system
-$isCompliant = $false
-foreach ($member in $members) {
-    if ($member -like "*\Authenticated Users" -or $member -eq "Authenticated Users") {
-        $isCompliant = $true
-        break
-    }
-}
-
-if ($isCompliant) {
-    Write-Host "Detection successful: 'Authenticated Users' is a member of the Remote Desktop Users group."
-
-    # Write a log file to signal that the configuration is correct.
-    $logContent = "Detection successful: 'Authenticated Users' is a member of Remote Desktop Users group on $(Get-Date)."
-    $logContent | Out-File -FilePath $logFilePath -Encoding UTF8
-
-    # Exit with 0 (success) so that Intune detection sees this as compliant.
-    exit 0
-} else {
-    Write-Host "Detection failed: 'Authenticated Users' is NOT a member of the Remote Desktop Users group."
-
-    # Optionally, remove any stale log file if detection fails.
-    if (Test-Path $logFilePath) {
-        Remove-Item $logFilePath -Force
+    $memberSids = @($group.Invoke('Members')) | ForEach-Object {
+        $bytes = $_.GetType().InvokeMember('objectSid', 'GetProperty', $null, $_, $null)
+        (New-Object System.Security.Principal.SecurityIdentifier($bytes, 0)).Value
     }
 
-    # Exit with 1 (failure) so that Intune detection reports non-compliance.
+    if ($memberSids -contains 'S-1-5-11') {
+        Write-Host "Compliant: Authenticated Users is a member of Remote Desktop Users."
+        exit 0
+    }
+
+    exit 1
+} catch {
+    # Any failure counts as not detected so Intune remediates
     exit 1
 }
