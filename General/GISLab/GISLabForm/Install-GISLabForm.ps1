@@ -3,12 +3,15 @@
     Installs the GIS Lab Check-In Helper scheduled task.
 
 .DESCRIPTION
-    Creates a scheduled task that launches a Survey123 check-in form in Edge kiosk mode
-    at user logon. Requires administrator privileges.
+    Copies the launcher script to ProgramData and registers a scheduled task
+    that launches the Survey123 check-in form (Edge kiosk + attestation dialog)
+    at every user logon. Requires administrator/SYSTEM privileges.
 
 .NOTES
-    Author: GIS Lab
-    Version: 1.1
+    Author:  GIS Lab
+    Date:    2026-07-10
+    Version: 2.0
+    Log:     C:\ProgramData\GISLab\FormBlocker\install.log
 
 .INTUNE DEPLOYMENT
     Packaging:
@@ -35,37 +38,40 @@
         0 = Success
         1 = Failed (admin check, file copy, or task creation)
 #>
+[CmdletBinding()]
+param()
 
-$BaseDir  = "C:\ProgramData\GISLab\FormBlocker"
-$Launcher = "Launcher-GISLabForm.ps1"
-$TaskName = "GIS Lab Check-In Helper"
+$BaseDir    = 'C:\ProgramData\GISLab\FormBlocker'
+$Launcher   = 'Launcher-GISLabForm.ps1'
+$TaskName   = 'GIS Lab Check-In Helper'
 $ScriptPath = Join-Path $BaseDir $Launcher
+$exitCode   = 0
 
-# Check for admin privileges
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Host "ERROR: This script requires administrator privileges." -ForegroundColor Red
-    Write-Host "Please run PowerShell as Administrator and try again." -ForegroundColor Yellow
-    exit 1
-}
+New-Item -ItemType Directory -Path $BaseDir -Force | Out-Null
+Start-Transcript -Path (Join-Path $BaseDir 'install.log') -Append | Out-Null
 
-# Create directory and copy launcher
 try {
-    New-Item -ItemType Directory -Path $BaseDir -Force | Out-Null
+    $ErrorActionPreference = 'Stop'
+
+    # Check for admin privileges (SYSTEM passes this when deployed via Intune)
+    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        throw 'This script requires administrator privileges.'
+    }
+
     Copy-Item -Path (Join-Path $PSScriptRoot $Launcher) -Destination $ScriptPath -Force
     Write-Host "Copied launcher script to $ScriptPath"
-} catch {
-    Write-Host "ERROR: Failed to copy files - $($_.Exception.Message)" -ForegroundColor Red
-    exit 1
-}
 
-# XML definition for a per-user Logon task
-$taskXml = @"
+    # Per-user logon task. LeastPrivilege: the launcher needs no elevation, and
+    # HighestAvailable would silently elevate it for any admin who logs on.
+    # ExecutionTimeLimit PT0S = no limit; the launcher lives until the user
+    # confirms and ends naturally at logoff.
+    $taskXml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Author>GISLab</Author>
-    <Description>Launches Survey123 kiosk and dialog at user logon</Description>
+    <Description>Launches Survey123 check-in form and dialog at user logon</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
@@ -76,7 +82,7 @@ $taskXml = @"
   <Principals>
     <Principal id="Author">
       <GroupId>S-1-5-32-545</GroupId> <!-- Users -->
-      <RunLevel>HighestAvailable</RunLevel>
+      <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
   </Principals>
   <Settings>
@@ -85,7 +91,7 @@ $taskXml = @"
     <Enabled>true</Enabled>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <RestartOnFailure>
       <Interval>PT1M</Interval>
       <Count>3</Count>
@@ -100,27 +106,30 @@ $taskXml = @"
 </Task>
 "@
 
-$xmlFile = Join-Path $BaseDir "GISLabFormBlocker.task.xml"
-$taskXml | Out-File -FilePath $xmlFile -Encoding Unicode -Force
+    $xmlFile = Join-Path $BaseDir 'GISLabFormBlocker.task.xml'
+    $taskXml | Out-File -FilePath $xmlFile -Encoding Unicode -Force
 
-# Register the scheduled task
-Write-Host "Registering scheduled task..."
-$result = schtasks.exe /Create /TN "$TaskName" /XML "$xmlFile" /F 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Failed to register scheduled task" -ForegroundColor Red
-    Write-Host $result -ForegroundColor Red
-    exit 1
+    Write-Host 'Registering scheduled task...'
+    $result = schtasks.exe /Create /TN "$TaskName" /XML "$xmlFile" /F 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to register scheduled task: $result"
+    }
+
+    "installed $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File -FilePath (Join-Path $BaseDir '.installed') -Force
+
+    Write-Host ''
+    Write-Host 'GIS Lab Check-In Helper installed successfully!'
+    Write-Host "  - Task Name: $TaskName"
+    Write-Host "  - Script Path: $ScriptPath"
+    Write-Host '  - Trigger: 5 second delay after user logon'
+    Write-Host 'The form will appear at next user logon.'
+}
+catch {
+    Write-Host "ERROR: $($_.Exception.Message)"
+    $exitCode = 1
+}
+finally {
+    Stop-Transcript | Out-Null
 }
 
-"installed" | Out-File -FilePath (Join-Path $BaseDir ".installed") -Force
-
-Write-Host ""
-Write-Host "GIS Lab Check-In Helper installed successfully!" -ForegroundColor Green
-Write-Host ""
-Write-Host "Configuration:" -ForegroundColor Cyan
-Write-Host "  - Task Name: $TaskName"
-Write-Host "  - Script Path: $ScriptPath"
-Write-Host "  - Trigger: 5 second delay after user logon"
-Write-Host "  - Retry: Up to 3 times on failure"
-Write-Host ""
-Write-Host "The form will appear at next user logon." -ForegroundColor Yellow
+exit $exitCode
