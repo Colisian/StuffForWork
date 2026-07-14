@@ -1,0 +1,9 @@
+<Configuration>
+  <!-- Remove All strips every C2R product and language pack at once.
+       Install.ps1 guards against running this when non-consumer products
+       (e.g. M365 Apps for enterprise) are present on the device. -->
+  <Remove All="TRUE" />
+  <Display Level="None" AcceptEULA="TRUE" />
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+  <Logging Level="Standard" Path="C:\ProgramData\OfficeRemoval" />
+</Configuration>
