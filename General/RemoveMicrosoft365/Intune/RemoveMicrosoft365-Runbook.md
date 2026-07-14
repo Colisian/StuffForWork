@@ -72,6 +72,17 @@ Return codes: `0` = Success · `3010` = Soft reboot · `1` = Failure (leave the 
 
 > `%windir%\Sysnative\...` forces 64-bit PowerShell from the 32-bit Intune Management Extension — registry reads under `HKLM:\SOFTWARE\Microsoft\Office\ClickToRun` need the 64-bit view.
 
+### Alternative: "PowerShell script" installer type (2026 feature)
+
+Instead of the command lines above, the Program blade's **Installer type** dropdown can be switched from *Command line* to *PowerShell script*, letting you upload `Install.ps1` / `Uninstall.ps1` directly as app metadata (like detection scripts).
+
+- **Benefit**: script fixes don't require rebuilding/re-uploading the `.intunewin` — edit and re-upload the script alone.
+- **You still build the same `.intunewin`** — `setup.exe` and `remove.xml` ship as package content either way. Keep the scripts in `Source\` too so you can switch back to command line.
+- **UI quirk**: type any character into the Install command field first, or the Installer type dropdown stays greyed out.
+- **Run as 32-bit**: leave **No** (default = 64-bit, so no Sysnative workaround needed).
+- Script size limit 50 KB; `Install.ps1` locates package content via `$PSScriptRoot` *or* the working directory, so it works under both installer types.
+- Feature is new (GA ~Feb 2026) and Microsoft's docs for it are thin — command line remains the battle-tested path.
+
 ### Requirements
 - OS architecture: 64-bit · Minimum OS: Windows 10 22H2 (or your baseline)
 

@@ -67,11 +67,19 @@ try {
     }
 
     # --- 4. Stage ODT -------------------------------------------------------
+    # Locate package content. With the classic command-line installer this
+    # script runs from inside the extracted .intunewin, so $PSScriptRoot is
+    # the content root. With the newer "PowerShell script" installer type the
+    # script is materialized separately by the IME, so fall back to the
+    # working directory (the app content folder).
+    $contentDir = if (Test-Path (Join-Path $PSScriptRoot 'remove.xml')) { $PSScriptRoot } else { (Get-Location).Path }
+    Write-Output "Package content directory: $contentDir"
+
     $workDir  = Join-Path $env:ProgramData 'OfficeRemoval\ODT'
     New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
     $setupExe = Join-Path $workDir 'setup.exe'
-    $bundled  = Join-Path $PSScriptRoot 'setup.exe'
+    $bundled  = Join-Path $contentDir 'setup.exe'
 
     if (Test-Path $bundled) {
         Copy-Item -Path $bundled -Destination $setupExe -Force
@@ -87,7 +95,7 @@ try {
 
     if (-not (Test-Path $setupExe)) { throw 'ODT setup.exe unavailable after staging.' }
 
-    $xmlPath = Join-Path $PSScriptRoot 'remove.xml'
+    $xmlPath = Join-Path $contentDir 'remove.xml'
     if (-not (Test-Path $xmlPath)) { throw "remove.xml not found at $xmlPath." }
 
     # --- 5. Run the removal -------------------------------------------------
