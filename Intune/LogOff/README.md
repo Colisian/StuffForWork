@@ -10,12 +10,6 @@ Deploys a **LOG OFF** shortcut to the Public Desktop (`C:\Users\Public\Desktop`)
 | `Uninstall-LogOffShortcut.ps1` | Removes the Public Desktop shortcut |
 | `Detection\LogOff-Detection.ps1` | Custom detection: shortcut present on Public Desktop |
 
-## Package
-
-```powershell
-IntuneWinAppUtil.exe -c "<path>\Intune\LogOff" -s Install-LogOffShortcut.ps1 -o "<output-folder>"
-```
-
 > The `Detection` folder gets bundled into the `.intunewin` too — harmless, but you can point `-c` at a copy containing only the two scripts if you want a clean package.
 
 ## Intune App Configuration
