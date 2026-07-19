@@ -5,7 +5,7 @@ Deploys a **LOG OFF** shortcut to the Public Desktop (`C:\Users\Public\Desktop`)
 ## Contents
 
 | File | Purpose |
-|---|---|
+| --- | --- |
 | `Install-LogOffShortcut.ps1` | Creates `LOG OFF.lnk` on the Public Desktop targeting `logoff.exe`; removes stale per-user copies (including OneDrive-redirected desktops) |
 | `Uninstall-LogOffShortcut.ps1` | Removes the Public Desktop shortcut |
 | `Detection\LogOff-Detection.ps1` | Custom detection: shortcut present on Public Desktop |
@@ -15,7 +15,7 @@ Deploys a **LOG OFF** shortcut to the Public Desktop (`C:\Users\Public\Desktop`)
 ## Intune App Configuration
 
 | Setting | Value |
-|---|---|
+| --- | --- |
 | Install command | `%windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File Install-LogOffShortcut.ps1` |
 | Uninstall command | `%windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File Uninstall-LogOffShortcut.ps1` |
 | **Install behavior** | **System** (this is the fix — the old app was User) |
