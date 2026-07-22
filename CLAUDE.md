@@ -60,6 +60,12 @@ Subnet convention: **PROD = `10.126.5.x`**, **TEST = `10.126.4.x`**. Use private
 
 - **Windows: Intune-native only — never GPO.** Entire fleet (including lab PCs) is Intune-managed. Use Win32 apps, Settings Catalog, Remediations, Platform Scripts.
 - **Win32 apps**: package with `IntuneWinAppUtil`; PowerShell install/uninstall wrappers, custom detection scripts, meaningful exit codes (0 success, 1 failure, 3010 reboot).
+- **Dual-method Intune PS scripts** — author every Win32 install/uninstall script so it works both ways without edits: (a) called by command line `...powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-X.ps1`, and (b) pasted into Intune's Win32 "PowerShell script installer" boxes. Requirements:
+  - Locate bundled companion files with `$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }` — `$PSScriptRoot` is empty when the script is pasted, but CWD is the unpacked package either way. Never rely on `$PSScriptRoot` alone.
+  - Keep data (account lists, configs) as **bundled files in the `.intunewin`**, not inlined — pasted scripts have a **50 KB** limit, and bundling sidesteps it.
+  - `-s` on `IntuneWinAppUtil` is a required placeholder for script-driven installs; point it at any bundled file.
+  - Prefer **Method A (command line)** as default so the script is versioned inside the package; offer Method B when the user wants the paste flow.
+- **Detection for state-based installs** (accounts, registry, services — nothing on disk): never use a file/folder rule. Use a **registry detection rule** against a sentinel value, or a custom detection script checking a sentinel that proves the run completed (e.g. the last item in a loop).
 - **Remediations**: detection exits 0 (compliant) / 1 (remediate); keep stdout <2048 chars.
 - **Registry**: `Test-Path` → `New-Item -Force` → `Set-ItemProperty -Force`.
 - **EC2 domain join**: Secrets Manager → `ConvertTo-SecureString` → `Add-Computer` to `OU=EC2,OU=Servers,OU=LIBR,...`; fleet ops via SSM Run Command.

@@ -39,17 +39,51 @@ IntuneWinAppUtil.exe -c "<this folder>" -s Install-LibGuestAccounts.ps1 -o "<out
 ```
 
 Move or exclude `legacy\` and `README.md` first if you want a minimal payload
-(only the two .ps1 install/uninstall files and libguest.txt are needed).
+(only the two .ps1 install/uninstall files and libguest.txt are needed). The `-s`
+file is just a required placeholder here — the install is driven by the script, not
+by that file — so any bundled file (the install .ps1 or libguest.txt) works.
+
+Both deployment methods below still use this same `.intunewin`, so `libguest.txt`
+is always bundled and never needs to be inlined into the script. The scripts detect
+which method is in play and locate `libguest.txt` accordingly (`$PSScriptRoot` when
+run by command line, current working directory when pasted).
 
 ## Intune Win32 app settings
+
+Common to both methods: **Install behavior = System**. Exit codes: 0 = success,
+1 = failure (3010 = soft reboot if ever needed).
+
+### Method A — command line calling the packaged script (recommended)
+
+Scripts stay inside the `.intunewin`, so what runs is exactly what you packaged.
 
 - **Install command:**
   `%windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-LibGuestAccounts.ps1`
 - **Uninstall command:**
   `%windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-LibGuestAccounts.ps1`
-- **Install behavior:** System
-- **Detection rule:** Use a custom detection script → upload `Detect-LibGuestAccounts.ps1`
-- **Return codes:** defaults are fine (script exits 0 on success, 1 on failure)
+
+### Method B — paste the script into Intune's script box
+
+The newer Win32 "PowerShell script installer" flow: paste the *contents* of
+`Install-LibGuestAccounts.ps1` / `Uninstall-LibGuestAccounts.ps1` directly into the
+install/uninstall script fields. `libguest.txt` still ships in the `.intunewin`, so
+the scripts read it from the current working directory (the unpacked package).
+
+- Scripts must stay under the **50 KB** limit (these are well under; do not inline
+  the 500-name list — that's what bundling `libguest.txt` avoids).
+- The scripts already handle the empty `$PSScriptRoot` this method produces.
+
+### Detection rule (same for both methods)
+
+Nothing lands on disk, so a file/folder rule has nothing to detect. Use either:
+
+- **Registry rule (simplest, no script):**
+  - Key: `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\UserList`
+  - Value: `libguest500@UMD.EDU`
+  - Method: **String equals** `libguest500`
+  - (Proves the loop reached the last account.)
+- **Custom detection script:** upload `Detect-LibGuestAccounts.ps1` in the
+  detection-rule blade (it checks the same sentinel account + mapping).
 
 ## Pilot checklist (especially for Entra-only devices)
 

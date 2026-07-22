@@ -18,7 +18,9 @@ Start-Transcript -Path $LogFile -Append | Out-Null
 $Realm       = 'UMD.EDU'
 $DomainsKey  = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\Domains\$Realm"
 $UserListKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\UserList'
-$AccountFile = Join-Path $PSScriptRoot 'libguest.txt'
+# Same dual-mode lookup as the install script (command-line vs pasted script).
+$ScriptDir   = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$AccountFile = Join-Path $ScriptDir 'libguest.txt'
 
 $Accounts = Get-Content $AccountFile | Where-Object { $_.Trim() -ne '' } | ForEach-Object { $_.Trim() }
 

@@ -25,7 +25,12 @@ Start-Transcript -Path $LogFile -Append | Out-Null
 $Realm       = 'UMD.EDU'
 $DomainsKey  = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\Domains\$Realm"
 $UserListKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\UserList'
-$AccountFile = Join-Path $PSScriptRoot 'libguest.txt'
+# Locate libguest.txt next to this script. $PSScriptRoot works when Intune runs
+# the install via a command line (-File .\Install-LibGuestAccounts.ps1). If the
+# script is instead PASTED into Intune's install-script box, $PSScriptRoot is
+# empty, so fall back to the current working directory (the unpacked package).
+$ScriptDir   = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$AccountFile = Join-Path $ScriptDir 'libguest.txt'
 $Failures    = 0
 
 # The local SAM password is never used for interactive logon (Kerberos UserList
