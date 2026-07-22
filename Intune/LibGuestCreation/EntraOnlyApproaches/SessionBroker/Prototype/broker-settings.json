@@ -1,0 +1,8 @@
+{
+  "GuestAccountPattern": "^shpc\\d+$",
+  "RequireLocalAccount": true,
+  "RequireSharedPcRegistry": true,
+  "MinimumGuestNumber": 1,
+  "MaximumGuestNumber": 500,
+  "Realm": "UMD.EDU"
+}
