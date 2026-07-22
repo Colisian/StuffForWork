@@ -2,7 +2,7 @@
 #Requires -RunAsAdministrator
 [CmdletBinding()]
 param(
-    [int]$IdleLimitSeconds = 600,
+    [int]$IdleLimitSeconds = 900,
     [int]$PollSeconds      = 15,
     [string]$Version       = '1.0.0'
 )

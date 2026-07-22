@@ -85,7 +85,34 @@ Nothing lands on disk, so a file/folder rule has nothing to detect. Use either:
 - **Custom detection script:** upload `Detect-LibGuestAccounts.ps1` in the
   detection-rule blade (it checks the same sentinel account + mapping).
 
-## Pilot checklist (especially for Entra-only devices)
+## Device requirement: hybrid-joined only — Entra-only does NOT work
+
+Tested July 2026. The Kerberos mechanism itself works on any join type (verified:
+`runas /user:libguestN@UMD.EDU cmd.exe` with a SIMS password succeeds on an
+Entra-only device — realm discovery, KDC reachability, and UserList mapping all
+function). But the **lock screen** on an Entra-joined device only accepts two
+identity formats: a UPN resolvable in the tenant, or `.\localaccount`. Because the
+Entra tenant's verified domain (`umd.edu`) is the same string as the MIT Kerberos
+realm (`UMD.EDU`), typing `libguestN@UMD.EDU` is claimed by the cloud provider and
+sent to Entra ID (where the account doesn't exist), and the down-level form
+`UMD.EDU\libguestN` is rejected outright ("You can not sign in with a user ID in
+this format"). There is no supported registry/policy override; this is credential
+provider design, not a config error.
+
+Also ruled out: `@ad.umd.edu` as the realm — the libguest principals exist only in
+the central UMD.EDU MIT realm (SIMS sets passwords there), so the AD KDC returns
+error 1326.
+
+**Consequence:** deploy this package only to Entra **hybrid-joined** (or AD-joined)
+devices. For Entra-only public machines, guest access needs a different design
+(Shared PC / Assigned Access + a reservation layer such as Pharos SignUp) — the
+Kerberos-mapped-local-account model does not apply there.
+
+Realm facts for reference: KDCs are `famine.umd.edu`, `pestilence.umd.edu`,
+`war.umd.edu` (port 88; located via `_kerberos._udp/_tcp.umd.edu` DNS SRV records).
+The realm name is case-sensitive — users must type `@UMD.EDU` uppercase.
+
+## Pilot checklist
 
 1. Deploy to one test machine; confirm in `%ProgramData%\LibGuestCreation\install.log`
    that all 500 accounts were created.
@@ -94,8 +121,7 @@ Nothing lands on disk, so a file/folder rule has nothing to detect. Use either:
    Get-LocalUser libguest1
    Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\UserList"
    ```
-3. Generate a live credential in SIMS and log on at the machine as that
-   `libguestN` account. On Entra-only devices this logon test is the critical
-   go/no-go — confirm the credential provider routes the account to Kerberos
-   rather than Entra ID.
-4. Machine must be able to reach the UMD.EDU KDCs (on-campus network).
+3. Confirm the device is hybrid/AD-joined (`dsregcmd /status` → `DomainJoined: YES`).
+4. Generate a live credential in SIMS and log on at the lock screen as
+   `libguestN@UMD.EDU` (uppercase realm).
+5. Machine must be able to reach the UMD.EDU KDCs (on-campus network).
