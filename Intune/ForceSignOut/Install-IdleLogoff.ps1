@@ -12,14 +12,14 @@
 .NOTES
     Author  : Oji McLeod (cmcleod1@umd.edu)
     Date    : 2026-07-22
-    Version : 1.1.0
+    Version : 1.2.0
 #>
 #Requires -RunAsAdministrator
 [CmdletBinding()]
 param(
     [int]$IdleLimitSeconds = 900,
     [int]$PollSeconds      = 15,
-    [string]$Version       = '1.1.0'
+    [string]$Version       = '1.2.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,10 +82,14 @@ catch {
     Set-Content -Path $Watcher -Value $watcherBody -Encoding UTF8
 
     # --- Register the per-user scheduled task ---
+    # conhost --headless forces the legacy console host with NO window. Without
+    # it, Windows 11 machines where Windows Terminal is the default host ignore
+    # -WindowStyle Hidden and park a persistent terminal on the taskbar.
+    $conhost  = "$env:SystemRoot\System32\conhost.exe"
     $psExe    = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $taskArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Watcher`" -IdleLimit $IdleLimitSeconds -Poll $PollSeconds"
+    $taskArgs = "--headless $psExe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Watcher`" -IdleLimit $IdleLimitSeconds -Poll $PollSeconds"
 
-    $Action    = New-ScheduledTaskAction -Execute $psExe -Argument $taskArgs
+    $Action    = New-ScheduledTaskAction -Execute $conhost -Argument $taskArgs
     $Trigger   = New-ScheduledTaskTrigger -AtLogOn
     $Principal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
     $Settings  = New-ScheduledTaskSettingsSet `
