@@ -1,4 +1,11 @@
-# Uninstall-IdleLogoff.ps1
+<#
+.SYNOPSIS
+    Removes the LabIdleLogoff scheduled task, watcher payload, and its folder.
+.NOTES
+    Author  : Oji McLeod (cmcleod1@umd.edu)
+    Date    : 2026-07-22
+    Version : 1.1.0
+#>
 #Requires -RunAsAdministrator
 $ErrorActionPreference = 'SilentlyContinue'
 $TaskName  = 'LabIdleLogoff'

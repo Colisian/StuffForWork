@@ -1,10 +1,25 @@
-# Install-IdleLogoff.ps1  — self-contained for Win32 "PowerShell script" installer type
+<#
+.SYNOPSIS
+    Installs the LabIdleLogoff watcher: a per-user scheduled task that signs the
+    interactive user off after a configurable idle period.
+
+.DESCRIPTION
+    Self-contained for the Intune Win32 "PowerShell script" installer type — no
+    sibling files required. Writes the watcher payload to
+    C:\ProgramData\LabIdleLogoff\Watch-Idle.ps1 and registers a scheduled task
+    that runs it at logon for every member of the local Users group.
+
+.NOTES
+    Author  : Oji McLeod (cmcleod1@umd.edu)
+    Date    : 2026-07-22
+    Version : 1.1.0
+#>
 #Requires -RunAsAdministrator
 [CmdletBinding()]
 param(
     [int]$IdleLimitSeconds = 900,
     [int]$PollSeconds      = 15,
-    [string]$Version       = '1.0.0'
+    [string]$Version       = '1.1.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,10 +34,19 @@ Start-Transcript -Path $LogFile -Append | Out-Null
 
 try {
     # --- Write watcher payload inline (no sibling file needed) ---
+    # NOTE: single-quoted here-string — everything inside is literal and is
+    # evaluated at WATCHER runtime, not install time.
     $watcherBody = @'
 param([int]$IdleLimit = 600, [int]$Poll = 15)
 
-Add-Type @"
+$log = 'C:\ProgramData\LabIdleLogoff\watch.log'
+function Write-WatchLog { param($m) "$(Get-Date -Format s)  $m" | Add-Content -Path $log }
+
+try {
+    $sid = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
+    Write-WatchLog "Watcher started (IdleLimit=$IdleLimit, Poll=$Poll, User=$env:USERNAME, Session=$sid)"
+
+    Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public class Idle {
@@ -38,21 +62,30 @@ public class Idle {
 }
 "@
 
-while ($true) {
-    if ([Idle]::GetIdleSeconds() -ge $IdleLimit) {
-        shutdown.exe /l /f
-        break
+    while ($true) {
+        $idle = [Idle]::GetIdleSeconds()
+        if ($idle -ge $IdleLimit) {
+            Write-WatchLog "Idle $idle s >= limit $IdleLimit s -> logging off $env:USERNAME (session $sid)"
+            # logoff.exe -> WTSLogoffSession: works even when the workstation is
+            # locked (secure desktop). shutdown /l -> ExitWindowsEx does NOT.
+            logoff.exe $sid
+            break
+        }
+        Start-Sleep -Seconds $Poll
     }
-    Start-Sleep -Seconds $Poll
+}
+catch {
+    Write-WatchLog "ERROR: $_"
+    exit 1
 }
 '@
     Set-Content -Path $Watcher -Value $watcherBody -Encoding UTF8
 
     # --- Register the per-user scheduled task ---
-    $psExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $args  = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Watcher`" -IdleLimit $IdleLimitSeconds -Poll $PollSeconds"
+    $psExe    = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $taskArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Watcher`" -IdleLimit $IdleLimitSeconds -Poll $PollSeconds"
 
-    $Action    = New-ScheduledTaskAction -Execute $psExe -Argument $args
+    $Action    = New-ScheduledTaskAction -Execute $psExe -Argument $taskArgs
     $Trigger   = New-ScheduledTaskTrigger -AtLogOn
     $Principal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
     $Settings  = New-ScheduledTaskSettingsSet `

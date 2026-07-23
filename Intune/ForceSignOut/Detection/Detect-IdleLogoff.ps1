@@ -1,16 +1,23 @@
-# Detect-IdleLogoff.ps1
-$TaskName    = 'LabIdleLogoff'
-$VersionTag  = 'C:\ProgramData\LabIdleLogoff\version.txt'
-$ExpectedVer = '1.0.0'   # keep in sync with Install-IdleLogoff.ps1
+<#
+.SYNOPSIS
+    Intune Win32 detection rule for LabIdleLogoff.
+.DESCRIPTION
+    Detected when both the scheduled task and the watcher payload exist.
+    Version is reported for visibility but is NOT a detection gate, so an
+    install invoked with a different -Version does not trigger a reinstall loop.
+.NOTES
+    Author  : Oji McLeod (cmcleod1@umd.edu)
+    Date    : 2026-07-22
+    Version : 1.1.0
+#>
+$TaskName   = 'LabIdleLogoff'
+$Watcher    = 'C:\ProgramData\LabIdleLogoff\Watch-Idle.ps1'
+$VersionTag = 'C:\ProgramData\LabIdleLogoff\version.txt'
 
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-if (-not $task) { exit 0 }  # not found → not installed (no output)
+if (-not $task)             { exit 0 }   # no output -> not installed
+if (-not (Test-Path $Watcher)) { exit 0 }   # payload missing -> not installed
 
-if (Test-Path $VersionTag) {
-    $ver = (Get-Content $VersionTag -Raw).Trim()
-    if ($ver -eq $ExpectedVer) {
-        Write-Output "LabIdleLogoff v$ver present"
-        exit 0
-    }
-}
-exit 0  # task exists but version mismatch/missing tag → not installed
+$ver = if (Test-Path $VersionTag) { (Get-Content $VersionTag -Raw).Trim() } else { 'unknown' }
+Write-Output "LabIdleLogoff v$ver present"
+exit 0
