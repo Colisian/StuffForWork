@@ -52,7 +52,7 @@ param(
     [switch]$Force
 )
 
-# --- Setup --------------------------------------------------------------------
+# --- Setup -----------------
 $ErrorActionPreference = 'Stop'
 $ServiceName = 'ir_agent'
 $MsiName     = 'agentInstaller-x86_64.msi'
@@ -66,7 +66,7 @@ function Write-Err  { param([string]$Message) Write-Host "[x] $Message" -Foregro
 
 Write-Step "Rapid7 Insight Agent install starting on $env:COMPUTERNAME"
 
-# --- 1. Pre-flight diagnostics ------------------------------------------------
+# --- 1. Pre-flight diagnostics ----
 Write-Step 'Running pre-flight checks...'
 
 # 1a. Already installed?

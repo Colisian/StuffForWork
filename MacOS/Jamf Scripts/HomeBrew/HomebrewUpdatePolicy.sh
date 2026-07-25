@@ -1,7 +1,6 @@
 #!/bin/bash
-# =============================================================
+# 
 # Homebrew Metadata Update via Jamf (update only, no upgrade)
-# =============================================================
 
 LOG_DIR="/var/log/jamf_brew"
 LOG_FILE="$LOG_DIR/brew_update.log"
