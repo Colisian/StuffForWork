@@ -20,8 +20,8 @@
 
 .NOTES
     Author:  Oji / UMD Libraries
-    Date:    2026-07-22
-    Version: 0.1.0
+    Date:    2026-07-25
+    Version: 0.1.1
 
     This prototype does not authenticate credentials or launch an application.
 #>
@@ -64,13 +64,21 @@ end {
             $configuration = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 |
                 ConvertFrom-Json
 
-            if ([string]::IsNullOrWhiteSpace($configuration.GuestAccountPattern)) {
-                throw 'GuestAccountPattern is required in broker-settings.json.'
+            if ([string]::IsNullOrWhiteSpace($configuration.BrokerSessionAccountPattern)) {
+                throw 'BrokerSessionAccountPattern is required in broker-settings.json.'
             }
 
-            if ($configuration.MinimumGuestNumber -lt 1 -or
-                $configuration.MaximumGuestNumber -lt $configuration.MinimumGuestNumber) {
-                throw 'The configured guest-number range is invalid.'
+            if ([string]::IsNullOrWhiteSpace($configuration.Realm)) {
+                throw 'Realm is required in broker-settings.json.'
+            }
+
+            $minimumGuestNumber = $configuration.MinimumGuestNumber -as [int]
+            $maximumGuestNumber = $configuration.MaximumGuestNumber -as [int]
+
+            if ($null -eq $minimumGuestNumber -or $null -eq $maximumGuestNumber -or
+                $minimumGuestNumber -lt 1 -or
+                $maximumGuestNumber -lt $minimumGuestNumber) {
+                throw 'MinimumGuestNumber and MaximumGuestNumber must be integers defining a valid range in broker-settings.json.'
             }
 
             return $configuration
@@ -89,7 +97,7 @@ end {
         [CmdletBinding()]
         param(
             [Parameter(Mandatory)]
-            [string]$GuestAccountPattern
+            [string]$BrokerSessionAccountPattern
         )
 
         begin {
@@ -115,7 +123,7 @@ end {
             )
 
             $isLocalAccount = $userDomain -ieq $computerName
-            $matchesGuestPattern = $userName -match $GuestAccountPattern
+            $matchesBrokerAccountPattern = $userName -match $BrokerSessionAccountPattern
             $isGuestsGroupMember = $groupSids -contains 'S-1-5-32-546'
             $isUsersGroupMember = $groupSids -contains 'S-1-5-32-545'
             $isSharedPcConfigured = $sharedPcPathsFound.Count -gt 0
@@ -129,7 +137,7 @@ end {
                 UserDomain                = $userDomain
                 UserSid                   = $currentSid
                 IsLocalAccount            = $isLocalAccount
-                MatchesGuestPattern       = $matchesGuestPattern
+                MatchesBrokerAccountPattern = $matchesBrokerAccountPattern
                 IsGuestsGroupMember       = $isGuestsGroupMember
                 IsUsersGroupMember        = $isUsersGroupMember
                 IsSharedPcConfigured      = $isSharedPcConfigured
@@ -162,7 +170,7 @@ end {
 
         process {
             $requirements = [ordered]@{
-                GuestAccountPattern = [bool]$SessionContext.MatchesGuestPattern
+                BrokerSessionAccountPattern = [bool]$SessionContext.MatchesBrokerAccountPattern
             }
 
             if ($Configuration.RequireLocalAccount) {
@@ -171,6 +179,10 @@ end {
 
             if ($Configuration.RequireSharedPcRegistry) {
                 $requirements.SharedPcConfigured = [bool]$SessionContext.IsSharedPcConfigured
+            }
+
+            if ($Configuration.RequireGuestsGroup) {
+                $requirements.GuestsGroupMember = [bool]$SessionContext.IsGuestsGroupMember
             }
 
             $failedRequirements = @(
@@ -216,6 +228,10 @@ end {
         }
 
         process {
+            if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
+                throw 'The broker UI requires an STA thread. Start PowerShell without -MTA (console defaults are STA).'
+            }
+
             Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
             if (-not (Test-Path -LiteralPath $XamlPath -PathType Leaf)) {
@@ -239,6 +255,7 @@ end {
 
             $signInButton.Add_Click({
                 $statusTextBlock.Text = ''
+                $statusTextBlock.Foreground = '#B00020'
                 $rawGuestNumber = $guestNumberTextBox.Text.Trim()
                 $numberText = $rawGuestNumber -replace '^(?i:libguest)', ''
                 $guestNumber = 0
@@ -261,9 +278,12 @@ end {
                 $guestPasswordBox.Clear()
                 $statusTextBlock.Foreground = '#555555'
                 $statusTextBlock.Text = "Validated $principal. Authentication and application launch will be added in the next milestone."
-            })
+            }.GetNewClosure())
 
-            $guestNumberTextBox.Focus() | Out-Null
+            $window.Add_ContentRendered({
+                $guestNumberTextBox.Focus() | Out-Null
+            }.GetNewClosure())
+
             $window.ShowDialog() | Out-Null
         }
     }
@@ -274,7 +294,7 @@ end {
         $xamlPath = Join-Path $scriptDir 'MainWindow.xaml'
         $configuration = Get-BrokerConfiguration -Path $configurationPath
         $sessionContext = Get-SharedPcSessionContext `
-            -GuestAccountPattern $configuration.GuestAccountPattern
+            -BrokerSessionAccountPattern $configuration.BrokerSessionAccountPattern
         $guestDecision = Test-SharedPcGuestSession `
             -SessionContext $sessionContext `
             -Configuration $configuration
@@ -299,7 +319,22 @@ end {
             -Realm $configuration.Realm
     }
     catch {
-        Write-Error "LibGuest session-broker prototype failed: $($_.Exception.Message)"
+        $failureMessage = "LibGuest session-broker prototype failed: $($_.Exception.Message)"
+
+        try {
+            $logDirectory = Join-Path $env:ProgramData 'LibGuestSessionBroker'
+            if (-not (Test-Path -LiteralPath $logDirectory)) {
+                New-Item -Path $logDirectory -ItemType Directory -Force | Out-Null
+            }
+            Add-Content `
+                -LiteralPath (Join-Path $logDirectory 'broker.log') `
+                -Value "$((Get-Date).ToString('o')) ERROR $failureMessage"
+        }
+        catch {
+            # Logging is best-effort; the original failure must still surface.
+        }
+
+        Write-Error $failureMessage
         exit 1
     }
 }

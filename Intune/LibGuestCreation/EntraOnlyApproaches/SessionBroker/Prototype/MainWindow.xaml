@@ -4,8 +4,6 @@
     Title="UMD Libraries Guest Access"
     Width="520"
     Height="560"
-    MinWidth="480"
-    MinHeight="520"
     ResizeMode="NoResize"
     WindowStartupLocation="CenterScreen"
     Background="#F5F5F5"
@@ -79,6 +77,7 @@
                     Text="Guest number"
                     FontSize="14"
                     FontWeight="SemiBold" />
+                <!-- MaxLength fits the longest accepted value, "libguest500". -->
                 <TextBox
                     x:Name="GuestNumberTextBox"
                     AutomationProperties.Name="Guest number"
@@ -106,6 +105,7 @@
                 <Button
                     x:Name="SignInButton"
                     Style="{StaticResource PrimaryButton}"
+                    IsDefault="True"
                     Content="Sign in" />
 
                 <TextBlock

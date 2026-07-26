@@ -17,6 +17,9 @@ only when all configured conditions pass:
 - The current identity is a local account.
 - Shared PC registry configuration is present.
 - The username matches `^shpc\d+$`.
+- The identity is a member of the built-in Guests group (`S-1-5-32-546`), a
+  documented property of Shared PC guest accounts that backstops the undocumented
+  username pattern.
 
 The `shpc####` name is an observed Windows Shared PC implementation detail, not a
 Microsoft-documented contract. Validate it on a configured public device before

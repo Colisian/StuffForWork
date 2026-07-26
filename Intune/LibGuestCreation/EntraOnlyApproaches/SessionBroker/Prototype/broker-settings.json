@@ -1,7 +1,8 @@
 {
-  "GuestAccountPattern": "^shpc\\d+$",
+  "BrokerSessionAccountPattern": "^shpc\\d+$",
   "RequireLocalAccount": true,
   "RequireSharedPcRegistry": true,
+  "RequireGuestsGroup": true,
   "MinimumGuestNumber": 1,
   "MaximumGuestNumber": 500,
   "Realm": "UMD.EDU"
