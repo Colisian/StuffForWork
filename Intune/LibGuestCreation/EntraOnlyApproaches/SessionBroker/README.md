@@ -11,9 +11,17 @@
 Version `0.2.0` is in [`Prototype`](./Prototype/). It implements the launch gate,
 the WPF dialog, and **Phase 1 authentication**: `CreateProcessWithLogonW` with
 `LOGON_WITH_PROFILE`, job-object process supervision, and a token readback that
-proves which identity Windows actually produced. Phase 1 has **not yet been run
-against hardware with a live SIMS credential** — see the test procedure in the
-prototype README.
+proves which identity Windows actually produced.
+
+> [!success] Phase 1 validated on hardware — `LIBR8ZCBLK4`, 2026-07-26
+> `libguest115@UMD.EDU` with a live SIMS password produced a token for the **local**
+> `LIBR8ZCBLK4\libguest115` (SID `…-1115`). The UMD.EDU KDC authenticates the MIT
+> Kerberos principal from an Entra-only device, and the `UserList` mapping resolves
+> to the correct local account. The central premise of this approach holds.
+
+Still unproven: process cleanup under job-object teardown, and the gate plus dialog
+running end to end inside a real Shared PC guest session. Phase 1 was validated
+through the test harness as an administrator, outside the gate.
 
 The prototype starts silently, examines the current session, and opens the dialog
 only when all configured conditions pass:
@@ -216,7 +224,7 @@ Do not continue unless the final test succeeds with a live SIMS password.
 
 ### Phase 1 - Authentication launcher
 
-**Implemented in `Prototype` 0.2.0. Not yet validated on hardware.**
+**Implemented in `Prototype` 0.2.0. Validated on `LIBR8ZCBLK4` 2026-07-26.**
 
 The dialog:
 

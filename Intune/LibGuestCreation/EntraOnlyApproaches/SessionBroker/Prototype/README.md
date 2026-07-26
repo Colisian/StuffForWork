@@ -113,8 +113,40 @@ binary) produce a distinct "see the service desk" message.
 
 ### Validated on hardware — `LIBR8ZCBLK4` (2026-07-26)
 
-Configured Entra-only Shared PC public device. **These results predate `0.2.0` and
-cover the gate only.**
+Configured Entra-only Shared PC public device.
+
+**Phase 1 authentication — PASSED.** Run via
+[`../Tests/Test-BrokerLaunch.ps1`](../Tests/Test-BrokerLaunch.ps1) as `AD\cmcleod1`
+from an elevated console, which bypasses the session gate.
+
+| Check | Result |
+|---|---|
+| C# compiles under Windows PowerShell `5.1.26100.8655` | Compiled successfully (CodeDOM, not Roslyn) |
+| Secondary Logon service | `Manual` / `Running` |
+| Local account: `libtest` + `-Domain LIBR8ZCBLK4` | `TokenAccount: LIBR8ZCBLK4\libtest` |
+| **SIMS credential: `libguest115@UMD.EDU`** | **`TokenAccount: LIBR8ZCBLK4\libguest115`, SID `…-1115`** |
+
+The SIMS row is the Phase 1 go/no-go. It confirms three things at once: the UMD.EDU
+KDC accepted the MIT Kerberos principal from an Entra-only device, the
+`Lsa\Kerberos\UserList` registry mapping resolved it, and the resulting token is the
+**local** `libguest115` matching the number supplied — not a network identity and
+not a different account.
+
+Unlike the rotating `shpc` broker account, the `libguestN` SIDs are stable and
+their RIDs track the account number (`libguest115` → RID `1115`), consistent with
+the accounts the existing LibGuest installer pre-creates.
+
+The local-account row is what proved the native layer independently of Kerberos:
+P/Invoke signatures, `SecureString` marshalling, `CREATE_SUSPENDED`, job assignment,
+and the token readback all work. A corrupted password buffer would have returned
+`1326` exactly like a wrong password, so this row is what rules that out.
+
+> [!note] What this does **not** cover.
+> Everything above ran as an elevated domain admin, outside the gate and outside
+> the UI. The gate, the dialog, the session monitor, and standard-user file
+> permissions are still unvalidated on `0.2.0`.
+
+**Gate validation (version `0.1.1`, gate only):**
 
 | Check | Result |
 |---|---|
@@ -135,8 +167,12 @@ cover the gate only.**
 
 ## Status — remaining
 
-- [ ] **Run the Phase 1 test procedure below on `LIBR8ZCBLK4`.** Nothing in
-      `0.2.0`'s authentication path has touched hardware yet.
+- [ ] **Session mode + cleanup check.** Launch with `-Mode Session`, then kill the
+      broker process and confirm every child dies with it. This is the go/no-go for
+      Phase 3 process supervision and has not been run.
+- [ ] **Run the full broker in a real Guest session.** Phase 1 was validated
+      through the test harness as an admin; the gate, dialog, and session monitor
+      have not run end to end as the `shpc` account.
 - [ ] **Negative-path probe:** sign in through the **Domain/Entra** option and run
       `-ProbeOnly`; confirm `IsGuestSession: false`.
 - [ ] **Re-probe on each new Windows build** before trusting the gate; the `shpc`
