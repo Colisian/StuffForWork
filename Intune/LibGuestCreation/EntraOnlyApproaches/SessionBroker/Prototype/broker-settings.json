@@ -1,9 +1,35 @@
 {
-  "BrokerSessionAccountPattern": "^shpc\\d+$",
+  "BrokerSessionAccountPattern": "^shpc[a-z0-9]+$",
   "RequireLocalAccount": true,
   "RequireSharedPcRegistry": true,
-  "RequireGuestsGroup": true,
+  "RequireGuestsGroup": false,
+  "AllowDevelopmentOverrides": false,
+  "GuestAccountPrefix": "libguest",
   "MinimumGuestNumber": 1,
   "MaximumGuestNumber": 500,
-  "Realm": "UMD.EDU"
+  "Realm": "UMD.EDU",
+  "LogGuestPrincipal": false,
+  "SessionTimeoutMinutes": 60,
+  "AllowedApplicationRoots": [
+    "%SystemRoot%",
+    "%ProgramFiles%",
+    "%ProgramFiles(x86)%"
+  ],
+  "DefaultApplicationId": "IdentityTest",
+  "Applications": [
+    {
+      "Id": "IdentityTest",
+      "DisplayName": "Identity verification",
+      "Path": "%SystemRoot%\\System32\\whoami.exe",
+      "Arguments": "",
+      "Mode": "IdentityTest"
+    },
+    {
+      "Id": "Edge",
+      "DisplayName": "Microsoft Edge",
+      "Path": "%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe",
+      "Arguments": "--no-first-run --inprivate",
+      "Mode": "Session"
+    }
+  ]
 }

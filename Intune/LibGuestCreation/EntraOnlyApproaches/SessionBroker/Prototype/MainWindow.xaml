@@ -23,6 +23,12 @@
             <Setter Property="BorderBrush" Value="#B8B8B8" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
+        <!--
+            The default WPF Button template overrides Background on IsMouseOver
+            with the Aero highlight, which would flash this button from UMD red
+            to pale blue under the cursor. Supplying a template is the only way
+            to keep the brand color through every visual state.
+        -->
         <Style x:Key="PrimaryButton" TargetType="Button">
             <Setter Property="Height" Value="46" />
             <Setter Property="Background" Value="#E21833" />
@@ -31,6 +37,38 @@
             <Setter Property="FontSize" Value="16" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="ButtonSurface"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="Transparent"
+                            BorderThickness="2"
+                            CornerRadius="4">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonSurface" Property="Background" Value="#C4142B" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonSurface" Property="Background" Value="#A21023" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ButtonSurface" Property="BorderBrush" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonSurface" Property="Background" Value="#B8B8B8" />
+                                <Setter Property="Cursor" Value="Wait" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
@@ -77,12 +115,16 @@
                     Text="Guest number"
                     FontSize="14"
                     FontWeight="SemiBold" />
-                <!-- MaxLength fits the longest accepted value, "libguest500". -->
+                <!--
+                    MaxLength and ToolTip are set from broker-settings.json at
+                    load time so the accepted range lives in one place. The
+                    values here are only a fallback for XAML preview tools.
+                -->
                 <TextBox
                     x:Name="GuestNumberTextBox"
                     AutomationProperties.Name="Guest number"
                     MaxLength="11"
-                    ToolTip="Enter a number from 1 through 500" />
+                    ToolTip="Enter the guest number issued by library staff" />
 
                 <TextBlock
                     Margin="0,18,0,7"
@@ -110,7 +152,7 @@
 
                 <TextBlock
                     Margin="0,14,0,0"
-                    Text="Prototype only — authentication and application launch are not connected yet."
+                    Text="Your session ends automatically when you close the application. Please sign out and take your belongings when you finish."
                     Foreground="#6A6A6A"
                     FontSize="12"
                     TextAlignment="Center"

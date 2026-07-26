@@ -8,22 +8,29 @@
 
 ## Current development status
 
-Version `0.1.0` of the guest-session launch gate and WPF dialog shell is in
-[`Prototype`](./Prototype/). It does not authenticate or launch applications yet.
+Version `0.2.0` is in [`Prototype`](./Prototype/). It implements the launch gate,
+the WPF dialog, and **Phase 1 authentication**: `CreateProcessWithLogonW` with
+`LOGON_WITH_PROFILE`, job-object process supervision, and a token readback that
+proves which identity Windows actually produced. Phase 1 has **not yet been run
+against hardware with a live SIMS credential** — see the test procedure in the
+prototype README.
 
 The prototype starts silently, examines the current session, and opens the dialog
 only when all configured conditions pass:
 
 - The current identity is a local account.
 - Shared PC registry configuration is present.
-- The username matches `^shpc\d+$`.
-- The identity is a member of the built-in Guests group (`S-1-5-32-546`), a
-  documented property of Shared PC guest accounts that backstops the undocumented
-  username pattern.
+- The username matches `^shpc[a-z0-9]+$`.
+- Optional (`RequireGuestsGroup`, default off): the identity is a member of the
+  built-in Guests group (`S-1-5-32-546`).
 
-The `shpc####` name is an observed Windows Shared PC implementation detail, not a
-Microsoft-documented contract. Validate it on a configured public device before
-registering the prototype for automatic startup.
+The `shpc` name prefix is an observed Windows Shared PC implementation detail, not
+a Microsoft-documented contract. A 2026-07-26 probe on a configured public device
+(`LIBR8ZCBLK4`) observed the account `shpctac0ffef`: the suffix is random
+alphanumeric, not numeric, and the account is a member of built-in Users — not
+Guests — on that build. `RequireGuestsGroup` therefore ships disabled; re-probe
+before enabling it. Validate the gate on each new Windows build before registering
+the prototype for automatic startup.
 
 From a PowerShell prompt running inside a session created by selecting **Guest**:
 
@@ -37,16 +44,20 @@ Run the same probe after signing in through the **Domain** option. Expected resu
 - Guest session: `IsGuestSession` is `true`.
 - Domain/Entra session: `IsGuestSession` is `false`.
 
-To preview the dialog on a development computer without satisfying the gate:
+The probe also reports launch prerequisites. `SecondaryLogonUsable` must be `true`:
+`CreateProcessWithLogonW` is backed by the Secondary Logon service, which several
+hardening baselines disable.
 
-```powershell
-.\Start-LibGuestSessionBroker.ps1 -ForceGuestUi
-```
+Preview on a development computer requires setting `AllowDevelopmentOverrides` to
+`true` in a local copy of `broker-settings.json`; `-ForceGuestUi` is logged and
+ignored without it, so a shipped package cannot present a credential prompt outside
+the gate.
 
-Do not deploy it as an automatic startup item until both probe outputs have been
-reviewed. The intended production design is a machine-wide startup entry whose
-launcher performs this gate before creating any window; domain users may start the
-launcher process briefly, but it exits silently and displays no UI.
+Do not deploy it as an automatic startup item until the Phase 1 procedure in the
+prototype README has been completed on hardware. The intended production design is
+a machine-wide startup entry whose launcher performs this gate before creating any
+window; domain users may start the launcher process briefly, but it exits silently
+and displays no UI.
 
 ## Objective
 
@@ -205,18 +216,33 @@ Do not continue unless the final test succeeds with a live SIMS password.
 
 ### Phase 1 - Authentication launcher
 
-Build a minimal WPF dialog that:
+**Implemented in `Prototype` 0.2.0. Not yet validated on hardware.**
+
+The dialog:
 
 1. Accepts `1` through `500` and constructs `libguestN@UMD.EDU`.
 2. Accepts a password through a masked password field.
-3. Calls `CreateProcessWithLogonW` with `LOGON_WITH_PROFILE`.
-4. Launches one fixed harmless application, initially `whoami.exe` with output
-   redirected to a protected test location or a small signed identity-test program.
+3. Calls `CreateProcessWithLogonW` with `LOGON_WITH_PROFILE` and a `NULL` domain.
+4. Launches one fixed allowlisted application.
 5. Reports success or a generic failure without logging the credential.
 6. Clears password memory and closes all handles.
 
 Verify that the launched process token resolves to the expected local
 `libguestN` identity and that its profile is the expected profile.
+
+Two implementation choices differ from the original sketch, both deliberately:
+
+- **The identity check reads the process token directly** rather than redirecting
+  `whoami.exe` output to a protected location. Redirecting output requires handle
+  inheritance across the logon boundary and a file location writable by the guest
+  but not tamperable by it — which conflicts with locking down the broker
+  directory. `OpenProcessToken` on the returned handle answers the same question
+  with less machinery and no writable artifact.
+- **The process is created with `CREATE_SUSPENDED`.** This removes the race against
+  a short-lived process exiting before its token can be read, allows job-object
+  assignment before any guest code runs, and lets the identity test prove the
+  credential authenticated and mapped without executing a single instruction as the
+  guest.
 
 ### Phase 2 - One allowlisted GUI application
 
@@ -273,6 +299,20 @@ SessionBroker/
 The configuration file may contain only nonsecret settings such as application
 allowlists, session duration, branding, and log location. It must never contain a
 password or reusable credential.
+
+Because the broker's behavior is entirely driven by that file, the install wrapper
+must break ACL inheritance on the install root and grant `Users` read-and-execute
+only. A broker-session account with write access to `broker-settings.json` could
+widen `AllowedApplicationRoots` or point `Applications` at an arbitrary binary,
+which then runs against a live SIMS credential. The prototype README carries the
+`Set-Acl` snippet.
+
+The shipping broker must be a **signed compiled executable**, not the PowerShell
+prototype. `Add-Type` produces a dynamically compiled assembly, which is precisely
+what the required WDAC / App Control policy blocks.
+
+Detection should follow the state-based pattern used elsewhere in this repository:
+a registry sentinel written at the end of a successful install, not a file rule.
 
 Suggested log location:
 
