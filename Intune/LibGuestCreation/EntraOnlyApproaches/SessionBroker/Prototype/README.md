@@ -125,6 +125,8 @@ from an elevated console, which bypasses the session gate.
 | Secondary Logon service | `Manual` / `Running` |
 | Local account: `libtest` + `-Domain LIBR8ZCBLK4` | `TokenAccount: LIBR8ZCBLK4\libtest` |
 | **SIMS credential: `libguest115@UMD.EDU`** | **`TokenAccount: LIBR8ZCBLK4\libguest115`, SID `…-1115`** |
+| `-Mode Session` with `notepad.exe` | Process resumed and ran as the target identity |
+| **Job cleanup: broker killed while child running** | **Child terminated with the broker** |
 
 The SIMS row is the Phase 1 go/no-go. It confirms three things at once: the UMD.EDU
 KDC accepted the MIT Kerberos principal from an Entra-only device, the
@@ -140,6 +142,11 @@ The local-account row is what proved the native layer independently of Kerberos:
 P/Invoke signatures, `SecureString` marshalling, `CREATE_SUSPENDED`, job assignment,
 and the token readback all work. A corrupted password buffer would have returned
 `1326` exactly like a wrong password, so this row is what rules that out.
+
+The job-cleanup row settles the process-supervision go/no-go from the parent
+README: killing the broker terminated the child process with it, confirming
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` holds even when the broker dies without
+running any cleanup code of its own.
 
 > [!note] What this does **not** cover.
 > Everything above ran as an elevated domain admin, outside the gate and outside
@@ -167,12 +174,12 @@ and the token readback all work. A corrupted password buffer would have returned
 
 ## Status — remaining
 
-- [ ] **Session mode + cleanup check.** Launch with `-Mode Session`, then kill the
-      broker process and confirm every child dies with it. This is the go/no-go for
-      Phase 3 process supervision and has not been run.
 - [ ] **Run the full broker in a real Guest session.** Phase 1 was validated
       through the test harness as an admin; the gate, dialog, and session monitor
       have not run end to end as the `shpc` account.
+- [ ] **Multi-process cleanup.** Job teardown is proven for a single child
+      (`notepad.exe`). A browser spawns a process tree and may try to break away
+      from the job; re-verify with Edge during Phase 2.
 - [ ] **Negative-path probe:** sign in through the **Domain/Entra** option and run
       `-ProbeOnly`; confirm `IsGuestSession: false`.
 - [ ] **Re-probe on each new Windows build** before trusting the gate; the `shpc`

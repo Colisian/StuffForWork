@@ -19,9 +19,14 @@ proves which identity Windows actually produced.
 > Kerberos principal from an Entra-only device, and the `UserList` mapping resolves
 > to the correct local account. The central premise of this approach holds.
 
-Still unproven: process cleanup under job-object teardown, and the gate plus dialog
-running end to end inside a real Shared PC guest session. Phase 1 was validated
-through the test harness as an administrator, outside the gate.
+Job-object cleanup is also confirmed: killing the broker terminated the child
+process with it, satisfying the "all child processes can be identified and
+terminated reliably" go/no-go criterion for a single child.
+
+Still unproven: the gate plus dialog running end to end inside a real Shared PC
+guest session — Phase 1 was validated through the test harness as an administrator,
+outside the gate — and cleanup of a multi-process application tree such as a
+browser.
 
 The prototype starts silently, examines the current session, and opens the dialog
 only when all configured conditions pass:
