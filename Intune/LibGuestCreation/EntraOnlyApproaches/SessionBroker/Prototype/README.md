@@ -336,6 +336,27 @@ Set `AllowDevelopmentOverrides` to `true` in a **local copy** of
 > entry. The flag ships `false` and `-ForceGuestUi` is logged and ignored without
 > it.
 
-> [!warning] Do not register this for automatic startup yet.
-> The Phase 1 procedure above has not been run on hardware, the negative-path probe
-> is outstanding, and session cleanup beyond process termination does not exist.
+## Making it start by itself
+
+Nothing auto-starts the broker until this is run. `broker-settings.json` and the
+`BrokerSessionAccountPattern` decide **whether the dialog appears** once the broker
+is already running; they do not cause it to run.
+
+Run all three, in order, elevated, after staging the `Prototype` folder:
+
+```powershell
+cd C:\BrokerTest\Containment
+.\Set-GuestSessionLockdown.ps1        # policy for new profiles
+.\Install-BrokerAutoStart.ps1         # All Users Startup shortcut
+```
+
+Then sign out and start a new Guest session. The broker starts for **every** logon;
+non-guest sessions fail the gate and exit silently without a window.
+
+`-Remove` on either script reverts it.
+
+> [!note] There is a visible gap at logon.
+> Startup items run after the shell has painted, so the desktop is briefly visible
+> before the broker covers it. That gap is inherent to this approach and is one of
+> the things Shell Launcher would remove. Accepted under the accountability-gate
+> model — see "Containment model" in [`../README.md`](../README.md).
