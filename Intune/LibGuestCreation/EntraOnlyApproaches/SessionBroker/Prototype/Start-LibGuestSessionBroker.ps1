@@ -692,10 +692,12 @@ end {
                 $guestPasswordBox.IsEnabled = $true
                 $guestNumberTextBox.Clear()
                 $guestPasswordBox.Clear()
-                # Visibility rather than Show(): the window was opened modally
-                # with ShowDialog, and Show() is not valid against a window in a
-                # modal state. Hide() and Visibility are the matched pair.
                 $window.Visibility = [System.Windows.Visibility]::Visible
+                # Topmost is deliberately re-asserted: the window returns while
+                # the guest application is still tearing down, and its dying
+                # windows can otherwise land above the dialog in the z-order.
+                $window.Topmost = $false
+                $window.Topmost = $true
                 $window.Activate() | Out-Null
                 $guestNumberTextBox.Focus() | Out-Null
             }.GetNewClosure()
@@ -883,9 +885,17 @@ end {
             # running as the guest.
             $window.Add_Closed({
                 try { [UMD.Libraries.LibGuest.BrokerLauncher]::EndSession() } catch { }
+                [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvokeShutdown(
+                    [System.Windows.Threading.DispatcherPriority]::Background)
             }.GetNewClosure())
 
-            $window.ShowDialog() | Out-Null
+            # Show + Dispatcher.Run, NOT ShowDialog. Hiding a modal window ends
+            # its ShowDialog call, so the first successful launch would unwind
+            # this function, end the script, close the job handle, and kill the
+            # guest's application. With an explicit dispatcher loop, Hide() just
+            # hides: the loop ends only when the window actually closes.
+            $window.Show()
+            [System.Windows.Threading.Dispatcher]::Run()
         }
     }
 
