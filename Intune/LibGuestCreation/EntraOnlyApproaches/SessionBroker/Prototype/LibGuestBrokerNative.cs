@@ -238,6 +238,17 @@ namespace UMD.Libraries.LibGuest
         /// False leaves the process suspended so the caller can read the token
         /// without any guest code executing. Used by the identity test.
         /// </param>
+        /// <param name="superviseSession">
+        /// True puts the process in a job object with KILL_ON_JOB_CLOSE, so the
+        /// broker can enforce a time limit and guarantee cleanup — but the guest's
+        /// application dies when the broker exits.
+        ///
+        /// False skips the job entirely and releases our handles once the process
+        /// is running, so the application outlives the broker. That is the
+        /// launch-and-exit model: the broker is purely an authentication gate and
+        /// stops existing afterwards. It trades away the session timer and
+        /// deterministic cleanup.
+        /// </param>
         public static BrokerLaunchResult StartSession(
             string userPrincipalName,
             string logonDomain,
@@ -245,7 +256,8 @@ namespace UMD.Libraries.LibGuest
             string applicationPath,
             string arguments,
             string workingDirectory,
-            bool resumeAfterLaunch)
+            bool resumeAfterLaunch,
+            bool superviseSession)
         {
             if (SessionIsActive)
             {
@@ -334,7 +346,7 @@ namespace UMD.Libraries.LibGuest
             {
                 // Job object first: it must own the process before any guest
                 // code runs, otherwise a child could escape supervision.
-                if (!CreateJobForCurrentProcess())
+                if (superviseSession && !CreateJobForCurrentProcess())
                 {
                     result.Succeeded = false;
                     result.Win32Error = Marshal.GetLastWin32Error();
@@ -354,6 +366,15 @@ namespace UMD.Libraries.LibGuest
                         result.FailureStage = "ResumeThread";
                         EndSession();
                         return result;
+                    }
+
+                    if (!superviseSession)
+                    {
+                        // Launch and exit: let go of the process without killing
+                        // it. After this, SessionIsActive is false and EndSession
+                        // is a no-op, so the broker shutting down cannot take the
+                        // guest's application with it.
+                        ReleaseHandles();
                     }
                 }
                 else
@@ -456,6 +477,26 @@ namespace UMD.Libraries.LibGuest
                 return true;
             }
             return WaitForSingleObject(processHandle, milliseconds) == WAIT_OBJECT_0;
+        }
+
+        /// <summary>
+        /// Closes our handles without terminating anything, so the launched
+        /// process keeps running after the broker goes away. Only valid when no
+        /// job object was created: closing a job carrying KILL_ON_JOB_CLOSE would
+        /// terminate the tree, which is the opposite of the intent here.
+        /// </summary>
+        private static void ReleaseHandles()
+        {
+            if (threadHandle != IntPtr.Zero)
+            {
+                CloseHandle(threadHandle);
+                threadHandle = IntPtr.Zero;
+            }
+            if (processHandle != IntPtr.Zero)
+            {
+                CloseHandle(processHandle);
+                processHandle = IntPtr.Zero;
+            }
         }
 
         /// <summary>

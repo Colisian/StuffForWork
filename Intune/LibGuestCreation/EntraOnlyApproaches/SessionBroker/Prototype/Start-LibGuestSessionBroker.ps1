@@ -246,8 +246,8 @@ end {
                         throw "Every entry in Applications requires a non-empty '$field'."
                     }
                 }
-                if ($application.Mode -notin @('IdentityTest', 'Session')) {
-                    throw "Application '$($application.Id)' has an unsupported Mode '$($application.Mode)'. Use 'IdentityTest' or 'Session'."
+                if ($application.Mode -notin @('IdentityTest', 'Session', 'LaunchAndExit')) {
+                    throw "Application '$($application.Id)' has an unsupported Mode '$($application.Mode)'. Use 'IdentityTest', 'Session', or 'LaunchAndExit'."
                 }
             }
 
@@ -791,6 +791,7 @@ end {
                             $Application.Path,
                             $Application.Arguments,
                             $Application.WorkingDirectory,
+                            ($Application.Mode -ne 'IdentityTest'),
                             ($Application.Mode -eq 'Session')
                         )
                     }
@@ -829,6 +830,15 @@ end {
                         'Launch succeeded. Principal={0} Application={1} Pid={2} TokenAccount={3} TokenSid={4}' -f
                         $loggedPrincipal, $Application.Id, $launchResult.ProcessId, $launchResult.TokenAccount, $launchResult.TokenSid
                     )
+
+                    if ($Application.Mode -eq 'LaunchAndExit') {
+                        # The broker's job is done. StartSession already released
+                        # its handles without a job object, so the application
+                        # keeps running and closing this window cannot kill it.
+                        $state.AllowClose = $true
+                        $window.Close()
+                        return
+                    }
 
                     if ($Application.Mode -eq 'IdentityTest') {
                         # Nothing ran as the guest: the process was created

@@ -53,9 +53,18 @@ disabled check.
    closes the job handle or the broker process itself exits.
 4. The process token is read back to confirm which identity Windows actually
    produced — this is the proof that the Kerberos `UserList` mapping resolved.
-5. `Mode: IdentityTest` tears the process down while still suspended (no guest code
-   ever executes). `Mode: Session` resumes the thread, hides the dialog, and starts
-   the session monitor.
+5. What happens next depends on the application's `Mode`.
+
+| Mode | Behavior | Trade |
+|---|---|---|
+| `IdentityTest` | Reads the token, tears the process down while still suspended, stays on the dialog | Nothing executes as the guest. Diagnostics only. |
+| `LaunchAndExit` | Launches the application, then the broker closes and exits | **Current default for Edge.** The application outlives the broker. No session timer, no cleanup, no return to the dialog. |
+| `Session` | Launches, hides the dialog, supervises via a job object, returns to the dialog when the application exits | Time limit and guaranteed cleanup, but the application dies with the broker. |
+
+`LaunchAndExit` skips the job object entirely and releases the process handles once
+the application is running. That is what lets the broker exit without
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` taking the application with it — the two
+behaviors are inseparable, so choosing one gives up the other.
 
 ### Password handling
 
@@ -83,7 +92,7 @@ binary) produce a distinct "see the service desk" message.
 | `MinimumGuestNumber` / `MaximumGuestNumber` | `1`–`500`. Also sets the textbox `MaxLength` and tooltip at load time. |
 | `Realm` | `UMD.EDU`. |
 | `LogGuestPrincipal` | `false`. When false the log records `(redacted)` instead of `libguestN@UMD.EDU`. See the retention note in the parent README. |
-| `SessionTimeoutMinutes` | `60`. The session monitor ends the session at this limit. |
+| `SessionTimeoutMinutes` | `60`. Applies to `Mode: Session` only. Ignored by `LaunchAndExit`, which has no supervising process. |
 | `AllowedApplicationRoots` | Executables must resolve under one of these roots. Paths are canonicalized first, so `%SystemRoot%\..\Users\x.exe` cannot pass. |
 | `Applications` | The allowlist. Each entry needs `Id`, `DisplayName`, `Path`, `Mode`. |
 | `DefaultApplicationId` | Which allowlist entry launches when `-ApplicationId` is not supplied. |

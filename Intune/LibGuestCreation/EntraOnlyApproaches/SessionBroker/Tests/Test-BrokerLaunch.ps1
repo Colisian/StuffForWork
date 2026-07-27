@@ -73,7 +73,7 @@ param(
 
     [string]$Arguments = '',
 
-    [ValidateSet('IdentityTest', 'Session')]
+    [ValidateSet('IdentityTest', 'Session', 'LaunchAndExit')]
     [string]$Mode = 'IdentityTest',
 
     [int]$TimeoutSeconds = 120
@@ -144,6 +144,7 @@ end {
             $ApplicationPath,
             $Arguments,
             [System.IO.Path]::GetDirectoryName($ApplicationPath),
+            ($Mode -ne 'IdentityTest'),
             ($Mode -eq 'Session')
         )
     }
@@ -185,6 +186,13 @@ end {
     if ($Mode -eq 'IdentityTest') {
         Write-Host "`n  Identity-test mode: the process was created suspended, inspected, and"
         Write-Host '  terminated. Nothing executed as the target user.'
+        exit 0
+    }
+
+    if ($Mode -eq 'LaunchAndExit') {
+        Write-Host "`n  Launch-and-exit mode: no job object was created and the handles have"
+        Write-Host '  been released. The application keeps running now that this script is'
+        Write-Host '  finished. There is no session timer and no cleanup.'
         exit 0
     }
 

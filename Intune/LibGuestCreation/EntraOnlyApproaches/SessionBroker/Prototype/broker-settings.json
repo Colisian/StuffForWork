@@ -29,7 +29,7 @@
       "DisplayName": "Microsoft Edge",
       "Path": "%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe",
       "Arguments": "--kiosk https://www.lib.umd.edu --edge-kiosk-type=public-browsing --no-first-run --no-default-browser-check",
-      "Mode": "Session"
+      "Mode": "LaunchAndExit"
     }
   ]
 }
