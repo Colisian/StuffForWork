@@ -67,6 +67,7 @@ param(
 begin {
     $ErrorActionPreference = 'Stop'
     $hiveMountPoint = 'HKLM\LibGuestDefaultProfile'
+    $hiveMountPsPath = 'HKLM:\LibGuestDefaultProfile'
 }
 
 end {
@@ -120,6 +121,12 @@ end {
             [switch]$IgnoreFailure
         )
         process {
+            # Function-scoped, so it does not leak to the caller. Required: with
+            # 2>&1 and $ErrorActionPreference = 'Stop', anything reg.exe writes to
+            # stderr becomes a terminating NativeCommandError before the exit-code
+            # check below can run — which would defeat -IgnoreFailure entirely.
+            $ErrorActionPreference = 'Continue'
+
             $output = & reg.exe @Arguments 2>&1
             if ($LASTEXITCODE -ne 0 -and -not $IgnoreFailure) {
                 throw "reg.exe $($Arguments -join ' ') failed with exit code $LASTEXITCODE : $output"
@@ -164,8 +171,13 @@ end {
             return
         }
 
-        # A previous run that died mid-flight can leave the hive mounted.
-        Invoke-Reg -Arguments @('unload', $hiveMountPoint) -IgnoreFailure | Out-Null
+        # A previous run that died mid-flight can leave the hive mounted. Check
+        # rather than unloading blindly, so a clean machine never sees a spurious
+        # reg.exe error.
+        if (Test-Path -LiteralPath $hiveMountPsPath) {
+            Write-LockdownLog -Level 'WARN' -Message "$hiveMountPoint was already mounted from an earlier run. Unloading it first."
+            Invoke-Reg -Arguments @('unload', $hiveMountPoint) -IgnoreFailure | Out-Null
+        }
 
         Write-LockdownLog -Level 'INFO' -Message "Loading $DefaultProfilePath"
         Invoke-Reg -Arguments @('load', $hiveMountPoint, $DefaultProfilePath) | Out-Null
