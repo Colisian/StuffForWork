@@ -4,7 +4,7 @@
 > This prototype decides **whether** to show the guest sign-in dialog, renders that
 > dialog, authenticates the SIMS-issued `libguestN@UMD.EDU` credential with
 > `CreateProcessWithLogonW`, and starts an allowlisted application under the mapped
-> local security context. See the parent [`../README.md`](../README.md) for the full
+> local security context. See the parent [`SessionBroker/README.md`](../../../README.md) for the full
 > design and security requirements.
 
 > [!warning] This produces an application session, not a Windows desktop logon.
@@ -125,7 +125,7 @@ binary) produce a distinct "see the service desk" message.
 Configured Entra-only Shared PC public device.
 
 **Phase 1 authentication — PASSED.** Run via
-[`../Tests/Test-BrokerLaunch.ps1`](../Tests/Test-BrokerLaunch.ps1) as `AD\cmcleod1`
+[`Tests/Test-BrokerLaunch.ps1`](../../../Tests/Test-BrokerLaunch.ps1) as `AD\cmcleod1`
 from an elevated console, which bypasses the session gate.
 
 | Check | Result |
@@ -197,7 +197,7 @@ running any cleanup code of its own.
 ## Status — remaining
 
 - [ ] **Test the fullscreen dialog and lockdown policy in a Guest session.** Run
-      [`../Containment/Set-GuestSessionLockdown.ps1`](../Containment/Set-GuestSessionLockdown.ps1),
+      [`Containment/Set-GuestSessionLockdown.ps1`](../Containment/Set-GuestSessionLockdown.ps1),
       sign out, start a new Guest session, and confirm Win+D, Win+E, Win+R,
       Ctrl+Shift+Esc and the taskbar right-click are all dead.
 - [ ] **Multi-process cleanup.** Job teardown is proven for a single child
@@ -222,7 +222,7 @@ running any cleanup code of its own.
 
 ## Test harnesses
 
-Both live in [`../Tests`](../Tests/), deliberately outside `Prototype` so they are
+Both live in [`Tests`](../../../Tests/), deliberately outside `Prototype` so they are
 not copied to devices with the package.
 
 | Script | Platform | Answers |
@@ -368,4 +368,4 @@ non-guest sessions fail the gate and exit silently without a window.
 > Startup items run after the shell has painted, so the desktop is briefly visible
 > before the broker covers it. That gap is inherent to this approach and is one of
 > the things Shell Launcher would remove. Accepted under the accountability-gate
-> model — see "Containment model" in [`../README.md`](../README.md).
+> model — see "Containment model" in [`SessionBroker/README.md`](../../../README.md).

@@ -1,35 +1,34 @@
 # LibGuest Session Broker for Entra-Only Devices
 
-> [!warning] Status: concept and proof of concept only
+> [!info] Status: working, ready for initial deployment
 > This approach does not create a true Windows interactive sign-in for the patron.
 > It authenticates the SIMS-issued credential and launches approved applications
 > under the mapped `libguestN` security context inside an already signed-in local
-> broker session.
+> broker session. That ceiling is inherent — see "Important limitation" below.
 
 ## Current development status
 
-Version `0.2.0` is in [`Prototype`](./Prototype/). It implements the launch gate,
-the WPF dialog, and **Phase 1 authentication**: `CreateProcessWithLogonW` with
-`LOGON_WITH_PROFILE`, job-object process supervision, and a token readback that
-proves which identity Windows actually produced.
+Version `0.3.0`. The broker lives in
+[`Deployment/Package/Prototype`](./Deployment/Package/Prototype/) and ships as an
+Intune Win32 app — see [`Deployment/README.md`](./Deployment/README.md).
 
-> [!success] Phase 1 validated on hardware — `LIBR8ZCBLK4`, 2026-07-26
-> `libguest115@UMD.EDU` with a live SIMS password produced a token for the **local**
-> `LIBR8ZCBLK4\libguest115` (SID `…-1115`). The UMD.EDU KDC authenticates the MIT
-> Kerberos principal from an Entra-only device, and the `UserList` mapping resolves
-> to the correct local account. The central premise of this approach holds.
+> [!success] Validated end to end on hardware — `LIBR8ZCBLK4`
+> **2026-07-26, via the test harness:** `libguest115@UMD.EDU` with a live SIMS
+> password produced a token for the **local** `LIBR8ZCBLK4\libguest115` (SID
+> `…-1115`). The UMD.EDU KDC authenticates the MIT Kerberos principal from an
+> Entra-only device and the `UserList` mapping resolves correctly. Job-object
+> cleanup confirmed: killing the broker terminated its child with it.
+>
+> **2026-07-27, in a real Guest session:** the full broker — gate, fullscreen
+> dialog, and authentication — ran as the `shpc` account. Correct credentials
+> launched the application; wrong passwords and out-of-range guest numbers were
+> rejected as designed.
 
-Job-object cleanup is also confirmed: killing the broker terminated the child
-process with it, satisfying the "all child processes can be identified and
-terminated reliably" go/no-go criterion for a single child.
+Still open: cleanup of a multi-process application tree such as a browser, and the
+[Edge containment tests](./Containment/EdgeEscapeTests.md).
 
-Still unproven: the gate plus dialog running end to end inside a real Shared PC
-guest session — Phase 1 was validated through the test harness as an administrator,
-outside the gate — and cleanup of a multi-process application tree such as a
-browser.
-
-The prototype starts silently, examines the current session, and opens the dialog
-only when all configured conditions pass:
+The broker starts silently at every logon, examines the current session, and opens
+the dialog only when all configured conditions pass:
 
 - The current identity is a local account.
 - Shared PC registry configuration is present.
@@ -45,32 +44,27 @@ Guests — on that build. `RequireGuestsGroup` therefore ships disabled; re-prob
 before enabling it. Validate the gate on each new Windows build before registering
 the prototype for automatic startup.
 
-From a PowerShell prompt running inside a session created by selecting **Guest**:
+To diagnose a device, run the broker with `-ProbeOnly` from a session created by
+selecting **Guest**. It writes sanitized session markers and launch prerequisites
+as JSON without showing any UI:
 
 ```powershell
-Set-Location '<path-to-Prototype>'
-.\Start-LibGuestSessionBroker.ps1 -ProbeOnly
+powershell.exe -ExecutionPolicy Bypass -NoProfile `
+  -File 'C:\ProgramData\LibGuestSessionBroker\Prototype\Start-LibGuestSessionBroker.ps1' -ProbeOnly
 ```
-
-Run the same probe after signing in through the **Domain** option. Expected result:
 
 - Guest session: `IsGuestSession` is `true`.
 - Domain/Entra session: `IsGuestSession` is `false`.
-
-The probe also reports launch prerequisites. `SecondaryLogonUsable` must be `true`:
-`CreateProcessWithLogonW` is backed by the Secondary Logon service, which several
-hardening baselines disable.
+- `SecondaryLogonUsable` must be `true` — `CreateProcessWithLogonW` is backed by
+  the Secondary Logon service, which several hardening baselines disable.
 
 Preview on a development computer requires setting `AllowDevelopmentOverrides` to
 `true` in a local copy of `broker-settings.json`; `-ForceGuestUi` is logged and
-ignored without it, so a shipped package cannot present a credential prompt outside
-the gate.
+ignored without it. The Intune installer **refuses to install** a package with that
+flag set, so a shipped package cannot present a credential prompt outside the gate.
 
-Do not deploy it as an automatic startup item until the Phase 1 procedure in the
-prototype README has been completed on hardware. The intended production design is
-a machine-wide startup entry whose launcher performs this gate before creating any
-window; domain users may start the launcher process briefly, but it exits silently
-and displays no UI.
+The broker is registered as a machine-wide startup entry, so it runs at every
+logon. Non-guest sessions fail the gate and exit silently without a window.
 
 ## Objective
 
@@ -134,8 +128,8 @@ disposable sandbox — a policy failure, not a breach.
 | Layer | Mechanism | What it does |
 |---|---|---|
 | Presentation | `MainWindow.xaml` — maximized, `WindowStyle="None"`, `Topmost`, close cancelled | Covers the desktop; removes the close button and Alt+F4 |
-| Policy | [`Containment/Set-GuestSessionLockdown.ps1`](./Containment/Set-GuestSessionLockdown.ps1) | Removes Win+X hotkeys, Task Manager, Run, Control Panel, regedit, cmd |
-| Application | [`Containment/Set-EdgeContainmentPolicy.ps1`](./Containment/Set-EdgeContainmentPolicy.ps1) | Privacy between patrons; reduces browser escape surface |
+| Policy | [`Set-GuestSessionLockdown.ps1`](./Deployment/Package/Containment/Set-GuestSessionLockdown.ps1) | Removes Win+X hotkeys, Task Manager, Run, Control Panel, regedit, cmd |
+| Application | [`Set-EdgeContainmentPolicy.ps1`](./Deployment/Package/Containment/Set-EdgeContainmentPolicy.ps1) | Privacy between patrons; reduces browser escape surface |
 
 The guest accounts rotate and have no Entra identity, so no user-targeted Intune
 profile can reach them. The lockdown script therefore writes into the Default user

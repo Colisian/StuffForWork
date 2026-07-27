@@ -15,7 +15,7 @@
     "%ProgramFiles%",
     "%ProgramFiles(x86)%"
   ],
-  "DefaultApplicationId": "IdentityTest",
+  "DefaultApplicationId": "Edge",
   "Applications": [
     {
       "Id": "IdentityTest",

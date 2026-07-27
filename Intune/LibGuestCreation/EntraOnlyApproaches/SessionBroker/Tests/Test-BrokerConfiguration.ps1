@@ -47,7 +47,7 @@ end {
         }
     }
 
-    $prototypePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'Prototype'
+    $prototypePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'Deployment/Package/Prototype'
     $brokerScript = Join-Path $prototypePath 'Start-LibGuestSessionBroker.ps1'
     $settingsPath = Join-Path $prototypePath 'broker-settings.json'
 
@@ -125,10 +125,12 @@ end {
         -Json $good.Replace('^shpc[a-z0-9]+$', 'shpc')
     Test-ConfigurationLoad -ExpectReject -Label 'invalid regex in account pattern' `
         -Json $good.Replace('^shpc[a-z0-9]+$', '^shpc[a-z0-9+$')
+    # Matched by key, not by current value: these must keep working when the
+    # shipping configuration changes which application is the default.
     Test-ConfigurationLoad -ExpectReject -Label 'unknown application Mode' `
-        -Json (Set-JsonValue $good 'Mode' ($quote + 'IdentityTest' + $quote) ($quote + 'Whatever' + $quote))
+        -Json ([regex]::Replace($good, '"Mode":\s*"[^"]*"', '"Mode": "Whatever"'))
     Test-ConfigurationLoad -ExpectReject -Label 'DefaultApplicationId not in allowlist' `
-        -Json (Set-JsonValue $good 'DefaultApplicationId' ($quote + 'IdentityTest' + $quote) ($quote + 'Nope' + $quote))
+        -Json ([regex]::Replace($good, '"DefaultApplicationId":\s*"[^"]*"', '"DefaultApplicationId": "Nope"'))
     Test-ConfigurationLoad -ExpectReject -Label 'MinimumGuestNumber below 1' `
         -Json (Set-JsonValue $good 'MinimumGuestNumber' '1' '0')
     Test-ConfigurationLoad -ExpectReject -Label 'MaximumGuestNumber below minimum' `

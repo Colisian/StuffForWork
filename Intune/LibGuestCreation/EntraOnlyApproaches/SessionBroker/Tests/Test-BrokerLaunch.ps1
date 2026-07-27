@@ -88,7 +88,7 @@ end {
         throw 'This script requires Windows.'
     }
 
-    $nativeSource = Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'Prototype') 'LibGuestBrokerNative.cs'
+    $nativeSource = Join-Path (Split-Path $PSScriptRoot -Parent) 'Deployment\Package\Prototype\LibGuestBrokerNative.cs'
     if (-not (Test-Path -LiteralPath $nativeSource -PathType Leaf)) {
         throw "Native launcher source not found: $nativeSource"
     }
