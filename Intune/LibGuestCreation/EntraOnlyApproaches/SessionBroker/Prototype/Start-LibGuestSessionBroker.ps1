@@ -616,7 +616,9 @@ end {
             [psobject]$Settings,
 
             [Parameter(Mandatory)]
-            [psobject]$Application
+            [psobject]$Application,
+
+            [switch]$DevelopmentMode
         )
 
         begin {
@@ -648,6 +650,15 @@ end {
             $statusTextBlock = $window.FindName('StatusTextBlock')
             $signInButton = $window.FindName('SignInButton')
 
+            # The XAML ships in kiosk presentation. On a development machine that
+            # would leave an unclosable fullscreen topmost window on screen, so
+            # step it back down to an ordinary dialog.
+            if ($DevelopmentMode) {
+                $window.WindowState = [System.Windows.WindowState]::Normal
+                $window.WindowStyle = [System.Windows.WindowStyle]::SingleBorderWindow
+                $window.Topmost = $false
+            }
+
             # Keep the input constraints tied to configuration so the range lives
             # in exactly one place.
             $longestAccepted = '{0}{1}' -f $Settings.GuestAccountPrefix, $Settings.MaximumGuestNumber
@@ -661,6 +672,7 @@ end {
                 Timer        = $null
                 SessionStart = $null
                 Busy         = $false
+                AllowClose   = [bool]$DevelopmentMode
             }
 
             $setStatus = {
@@ -844,6 +856,28 @@ end {
                 $guestNumberTextBox.Focus() | Out-Null
             }.GetNewClosure())
 
+            # With WindowStyle="None" there is no close button, but Alt+F4 still
+            # closes the window and would drop the patron onto the desktop. Refuse
+            # unless the broker itself authorised the close.
+            $window.Add_Closing({
+                param($eventSender, $eventArgs)
+                if (-not $state.AllowClose) {
+                    $eventArgs.Cancel = $true
+                }
+            }.GetNewClosure())
+
+            # Escape is a development-only way out of a fullscreen topmost window.
+            # AllowClose is already true in that mode, so this cannot become an
+            # exit path in a deployed package.
+            if ($DevelopmentMode) {
+                $window.Add_KeyDown({
+                    param($eventSender, $eventArgs)
+                    if ($eventArgs.Key -eq [System.Windows.Input.Key]::Escape) {
+                        $window.Close()
+                    }
+                }.GetNewClosure())
+            }
+
             # Closing the window releases the job handle, and
             # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE terminates anything still
             # running as the guest.
@@ -926,7 +960,11 @@ end {
             $application.Id, $application.Mode, $application.Path, $developmentOverride
         )
 
-        Show-LibGuestBrokerWindow -XamlPath $xamlPath -Settings $settings -Application $application
+        Show-LibGuestBrokerWindow `
+            -XamlPath $xamlPath `
+            -Settings $settings `
+            -Application $application `
+            -DevelopmentMode:$developmentOverride
     }
     catch {
         $failureMessage = "LibGuest session-broker failed: $($_.Exception.Message)"

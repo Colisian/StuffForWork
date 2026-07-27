@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shell Launcher configuration for the LibGuest session broker.
+
+  Author:  Oji / UMD Libraries
+  Date:    2026-07-27
+  Version: 0.1.0
+
+  Deployed through Intune as a Custom (OMA-URI) profile:
+    OMA-URI   ./Vendor/MSFT/AssignedAccess/ShellLauncher
+    Data type String
+    Value     the entire contents of this file
+
+  Shell Launcher is delivered by the AssignedAccess CSP, which automatically
+  enables the Shell Launcher optional feature on a supported device. No separate
+  DISM or Enable-WindowsOptionalFeature step is required when deploying this way.
+
+  Requires Windows Enterprise, Enterprise LTSC, Education, or IoT Enterprise.
+  Pro and Home cannot run Shell Launcher. Confirm the lab fleet's edition first.
+
+  Changes take effect at the next sign-in, not immediately.
+-->
+<ShellLauncherConfiguration
+  xmlns="http://schemas.microsoft.com/ShellLauncher/2018/Configuration"
+  xmlns:V2="http://schemas.microsoft.com/ShellLauncher/2019/Configuration">
+
+  <Profiles>
+
+    <!--
+      Everyone not explicitly mapped below keeps the normal Windows shell.
+      This is what lets staff and administrators sign in to service the device.
+      Do not remove it.
+    -->
+    <DefaultProfile>
+      <Shell Shell="%SystemRoot%\explorer.exe" />
+    </DefaultProfile>
+
+    <Profile Id="{544C6C7A-2C5B-4B3A-8CF5-2EC45A684BC5}" Name="LibGuest session broker">
+      <!--
+        AllAppsFullScreen is deliberately false. Edge is launched by the broker
+        with its own kiosk switch and manages its own full-screen presentation;
+        forcing it here would also maximize the broker's own dialog, which is a
+        fixed-size centered card.
+
+        The broker window must therefore paint its own full-screen backdrop, or
+        the patron sees a small dialog floating on a black desktop-less screen.
+      -->
+      <Shell Shell="%ProgramFiles%\UMD Libraries\LibGuestSessionBroker\LibGuestSessionBroker.exe"
+             V2:AppType="Desktop"
+             V2:AllAppsFullScreen="false">
+
+        <!--
+          Exit-code contract. Read the matching section of Deploy-ShellLauncher.md
+          before changing any of this: the wrong mapping produces either a boot
+          loop or a permanently black screen.
+
+            0  Normal end of a guest session. Restart the broker so the sign-in
+               dialog returns. In practice the broker loops internally and should
+               rarely exit with 0; this is a safety net.
+
+            1  Unrecoverable broker or configuration failure. DoNothing on
+               purpose. RestartShell here would spin on a broker that fails at
+               startup, and RestartDevice would turn that spin into a boot loop.
+               DoNothing leaves the machine recoverable: Ctrl+Alt+Del still
+               offers Sign out, so staff can sign in as an administrator.
+
+            2  Staff-requested restart from within the broker.
+        -->
+        <ReturnCodeActions>
+          <ReturnCodeAction ReturnCode="0" Action="RestartShell" />
+          <ReturnCodeAction ReturnCode="1" Action="DoNothing" />
+          <ReturnCodeAction ReturnCode="2" Action="RestartDevice" />
+        </ReturnCodeActions>
+
+        <DefaultAction Action="RestartShell" />
+      </Shell>
+    </Profile>
+
+  </Profiles>
+
+  <Configs>
+    <!--
+      AutoLogonAccount tells Shell Launcher to create and manage its own local
+      standard account and sign it in automatically after a restart. Windows owns
+      that credential, so nothing is stored in AutoAdminLogon or DefaultPassword
+      and the broker account has no password to protect.
+
+      Microsoft documents the managed account as a local standard user named
+      "Kiosk". VERIFY the real name on the device with Get-LocalUser before
+      setting BrokerSessionAccountPattern in broker-settings.json. This project
+      has already been caught twice by assuming an undocumented account name.
+    -->
+    <Config>
+      <AutoLogonAccount />
+      <Profile Id="{544C6C7A-2C5B-4B3A-8CF5-2EC45A684BC5}" />
+    </Config>
+  </Configs>
+
+</ShellLauncherConfiguration>

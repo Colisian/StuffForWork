@@ -128,6 +128,19 @@ from an elevated console, which bypasses the session gate.
 | `-Mode Session` with `notepad.exe` | Process resumed and ran as the target identity |
 | **Job cleanup: broker killed while child running** | **Child terminated with the broker** |
 
+**End-to-end in a real Guest session (2026-07-27, at the console).** The full broker
+— gate, dialog, and authentication — run as the dynamically created `shpc` account:
+
+| Check | Result |
+|---|---|
+| Gate passed; dialog displayed | As expected |
+| Authentication with `libguest115` + SIMS password | Succeeded, mapped to the local account |
+| Wrong password | Rejected with the generic failure message |
+| Out-of-range guest numbers | Rejected by input validation |
+
+The prototype is functionally complete for Phase 1. Everything remaining is
+containment, not authentication.
+
 The SIMS row is the Phase 1 go/no-go. It confirms three things at once: the UMD.EDU
 KDC accepted the MIT Kerberos principal from an Entra-only device, the
 `Lsa\Kerberos\UserList` registry mapping resolved it, and the resulting token is the
@@ -174,9 +187,10 @@ running any cleanup code of its own.
 
 ## Status — remaining
 
-- [ ] **Run the full broker in a real Guest session.** Phase 1 was validated
-      through the test harness as an admin; the gate, dialog, and session monitor
-      have not run end to end as the `shpc` account.
+- [ ] **Test the fullscreen dialog and lockdown policy in a Guest session.** Run
+      [`../Containment/Set-GuestSessionLockdown.ps1`](../Containment/Set-GuestSessionLockdown.ps1),
+      sign out, start a new Guest session, and confirm Win+D, Win+E, Win+R,
+      Ctrl+Shift+Esc and the taskbar right-click are all dead.
 - [ ] **Multi-process cleanup.** Job teardown is proven for a single child
       (`notepad.exe`). A browser spawns a process tree and may try to break away
       from the job; re-verify with Edge during Phase 2.

@@ -1,9 +1,21 @@
+<!--
+    Kiosk presentation: maximized, no title bar, no close button, always on top.
+    The broker reverts these to a normal window when AllowDevelopmentOverrides is
+    enabled, so a dev machine is not held hostage by a fullscreen topmost dialog.
+
+    This covers the desktop; it does not replace it. A patron who reaches for
+    Win+D or Task Manager can still get behind it, which is why this pairs with
+    Set-GuestSessionLockdown.ps1. See "Containment model" in ../README.md.
+-->
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="UMD Libraries Guest Access"
     Width="520"
     Height="560"
+    WindowState="Maximized"
+    WindowStyle="None"
+    Topmost="True"
     ResizeMode="NoResize"
     WindowStartupLocation="CenterScreen"
     Background="#F5F5F5"
@@ -95,8 +107,16 @@
             </StackPanel>
         </Border>
 
+        <!--
+            Fixed width and centered rather than stretched: on a 1920px-wide lab
+            monitor a full-bleed card would put the guest-number field and the
+            password field absurdly far apart.
+        -->
         <Border
             Grid.Row="1"
+            Width="520"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
             Margin="34,26,34,18"
             Padding="28"
             Background="White"

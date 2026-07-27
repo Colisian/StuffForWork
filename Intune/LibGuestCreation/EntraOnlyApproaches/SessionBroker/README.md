@@ -104,6 +104,69 @@ complete replacement for a normal full Windows desktop logon. Trying to start
 profile, shell, clipboard, process-ownership, and cleanup boundaries. If a normal
 desktop is required, use the standalone credential-provider approach instead.
 
+## Containment model
+
+> [!important] Decision, 2026-07-27: the broker is an **accountability gate**, not
+> a security boundary.
+> Patrons check out a `libguestN` SIMS account against their ID, and the account
+> expires weekly. Traceability therefore lives in SIMS, not in desktop lockdown.
+> The purpose of the dialog is to make sessions attributable and time-limited — not
+> to make a desktop unreachable.
+>
+> This is the decision that sets the containment bar. Revisit it, not the
+> implementation, if the requirement ever changes.
+
+### Why that matters
+
+A fullscreen topmost dialog is not a lock. `Win+D` minimises it in one keystroke
+and no ordinary application can block that; Task Manager can end it; the Start menu
+draws above it; `Ctrl+Alt+Del` is reserved by Windows and cannot be intercepted;
+and there is a gap between logon and the broker's first paint where the desktop is
+plainly visible.
+
+But the cost of a patron getting behind it is low. The Shared PC guest account is
+unprivileged, holds no other user's data, is wiped at sign-out, and rotates every
+session. Someone who bypasses the dialog gets an unauthenticated session on a
+disposable sandbox — a policy failure, not a breach.
+
+### Chosen implementation
+
+| Layer | Mechanism | What it does |
+|---|---|---|
+| Presentation | `MainWindow.xaml` — maximized, `WindowStyle="None"`, `Topmost`, close cancelled | Covers the desktop; removes the close button and Alt+F4 |
+| Policy | [`Containment/Set-GuestSessionLockdown.ps1`](./Containment/Set-GuestSessionLockdown.ps1) | Removes Win+X hotkeys, Task Manager, Run, Control Panel, regedit, cmd |
+| Application | [`Containment/Set-EdgeContainmentPolicy.ps1`](./Containment/Set-EdgeContainmentPolicy.ps1) | Privacy between patrons; reduces browser escape surface |
+
+The guest accounts rotate and have no Entra identity, so no user-targeted Intune
+profile can reach them. The lockdown script therefore writes into the Default user
+hive (`C:\Users\Default\NTUSER.DAT`), which every newly created guest profile
+inherits, and the Edge policy is written to HKLM.
+
+`Ctrl+Alt+Del` remains reachable by design. That is the accepted residual.
+
+### Fallback if the bar ever rises
+
+If desktop access must become genuinely impossible, the structural answer is
+**Shell Launcher**: with `explorer.exe` never started there is no desktop to reach.
+That work is drafted and ready in
+[`Containment/Deploy-ShellLauncher.md`](./Containment/Deploy-ShellLauncher.md) and
+[`Containment/ShellLauncher-LibGuest.xml`](./Containment/ShellLauncher-LibGuest.xml),
+including the `<AutoLogonAccount/>` model that avoids storing a broker credential.
+
+It is not the current plan because it costs an Enterprise/Education edition
+requirement, a compiled signed broker, an exit-code contract that can boot-loop a
+device if wrong, and the loss of the Shared PC guest flow — all to raise a bar that
+the threat model does not require.
+
+### The one hole worth closing regardless
+
+Once a browser runs as `libguestN`, its own file dialogs, `file://` URLs, `Ctrl+O`,
+downloads folder, and "open containing folder" actions provide filesystem browsing
+the broker cannot intercept. Even under an accountability model, the privacy half
+matters — forced InPrivate, no saved passwords, no browser sign-in — because that
+governs what one patron leaves behind for the next. See
+[`Containment/EdgeEscapeTests.md`](./Containment/EdgeEscapeTests.md).
+
 ## Do not automate `runas.exe`
 
 The existing successful test is valuable:
