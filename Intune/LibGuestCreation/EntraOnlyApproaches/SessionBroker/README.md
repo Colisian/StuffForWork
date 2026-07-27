@@ -1,31 +1,82 @@
 # LibGuest Session Broker for Entra-Only Devices
 
-> [!info] Status: working, ready for initial deployment
+> [!info] Status: working, packaged for Intune, awaiting pilot deployment
 > This approach does not create a true Windows interactive sign-in for the patron.
 > It authenticates the SIMS-issued credential and launches approved applications
 > under the mapped `libguestN` security context inside an already signed-in local
 > broker session. That ceiling is inherent — see "Important limitation" below.
 
-## Current development status
+## Repository layout
 
-Version `0.3.0`. The broker lives in
-[`Deployment/Package/Prototype`](./Deployment/Package/Prototype/) and ships as an
-Intune Win32 app — see [`Deployment/README.md`](./Deployment/README.md).
+| Path | Contents |
+|---|---|
+| [`Deployment/`](./Deployment/) | Intune Win32 packaging. `Package/` is the `.intunewin` source and the canonical home of every shipped file. |
+| [`Deployment/Package/Prototype/`](./Deployment/Package/Prototype/) | The broker itself: gate, WPF dialog, `CreateProcessWithLogonW` wrapper, session watcher. |
+| [`Deployment/Package/Containment/`](./Deployment/Package/Containment/) | Device configuration run by the installer: guest lockdown, Edge policy, auto-start. |
+| [`Containment/`](./Containment/) | Runbooks and the Shell Launcher fallback. Documentation only — not packaged. |
+| [`Tests/`](./Tests/) | Development harnesses. `Test-BrokerConfiguration.ps1` runs anywhere; `Test-BrokerLaunch.ps1` needs Windows. |
 
-> [!success] Validated end to end on hardware — `LIBR8ZCBLK4`
-> **2026-07-26, via the test harness:** `libguest115@UMD.EDU` with a live SIMS
-> password produced a token for the **local** `LIBR8ZCBLK4\libguest115` (SID
-> `…-1115`). The UMD.EDU KDC authenticates the MIT Kerberos principal from an
-> Entra-only device and the `UserList` mapping resolves correctly. Job-object
-> cleanup confirmed: killing the broker terminated its child with it.
->
-> **2026-07-27, in a real Guest session:** the full broker — gate, fullscreen
-> dialog, and authentication — ran as the `shpc` account. Correct credentials
-> launched the application; wrong passwords and out-of-range guest numbers were
-> rejected as designed.
+## Where this stands — 2026-07-27
 
-Still open: cleanup of a multi-process application tree such as a browser, and the
-[Edge containment tests](./Containment/EdgeEscapeTests.md).
+**Version `0.3.2`. Functionally complete for initial deployment, packaged for
+Intune, not yet deployed beyond the pilot device.**
+
+The broker lives in
+[`Deployment/Package/Prototype`](./Deployment/Package/Prototype/) and ships as a
+single Intune Win32 app that configures the whole device — see
+[`Deployment/README.md`](./Deployment/README.md).
+
+### Validated on hardware — `LIBR8ZCBLK4`
+
+| Date | Test | Result |
+|---|---|---|
+| 07-26 | C# compiles under Windows PowerShell 5.1 CodeDOM | Pass |
+| 07-26 | Local test account via `Test-BrokerLaunch.ps1` | Native layer, `SecureString` marshalling, token readback all correct |
+| 07-26 | **`libguest115@UMD.EDU` + live SIMS password** | **Token resolved to local `LIBR8ZCBLK4\libguest115`, SID `…-1115`** |
+| 07-26 | Job cleanup — broker killed with child running | Child terminated with it |
+| 07-27 | Full broker in a real Guest session | Gate, fullscreen dialog, and authentication all correct; wrong passwords and out-of-range numbers rejected |
+| 07-27 | Guest session lockdown policy | Win+X hotkeys, Task Manager, Run all dead |
+
+The 07-26 SIMS row is the one that mattered: it proved a machine with **no domain
+join and no on-prem AD** can authenticate an MIT Kerberos principal against
+UMD.EDU and have `UserList` map it to the correct local account. That was the
+assumption the entire Entra-only approach rested on.
+
+### Decisions made along the way
+
+- **The broker is an accountability gate, not a security boundary** (07-27). Patrons
+  check out `libguestN` accounts against their ID and the accounts expire weekly, so
+  traceability lives in SIMS. This set the containment bar — see
+  [Containment model](#containment-model). Shell Launcher remains drafted as the
+  fallback if that ever changes.
+- **`LaunchAndExit` over supervised sessions.** The broker authenticates, launches
+  Edge, and exits. Returning to the dialog every time Edge closed was more
+  disruptive than useful. Costs the per-session timer and deterministic cleanup;
+  `Mode: Session` still implements those if wanted.
+- **Session accountability moved to a CSV** rather than the redacted `broker.log`.
+  Append-only for guests, so rows cannot be rewritten or erased from a guest
+  session.
+
+### Still open
+
+- [ ] **[Edge containment tests](./Containment/EdgeEscapeTests.md)** — the 40-item
+      escape checklist has not been run. Most likely failures are the print path
+      and multi-process cleanup.
+- [ ] **Multi-process job cleanup.** Proven for a single child (`notepad.exe`);
+      Chromium spawns a tree and some launchers break away from job objects.
+- [ ] **`sessions.csv` retention policy.** The file names patron accounts with
+      timestamps — a patron activity record.
+- [ ] **Profile accumulation.** `LOGON_WITH_PROFILE` creates a profile per
+      `libguestN` and nothing removes them.
+- [ ] **Pilot deployment**, then fleet.
+
+### Not verified
+
+The append-only ACL on `sessions.csv` and the `FILE_APPEND_DATA` write path have
+only been reasoned about, not exercised on Windows. Confirm a `SignIn` row appears
+after the first pilot guest session; `broker.log` records the reason if it fails.
+
+### How it behaves
 
 The broker starts silently at every logon, examines the current session, and opens
 the dialog only when all configured conditions pass:
@@ -269,7 +320,14 @@ flowchart LR
 
 ## Proof-of-concept plan
 
-### Phase 0 - Confirm prerequisites
+> [!note] Retained as the original plan and its outcome.
+> Phases 0 and 1 are complete and validated on hardware. Phase 2 is partly done —
+> Edge launches correctly, but the containment checklist has not been run. Phase 3
+> was **superseded** by the 2026-07-27 accountability-gate decision: instead of
+> replacing the shell, the deployment covers the desktop and removes the obvious
+> ways around it. See [Containment model](#containment-model).
+
+### Phase 0 - Confirm prerequisites — complete
 
 On one disposable Entra-only VM or test machine:
 
@@ -284,9 +342,9 @@ runas /user:libguest1@UMD.EDU cmd.exe
 
 Do not continue unless the final test succeeds with a live SIMS password.
 
-### Phase 1 - Authentication launcher
+### Phase 1 - Authentication launcher — complete
 
-**Implemented in `Prototype` 0.2.0. Validated on `LIBR8ZCBLK4` 2026-07-26.**
+**Validated on `LIBR8ZCBLK4` 2026-07-26 with a live SIMS credential.**
 
 The dialog:
 
@@ -327,15 +385,24 @@ Launch a single browser or library application. Test:
 - graceful and forced termination
 - offline/KDC-unreachable behavior
 
-### Phase 3 - Restricted broker shell
+### Phase 3 - Restricted broker shell — superseded
 
-Only after Phase 2 succeeds:
+Replacing the shell was the plan while the broker was assumed to be a security
+boundary. The 2026-07-27 decision reframed it as an accountability gate, so the
+shipped design covers the desktop and strips the obvious ways around it instead.
 
-- Configure the local broker account through Assigned Access or a custom shell.
-- Remove access to the normal broker desktop.
-- Add process job tracking and a session timer.
-- Implement deterministic cleanup and a visible emergency sign-out path.
-- Package and deploy to a dedicated Intune test-device group.
+What shipped in its place:
+
+- Fullscreen topmost dialog with no close button; Alt+F4 cancelled.
+- Guest session policy removing Win+X hotkeys, Task Manager, Run, Control Panel,
+  regedit, and cmd.
+- Machine-wide startup entry, gated so non-guest sessions exit silently.
+- Job-object process tracking and a session timer — implemented, and used by
+  `Mode: Session`. The shipped `LaunchAndExit` mode trades both away for a broker
+  that gets out of the patron's way.
+
+Still available if the bar rises:
+[`Containment/Deploy-ShellLauncher.md`](./Containment/Deploy-ShellLauncher.md).
 
 ## Go/no-go criteria
 
@@ -353,46 +420,41 @@ Stop this approach and use the credential provider if patrons need Explorer as a
 normal shell, applications escape process supervision, identity boundaries are
 unclear, or cleanup cannot be proven.
 
-## Anticipated Intune package
+## Intune package
 
-Future package contents should be staged in a clean source directory:
-
-```text
-SessionBroker/
-├── Install-LibGuestSessionBroker.ps1
-├── Uninstall-LibGuestSessionBroker.ps1
-├── Detect-LibGuestSessionBroker.ps1
-├── LibGuestSessionBroker.exe
-└── broker-settings.json
-```
+**Built.** Full packaging and deployment instructions are in
+[`Deployment/README.md`](./Deployment/README.md). What follows is the reasoning
+behind its design, and the one requirement still outstanding.
 
 The configuration file may contain only nonsecret settings such as application
 allowlists, session duration, branding, and log location. It must never contain a
 password or reusable credential.
 
-Because the broker's behavior is entirely driven by that file, the install wrapper
-must break ACL inheritance on the install root and grant `Users` read-and-execute
-only. A broker-session account with write access to `broker-settings.json` could
-widen `AllowedApplicationRoots` or point `Applications` at an arbitrary binary,
-which then runs against a live SIMS credential. The prototype README carries the
-`Set-Acl` snippet.
+Because the broker's behavior is entirely driven by that file, the installer breaks
+ACL inheritance on the install root and grants `Users` read-and-execute only. A
+broker-session account with write access to `broker-settings.json` could widen
+`AllowedApplicationRoots` or point `Applications` at an arbitrary binary, which
+then runs against a live SIMS credential.
 
-The shipping broker must be a **signed compiled executable**, not the PowerShell
-prototype. `Add-Type` produces a dynamically compiled assembly, which is precisely
-what the required WDAC / App Control policy blocks.
+Detection uses a registry sentinel written at the end of a successful install, not
+a file rule — most of what this app does is policy and ACLs rather than files, so a
+file rule would report success as soon as the copy finished.
 
-Detection should follow the state-based pattern used elsewhere in this repository:
-a registry sentinel written at the end of a successful install, not a file rule.
+> [!warning] Outstanding: the shipping broker should be a signed compiled executable.
+> `Add-Type` produces a dynamically compiled assembly, which is precisely what the
+> required WDAC / App Control policy blocks. The PowerShell form is deployable
+> today because WDAC is not yet enforced on these devices; it must be replaced
+> before that changes.
 
-Suggested log location:
+Two log files, deliberately separate:
 
-```text
-C:\ProgramData\LibGuestSessionBroker\broker.log
-```
+| File | Contents | Guest access |
+|---|---|---|
+| `broker.log` | Event identifiers, timestamps, launches, sanitized Windows error codes. Guest principals **redacted** unless `LogGuestPrincipal` is enabled. | Modify |
+| `sessions.csv` | Accountability record: which `libguestN` authenticated, when, and for how long. Names accounts **by design**. | Append only |
 
-Log event identifiers, timestamps, application launches, session results, and
-sanitized Windows error codes only. Do not log usernames if they are considered
-patron activity records without an approved retention policy.
+`sessions.csv` is a patron activity record and needs an approved retention policy
+before wide deployment.
 
 ## Decision summary
 
