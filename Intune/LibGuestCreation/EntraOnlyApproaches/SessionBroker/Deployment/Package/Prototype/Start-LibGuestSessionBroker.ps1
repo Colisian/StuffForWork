@@ -33,9 +33,19 @@
 
 .PARAMETER ForceGuestUi
     Displays the UI without passing the guest-session gate, for UI development on a
-    test workstation. Ignored unless AllowDevelopmentOverrides is true in
-    broker-settings.json, which ships false so a production package cannot present
-    a credential prompt outside the gate.
+    test workstation. Steps the window down to an ordinary 520x560 dialog so a
+    development machine is not left with an unclosable fullscreen window.
+
+    Ignored unless AllowDevelopmentOverrides is true in broker-settings.json, which
+    ships false so a production package cannot present a credential prompt outside
+    the gate.
+
+.PARAMETER Preview
+    Like -ForceGuestUi, but keeps the real kiosk presentation: fullscreen, no title
+    bar, always on top. Use this to capture a screenshot of what a patron actually
+    sees, which -ForceGuestUi cannot show.
+
+    Escape closes the window. Subject to the same AllowDevelopmentOverrides guard.
 
 .EXAMPLE
     powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Start-LibGuestSessionBroker.ps1 -ProbeOnly
@@ -55,7 +65,8 @@
 param(
     [switch]$ProbeOnly,
     [string]$ApplicationId,
-    [switch]$ForceGuestUi
+    [switch]$ForceGuestUi,
+    [switch]$Preview
 )
 
 begin {
@@ -67,6 +78,7 @@ end {
 
     $script:LogDirectory = Join-Path $env:ProgramData 'LibGuestSessionBroker'
     $script:LogPath = Join-Path $script:LogDirectory 'broker.log'
+    $script:AuditCsvPath = Join-Path $script:LogDirectory 'sessions.csv'
 
     function Write-BrokerLog {
         <#
@@ -101,6 +113,98 @@ end {
             catch {
                 # Logging is best-effort. A read-only or ACL-restricted log
                 # directory must never take the broker down.
+            }
+        }
+    }
+
+    function Write-SessionAudit {
+        <#
+        .SYNOPSIS
+            Appends one accountability row to sessions.csv. Never throws.
+        .DESCRIPTION
+            The install ACL grants Users AppendData on sessions.csv but not
+            WriteData or Delete, so a guest session can add rows but cannot
+            rewrite or erase history. Appending under that ACL requires opening
+            the file with FILE_APPEND_DATA access only, which is what the
+            FileStream overload below does; Add-Content requests generic write
+            and would be denied, so it is only the fallback for unrestricted
+            development machines.
+
+            Unlike broker.log, this file records the guest account by design —
+            it exists to answer "who was on this machine at 2pm". That makes it
+            patron activity data; treat its retention accordingly.
+        .NOTES
+            Author: Oji / UMD Libraries
+            Date: 2026-07-27
+            Version: 0.3.1
+        #>
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory)]
+            [ValidateSet('SignIn', 'SignInFailed', 'SessionEnd')]
+            [string]$Event,
+
+            [Parameter(Mandatory)]
+            [string]$GuestAccount,
+
+            [string]$Application = '',
+            [string]$SessionId = '',
+            [string]$DurationMinutes = '',
+            [string]$Detail = ''
+        )
+
+        process {
+            try {
+                $needsHeader = -not (Test-Path -LiteralPath $script:AuditCsvPath) -or
+                    (Get-Item -LiteralPath $script:AuditCsvPath).Length -eq 0
+
+                $line = '{0},{1},{2},{3},{4},{5},{6},{7}' -f
+                    (Get-Date).ToString('o'),
+                    [Environment]::MachineName,
+                    $Event,
+                    $GuestAccount,
+                    $Application,
+                    $SessionId,
+                    $DurationMinutes,
+                    ($Detail -replace '[,\r\n]', ' ')
+
+                if ($needsHeader) {
+                    $line = "Timestamp,ComputerName,Event,GuestAccount,Application,SessionId,DurationMinutes,Detail`r`n$line"
+                }
+
+                # The FileSystemRights overload is .NET Framework only; on a
+                # dev machine running pwsh the constructor lookup itself fails.
+                $stream = $null
+                try {
+                    $stream = New-Object System.IO.FileStream(
+                        $script:AuditCsvPath,
+                        [System.IO.FileMode]::Append,
+                        [System.Security.AccessControl.FileSystemRights]::AppendData,
+                        [System.IO.FileShare]::Read,
+                        4096,
+                        [System.IO.FileOptions]::None)
+                }
+                catch {
+                    $stream = $null
+                }
+
+                if ($stream) {
+                    try {
+                        $writer = New-Object System.IO.StreamWriter($stream, [System.Text.Encoding]::UTF8)
+                        $writer.WriteLine($line)
+                        $writer.Flush()
+                        $writer.Dispose()
+                    }
+                    finally {
+                        $stream.Dispose()
+                    }
+                }
+                else {
+                    Add-Content -LiteralPath $script:AuditCsvPath -Value $line -Encoding UTF8
+                }
+            }
+            catch {
+                Write-BrokerLog -Level 'WARN' -Message "Session audit write failed: $($_.Exception.Message)"
             }
         }
     }
@@ -618,7 +722,13 @@ end {
             [Parameter(Mandatory)]
             [psobject]$Application,
 
-            [switch]$DevelopmentMode
+            # Enables the Escape key and permits the window to close.
+            [switch]$DevelopmentMode,
+
+            # Steps the window down from kiosk presentation to an ordinary dialog.
+            # Separate from DevelopmentMode so a preview can keep the real
+            # fullscreen look while still being closable.
+            [switch]$WindowedChrome
         )
 
         begin {
@@ -653,7 +763,7 @@ end {
             # The XAML ships in kiosk presentation. On a development machine that
             # would leave an unclosable fullscreen topmost window on screen, so
             # step it back down to an ordinary dialog.
-            if ($DevelopmentMode) {
+            if ($WindowedChrome) {
                 $window.WindowState = [System.Windows.WindowState]::Normal
                 $window.WindowStyle = [System.Windows.WindowStyle]::SingleBorderWindow
                 $window.Topmost = $false
@@ -673,6 +783,8 @@ end {
                 SessionStart = $null
                 Busy         = $false
                 AllowClose   = [bool]$DevelopmentMode
+                GuestAccount = $null
+                SessionId    = $null
             }
 
             $setStatus = {
@@ -706,6 +818,15 @@ end {
                 param([string]$Reason)
                 [UMD.Libraries.LibGuest.BrokerLauncher]::EndSession()
                 Write-BrokerLog -Level 'INFO' -Message "Guest session ended. Reason=$Reason"
+                if ($state.GuestAccount) {
+                    $durationMinutes = if ($state.SessionStart) {
+                        [string][math]::Round(((Get-Date) - $state.SessionStart).TotalMinutes, 1)
+                    } else { '' }
+                    Write-SessionAudit -Event 'SessionEnd' -GuestAccount $state.GuestAccount `
+                        -SessionId $state.SessionId -DurationMinutes $durationMinutes -Detail $Reason
+                    $state.GuestAccount = $null
+                    $state.SessionId = $null
+                }
                 & $resetToSignIn
                 & $setStatus 'Session ended. The computer is ready for the next guest.' $infoBrush
             }.GetNewClosure()
@@ -771,6 +892,8 @@ end {
                     # Rebuilt from the parsed integer, never from raw input.
                     $principal = '{0}{1}@{2}' -f $Settings.GuestAccountPrefix, $guestNumber, $Settings.Realm
                     $loggedPrincipal = if ($Settings.LogGuestPrincipal) { $principal } else { '(redacted)' }
+                    $guestAccountName = '{0}{1}' -f $Settings.GuestAccountPrefix, $guestNumber
+                    $sessionId = [guid]::NewGuid().ToString()
 
                     $state.Busy = $true
                     $signInButton.IsEnabled = $false
@@ -809,6 +932,8 @@ end {
                             'Launch failed. Principal={0} Application={1} Stage={2} Win32Error={3} Category={4}' -f
                             $loggedPrincipal, $Application.Id, $launchResult.FailureStage, $launchResult.Win32Error, $category
                         )
+                        Write-SessionAudit -Event 'SignInFailed' -GuestAccount $guestAccountName -Application $Application.Id `
+                            -Detail ('Win32={0} Category={1}' -f $launchResult.Win32Error, $category)
 
                         if ($category -eq 'Credential') {
                             # Identical text for every credential fault.
@@ -830,8 +955,32 @@ end {
                         'Launch succeeded. Principal={0} Application={1} Pid={2} TokenAccount={3} TokenSid={4}' -f
                         $loggedPrincipal, $Application.Id, $launchResult.ProcessId, $launchResult.TokenAccount, $launchResult.TokenSid
                     )
+                    Write-SessionAudit -Event 'SignIn' -GuestAccount $guestAccountName -Application $Application.Id `
+                        -SessionId $sessionId -Detail $launchResult.TokenAccount
 
                     if ($Application.Mode -eq 'LaunchAndExit') {
+                        # The broker exits after launch, so it cannot record the
+                        # session end itself. A hidden watcher waits on the
+                        # launched process and appends the SessionEnd row.
+                        try {
+                            $watcherPath = Join-Path (Split-Path -Path $XamlPath -Parent) 'Watch-GuestSession.ps1'
+                            if (Test-Path -LiteralPath $watcherPath -PathType Leaf) {
+                                Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList @(
+                                    '-ExecutionPolicy', 'Bypass', '-NoProfile',
+                                    '-File', $watcherPath,
+                                    '-WatchedProcessId', $launchResult.ProcessId,
+                                    '-GuestAccount', $guestAccountName,
+                                    '-SessionId', $sessionId,
+                                    '-ApplicationId', $Application.Id,
+                                    '-CsvPath', $script:AuditCsvPath,
+                                    '-StartedAt', (Get-Date).ToString('o')
+                                ) | Out-Null
+                            }
+                        }
+                        catch {
+                            Write-BrokerLog -Level 'WARN' -Message "Session watcher failed to start: $($_.Exception.Message)"
+                        }
+
                         # The broker's job is done. StartSession already released
                         # its handles without a job object, so the application
                         # keeps running and closing this window cannot kill it.
@@ -853,6 +1002,8 @@ end {
                     }
 
                     $state.SessionStart = Get-Date
+                    $state.GuestAccount = $guestAccountName
+                    $state.SessionId = $sessionId
                     $window.Hide()
                     $timer.Start()
                 }
@@ -951,13 +1102,14 @@ end {
             return
         }
 
-        $developmentOverride = $ForceGuestUi -and $settings.AllowDevelopmentOverrides
-        if ($ForceGuestUi -and -not $settings.AllowDevelopmentOverrides) {
+        $gateBypassRequested = $ForceGuestUi -or $Preview
+        $developmentOverride = $gateBypassRequested -and $settings.AllowDevelopmentOverrides
+        if ($gateBypassRequested -and -not $settings.AllowDevelopmentOverrides) {
             # A shipped package must not be able to present a credential prompt
             # outside the gate; that would be a ready-made phishing surface on a
             # machine-wide auto-start entry.
-            Write-BrokerLog -Level 'WARN' -Message '-ForceGuestUi ignored: AllowDevelopmentOverrides is false in broker-settings.json.'
-            Write-Verbose '-ForceGuestUi ignored because AllowDevelopmentOverrides is false.'
+            Write-BrokerLog -Level 'WARN' -Message 'Gate bypass ignored: AllowDevelopmentOverrides is false in broker-settings.json.'
+            Write-Verbose 'Gate bypass ignored because AllowDevelopmentOverrides is false.'
         }
 
         if (-not $developmentOverride -and -not $guestDecision.IsGuestSession) {
@@ -984,7 +1136,8 @@ end {
             -XamlPath $xamlPath `
             -Settings $settings `
             -Application $application `
-            -DevelopmentMode:$developmentOverride
+            -DevelopmentMode:$developmentOverride `
+            -WindowedChrome:($developmentOverride -and -not $Preview)
     }
     catch {
         $failureMessage = "LibGuest session-broker failed: $($_.Exception.Message)"

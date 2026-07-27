@@ -56,7 +56,7 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $productVersion = '0.3.0'
+    $productVersion = '0.3.1'
     $sentinelSubKey = 'SOFTWARE\UMDLibraries\LibGuestSessionBroker'
 }
 
@@ -225,6 +225,21 @@ end {
             $logAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
                 $users, 'Modify', 'None', 'None', 'Allow')))
             Set-Acl -LiteralPath $brokerLog -AclObject $logAcl
+
+            # Session accountability CSV: guests may APPEND rows (the broker and
+            # its watcher run as the guest, so they must be able to write) but get
+            # no WriteData or Delete, so history cannot be rewritten or erased
+            # from a guest session. Administrators retain full control.
+            $auditCsv = Join-Path $Path 'sessions.csv'
+            if (-not (Test-Path -LiteralPath $auditCsv)) {
+                Set-Content -LiteralPath $auditCsv `
+                    -Value 'Timestamp,ComputerName,Event,GuestAccount,Application,SessionId,DurationMinutes,Detail' `
+                    -Encoding UTF8
+            }
+            $csvAcl = Get-Acl -LiteralPath $auditCsv
+            $csvAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $users, 'AppendData', 'None', 'None', 'Allow')))
+            Set-Acl -LiteralPath $auditCsv -AclObject $csvAcl
         }
     }
 
@@ -246,7 +261,7 @@ end {
         }
 
         # Fail before changing anything rather than leaving a half-configured device.
-        foreach ($required in @('Start-LibGuestSessionBroker.ps1', 'LibGuestBrokerNative.cs', 'MainWindow.xaml', 'broker-settings.json')) {
+        foreach ($required in @('Start-LibGuestSessionBroker.ps1', 'LibGuestBrokerNative.cs', 'MainWindow.xaml', 'broker-settings.json', 'Watch-GuestSession.ps1')) {
             $requiredPath = Join-Path $sourcePrototype $required
             if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
                 throw "Package is missing a required broker file: $required"

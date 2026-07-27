@@ -1,9 +1,9 @@
 # Intune Win32 deployment — LibGuest session broker
 
-> [!info] Version `0.3.0`
+> [!info] Version `0.3.1`
 > One Win32 app performs the entire device configuration: stages the broker,
-> locks down the install root, applies guest session and Edge policy, and
-> registers auto-start.
+> locks down the install root, applies guest session and Edge policy, registers
+> auto-start, and creates the session accountability CSV.
 
 ## Layout
 
@@ -34,7 +34,7 @@ Everything in `Package/` belongs in the `.intunewin`; nothing else does.
 | Step | Result |
 |---|---|
 | 1 | Broker files staged to `C:\ProgramData\LibGuestSessionBroker\Prototype` |
-| 2 | Install root ACL: Administrators/SYSTEM full, Users read-and-execute, `broker.log` writable |
+| 2 | Install root ACL: Administrators/SYSTEM full, Users read-and-execute, `broker.log` writable, `sessions.csv` **append-only** for Users |
 | 3 | Guest session policy written into `C:\Users\Default\NTUSER.DAT` |
 | 4 | Machine-wide Edge policy under `HKLM\SOFTWARE\Policies\Microsoft\Edge` |
 | 5 | Startup shortcut in the All Users Startup folder |
@@ -195,6 +195,51 @@ Then sign out, start a **new** Guest session, and confirm the dialog appears,
 
 Install log: `C:\ProgramData\LibGuestSessionBroker\install.log`
 Intune log: `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\IntuneManagementExtension.log`
+
+## Session accountability log
+
+`C:\ProgramData\LibGuestSessionBroker\sessions.csv` records who authenticated and
+when:
+
+| Column | Content |
+|---|---|
+| `Timestamp` | ISO 8601, local time with offset |
+| `Event` | `SignIn`, `SignInFailed`, or `SessionEnd` |
+| `GuestAccount` | `libguestN` — recorded here by design, unlike the redacted `broker.log` |
+| `SessionId` | GUID correlating a `SignIn` row with its `SessionEnd` row |
+| `DurationMinutes` | On `SessionEnd` rows |
+| `Detail` | Token account on sign-in; Win32 code and category on failure |
+
+The broker writes `SignIn`/`SignInFailed` at authentication. In `LaunchAndExit`
+mode a hidden watcher (`Watch-GuestSession.ps1`, running as the same guest) waits
+for the launched process to exit and appends `SessionEnd` with the duration.
+
+**Users get `AppendData` only** — a guest session can add rows but cannot rewrite
+or delete history. True read-only is impossible because the broker itself runs as
+the guest and is the only process that observes the events. Administrators have
+full control.
+
+Known limits:
+
+- If the patron signs out of Windows while the application is still open, the
+  watcher dies with the session and the `SignIn` row has no matching `SessionEnd`.
+- Duration measures the **launched process**. If Edge hands off to an existing
+  instance (should not happen in a fresh guest session), the row closes early.
+- This file names patron accounts with timestamps — it is a patron activity
+  record. Apply whatever retention policy governs such records; uninstall deletes
+  it unless run with `-KeepLogs`.
+
+Quick queries:
+
+```powershell
+Import-Csv 'C:\ProgramData\LibGuestSessionBroker\sessions.csv' |
+    Where-Object Event -eq 'SignIn' | Select-Object Timestamp, GuestAccount
+
+# Sessions with durations
+Import-Csv 'C:\ProgramData\LibGuestSessionBroker\sessions.csv' |
+    Where-Object Event -eq 'SessionEnd' |
+    Select-Object Timestamp, GuestAccount, DurationMinutes
+```
 
 ## Known behaviors
 

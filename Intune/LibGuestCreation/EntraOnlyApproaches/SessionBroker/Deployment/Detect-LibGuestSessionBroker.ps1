@@ -46,7 +46,7 @@ begin {
 }
 
 end {
-    $expectedVersion = '0.3.0'
+    $expectedVersion = '0.3.1'
     $sentinelSubKey = 'SOFTWARE\UMDLibraries\LibGuestSessionBroker'
 
     try {
