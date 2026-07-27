@@ -79,6 +79,7 @@ end {
     $script:LogDirectory = Join-Path $env:ProgramData 'LibGuestSessionBroker'
     $script:LogPath = Join-Path $script:LogDirectory 'broker.log'
     $script:AuditCsvPath = Join-Path $script:LogDirectory 'sessions.csv'
+    $script:SessionStatePath = Join-Path $script:LogDirectory 'session-state.json'
 
     function Write-BrokerLog {
         <#
@@ -205,6 +206,86 @@ end {
             }
             catch {
                 Write-BrokerLog -Level 'WARN' -Message "Session audit write failed: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    function Complete-PendingSession {
+        <#
+        .SYNOPSIS
+            Closes out a guest session that ended without recording its own end.
+        .DESCRIPTION
+            Run at broker startup, before any UI. If the session state file
+            describes an unfinished session, the previous guest's session ended
+            without anything writing a SessionEnd row — sign-out, crash, or power
+            loss. The final heartbeat is used as the end time.
+
+            This is why the end is reconstructed rather than written on the way
+            out: Windows kills processes during logoff, killed processes do not
+            run finally blocks, and nothing runs at all after a power cut. A
+            heartbeat plus reconciliation closes out all three.
+
+            End times are accurate to one heartbeat interval, 60 seconds.
+        .NOTES
+            Author: Oji / UMD Libraries
+            Date: 2026-07-27
+            Version: 0.3.2
+        #>
+        [CmdletBinding()]
+        param()
+
+        process {
+            try {
+                if (-not (Test-Path -LiteralPath $script:SessionStatePath -PathType Leaf)) { return }
+
+                $raw = (Get-Content -LiteralPath $script:SessionStatePath -Raw -ErrorAction Stop).Trim()
+                if ([string]::IsNullOrWhiteSpace($raw)) { return }
+
+                $state = $raw | ConvertFrom-Json
+                if ([string]::IsNullOrWhiteSpace($state.GuestAccount)) { return }
+
+                # ConvertFrom-Json may hand back either a string or an already
+                # converted DateTime depending on the value and host version.
+                # Normalize both, and never round-trip through a locale-dependent
+                # string: this is an audit record and stays ISO 8601 throughout.
+                $asDateTime = {
+                    param($value)
+                    if ($value -is [datetime]) { return $value }
+                    return [datetime]::Parse(
+                        [string]$value,
+                        [System.Globalization.CultureInfo]::InvariantCulture,
+                        [System.Globalization.DateTimeStyles]::RoundtripKind)
+                }
+
+                $durationMinutes = ''
+                $lastSeenText = [string]$state.LastSeen
+                try {
+                    $startedAt = & $asDateTime $state.StartedAt
+                    $lastSeen = & $asDateTime $state.LastSeen
+                    $lastSeenText = $lastSeen.ToString('o')
+                    $durationMinutes = [string][math]::Round(($lastSeen - $startedAt).TotalMinutes, 1)
+                }
+                catch {
+                    # A malformed timestamp still leaves a usable SessionEnd row.
+                }
+
+                Write-SessionAudit -Event 'SessionEnd' `
+                    -GuestAccount $state.GuestAccount `
+                    -Application $state.Application `
+                    -SessionId $state.SessionId `
+                    -DurationMinutes $durationMinutes `
+                    -Detail ('SessionSignedOut LastSeen={0}' -f $lastSeenText)
+
+                Write-BrokerLog -Level 'INFO' -Message (
+                    'Closed out previous session. Account={0} Duration={1}min' -f $state.GuestAccount, $durationMinutes)
+
+                # Blanked, never deleted. The installer grants Users:Modify on this
+                # specific file; a recreated file would inherit the folder ACL,
+                # which is read-only for Users, and the next guest could not write.
+                Set-Content -LiteralPath $script:SessionStatePath -Value '' -Encoding UTF8
+            }
+            catch {
+                Write-BrokerLog -Level 'WARN' -Message "Could not close out previous session: $($_.Exception.Message)"
             }
         }
     }
@@ -960,19 +1041,19 @@ end {
 
                     if ($Application.Mode -eq 'LaunchAndExit') {
                         # The broker exits after launch, so it cannot record the
-                        # session end itself. A hidden watcher waits on the
-                        # launched process and appends the SessionEnd row.
+                        # session end itself. A hidden watcher heartbeats until
+                        # the guest signs out; the next broker start reads the
+                        # final heartbeat and appends the SessionEnd row.
                         try {
                             $watcherPath = Join-Path (Split-Path -Path $XamlPath -Parent) 'Watch-GuestSession.ps1'
                             if (Test-Path -LiteralPath $watcherPath -PathType Leaf) {
                                 Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList @(
                                     '-ExecutionPolicy', 'Bypass', '-NoProfile',
                                     '-File', $watcherPath,
-                                    '-WatchedProcessId', $launchResult.ProcessId,
                                     '-GuestAccount', $guestAccountName,
                                     '-SessionId', $sessionId,
                                     '-ApplicationId', $Application.Id,
-                                    '-CsvPath', $script:AuditCsvPath,
+                                    '-StatePath', $script:SessionStatePath,
                                     '-StartedAt', (Get-Date).ToString('o')
                                 ) | Out-Null
                             }
@@ -1071,6 +1152,14 @@ end {
         $nativeSourcePath = Join-Path $scriptDir 'LibGuestBrokerNative.cs'
 
         $settings = Get-BrokerConfiguration -Path $configurationPath
+
+        # Before the gate, and before -ProbeOnly returns. The broker starts at
+        # every logon, so this runs even on an administrator sign-in — which is
+        # what closes out a guest session that ended in a crash or power cut.
+        if (-not $ProbeOnly) {
+            Complete-PendingSession
+        }
+
         $sessionContext = Get-SharedPcSessionContext -BrokerSessionAccountPattern $settings.BrokerSessionAccountPattern
         $guestDecision = Test-SharedPcGuestSession -SessionContext $sessionContext -Settings $settings
         $prerequisites = Test-BrokerLaunchPrerequisite

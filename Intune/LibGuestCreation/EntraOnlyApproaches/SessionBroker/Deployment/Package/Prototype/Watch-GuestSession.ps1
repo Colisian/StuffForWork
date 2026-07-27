@@ -2,41 +2,65 @@
 
 <#
 .SYNOPSIS
-    Records the end of a launch-and-exit guest session in sessions.csv.
+    Heartbeats an active guest session so its end time can be reconstructed.
 
 .DESCRIPTION
     Started hidden by the broker immediately after a LaunchAndExit launch, running
-    as the same guest account. Waits for the launched process to exit, then appends
-    a SessionEnd row with the session duration.
+    as the same guest account. Writes the current time into the session state file
+    every heartbeat interval and never exits on its own — Windows terminates it
+    when the guest signs out.
 
-    Exists because in LaunchAndExit mode the broker terminates right after the
-    application starts, so nothing else is alive to observe the session ending.
+    The session end is therefore not recorded here. The next broker start reads the
+    state file, sees an unfinished session, and appends the SessionEnd row using
+    the final heartbeat as the end time.
 
-    Appends with FILE_APPEND_DATA access only, matching the deployed ACL that lets
-    Users add rows to sessions.csv but not rewrite or delete history.
+    That indirection is deliberate. A process cannot reliably write anything during
+    logoff: Windows kills it, killed processes do not run finally blocks, and
+    SessionEnding handlers are unreliable under logoff timing. Reconstructing from
+    a heartbeat also closes out sessions lost to a crash or a power cut, which
+    writing-on-exit never could.
 
-    Not intended to be run by hand. Every failure path exits 0 silently: an audit
-    row is never worth disturbing a patron session over.
+    Measures the whole Windows session rather than the lifetime of the launched
+    application, so a patron who closes Edge and keeps working still counts.
+
+    Accuracy is one heartbeat interval, 60 seconds by default.
+
+.PARAMETER GuestAccount
+    The libguestN account that authenticated.
+
+.PARAMETER SessionId
+    GUID correlating this session with its SignIn row.
+
+.PARAMETER ApplicationId
+    Allowlist entry that was launched.
+
+.PARAMETER StatePath
+    Session state file. Pre-created by the installer with Users:Modify so a guest
+    can overwrite its contents.
+
+.PARAMETER StartedAt
+    Round-trip formatted authentication time.
+
+.PARAMETER HeartbeatSeconds
+    Seconds between heartbeats. Also the accuracy of the recorded end time.
 
 .NOTES
     Author:  Oji / UMD Libraries
     Date:    2026-07-27
-    Version: 0.3.1
+    Version: 0.3.2
 
-    If the patron signs out of Windows while the application is still running,
-    this process dies with the session and no SessionEnd row is written — the
-    SignIn row will simply have no matching end. That is an accepted limit of
-    watching from inside the session being watched.
+    Not intended to be run by hand. Every failure path exits silently: an audit
+    row is never worth disturbing a patron session over.
 #>
 
 [CmdletBinding()]
 param(
-    [int]$WatchedProcessId,
     [string]$GuestAccount,
     [string]$SessionId,
     [string]$ApplicationId,
-    [string]$CsvPath,
-    [string]$StartedAt
+    [string]$StatePath,
+    [string]$StartedAt,
+    [int]$HeartbeatSeconds = 60
 )
 
 begin {
@@ -44,73 +68,34 @@ begin {
 }
 
 end {
-    try {
-        if (-not $WatchedProcessId -or [string]::IsNullOrWhiteSpace($CsvPath) -or
-            [string]::IsNullOrWhiteSpace($GuestAccount)) {
-            exit 0
-        }
+    if ([string]::IsNullOrWhiteSpace($StatePath) -or [string]::IsNullOrWhiteSpace($GuestAccount)) {
+        exit 0
+    }
 
-        $start = if ($StartedAt) {
-            [datetime]::Parse($StartedAt, [System.Globalization.CultureInfo]::InvariantCulture,
-                [System.Globalization.DateTimeStyles]::RoundtripKind)
-        }
-        else {
-            Get-Date
-        }
+    $startedAtValue = if ($StartedAt) { $StartedAt } else { (Get-Date).ToString('o') }
 
-        # Blocks until the watched process exits. If it is already gone,
-        # Wait-Process throws and the row is written immediately, which is the
-        # right answer either way.
+    while ($true) {
         try {
-            Wait-Process -Id $WatchedProcessId -ErrorAction Stop
+            $state = [pscustomobject]@{
+                SchemaVersion = 1
+                SessionId     = $SessionId
+                GuestAccount  = $GuestAccount
+                Application   = $ApplicationId
+                ComputerName  = [Environment]::MachineName
+                StartedAt     = $startedAtValue
+                LastSeen      = (Get-Date).ToString('o')
+            }
+
+            # Overwrite in place rather than delete and recreate. The installer
+            # grants Users:Modify on this specific file; a recreated file would
+            # inherit the folder ACL, which is read-only for Users, and the next
+            # guest could not write it.
+            Set-Content -LiteralPath $StatePath -Value ($state | ConvertTo-Json -Compress) -Encoding UTF8
         }
         catch {
-            # Already exited.
+            # A missed heartbeat only costs accuracy, never the session.
         }
 
-        $durationMinutes = [math]::Round(((Get-Date) - $start).TotalMinutes, 1)
-
-        $line = '{0},{1},{2},{3},{4},{5},{6},{7}' -f
-            (Get-Date).ToString('o'),
-            [Environment]::MachineName,
-            'SessionEnd',
-            $GuestAccount,
-            $ApplicationId,
-            $SessionId,
-            $durationMinutes,
-            'ApplicationExited'
-
-        $stream = $null
-        try {
-            $stream = New-Object System.IO.FileStream(
-                $CsvPath,
-                [System.IO.FileMode]::Append,
-                [System.Security.AccessControl.FileSystemRights]::AppendData,
-                [System.IO.FileShare]::Read,
-                4096,
-                [System.IO.FileOptions]::None)
-        }
-        catch {
-            $stream = $null
-        }
-
-        if ($stream) {
-            try {
-                $writer = New-Object System.IO.StreamWriter($stream, [System.Text.Encoding]::UTF8)
-                $writer.WriteLine($line)
-                $writer.Flush()
-                $writer.Dispose()
-            }
-            finally {
-                $stream.Dispose()
-            }
-        }
-        else {
-            Add-Content -LiteralPath $CsvPath -Value $line -Encoding UTF8
-        }
+        Start-Sleep -Seconds $HeartbeatSeconds
     }
-    catch {
-        # Silent by design.
-    }
-    exit 0
 }

@@ -1,6 +1,6 @@
 # Intune Win32 deployment — LibGuest session broker
 
-> [!info] Version `0.3.1`
+> [!info] Version `0.3.2`
 > One Win32 app performs the entire device configuration: stages the broker,
 > locks down the install root, applies guest session and Edge policy, registers
 > auto-start, and creates the session accountability CSV.
@@ -16,6 +16,7 @@ Deployment/
     ├── Uninstall-LibGuestSessionBroker.ps1
     ├── Prototype/
     │   ├── Start-LibGuestSessionBroker.ps1
+    │   ├── Watch-GuestSession.ps1
     │   ├── LibGuestBrokerNative.cs
     │   ├── MainWindow.xaml
     │   └── broker-settings.json
@@ -34,7 +35,7 @@ Everything in `Package/` belongs in the `.intunewin`; nothing else does.
 | Step | Result |
 |---|---|
 | 1 | Broker files staged to `C:\ProgramData\LibGuestSessionBroker\Prototype` |
-| 2 | Install root ACL: Administrators/SYSTEM full, Users read-and-execute, `broker.log` writable, `sessions.csv` **append-only** for Users |
+| 2 | Install root ACL: Administrators/SYSTEM full, Users read-and-execute, `broker.log` writable, `sessions.csv` **append-only**, `session-state.json` writable |
 | 3 | Guest session policy written into `C:\Users\Default\NTUSER.DAT` |
 | 4 | Machine-wide Edge policy under `HKLM\SOFTWARE\Policies\Microsoft\Edge` |
 | 5 | Startup shortcut in the All Users Startup folder |
@@ -210,21 +211,53 @@ when:
 | `DurationMinutes` | On `SessionEnd` rows |
 | `Detail` | Token account on sign-in; Win32 code and category on failure |
 
-The broker writes `SignIn`/`SignInFailed` at authentication. In `LaunchAndExit`
-mode a hidden watcher (`Watch-GuestSession.ps1`, running as the same guest) waits
-for the launched process to exit and appends `SessionEnd` with the duration.
+**Duration measures the Windows session, not the application.** A patron who closes
+Edge and keeps working still counts as occupying the machine.
 
-**Users get `AppendData` only** — a guest session can add rows but cannot rewrite
-or delete history. True read-only is impossible because the broker itself runs as
-the guest and is the only process that observes the events. Administrators have
-full control.
+### How the end time is captured
 
-Known limits:
+The broker writes `SignIn`/`SignInFailed` at authentication. It then starts a hidden
+watcher (`Watch-GuestSession.ps1`) as the same guest, which stamps the current time
+into `session-state.json` every 60 seconds and never exits — Windows kills it at
+sign-out.
 
-- If the patron signs out of Windows while the application is still open, the
-  watcher dies with the session and the `SignIn` row has no matching `SessionEnd`.
-- Duration measures the **launched process**. If Edge hands off to an existing
-  instance (should not happen in a fresh guest session), the row closes early.
+The **next broker start** reads that file, sees an unfinished session, and appends
+`SessionEnd` using the final heartbeat as the end time. Since the broker starts at
+every logon, including an administrator's, a stranded session is closed out at the
+next sign-in of any kind.
+
+Nothing tries to write during logoff, and that is deliberate: Windows kills
+processes as the session tears down, killed processes do not run `finally` blocks,
+and nothing at all runs after a power cut. Heartbeat-and-reconcile closes out
+sign-out, crash, and power loss alike; writing-on-exit would silently miss all
+three.
+
+**Cost: end times are accurate to one heartbeat, 60 seconds.** Sessions are
+reported up to a minute short.
+
+### File permissions
+
+| File | Users get | Why |
+|---|---|---|
+| `sessions.csv` | `AppendData` | Rows can be added, never rewritten or deleted |
+| `session-state.json` | `Modify` | Overwritten every heartbeat; scratch, not audit |
+
+True read-only on the CSV is impossible: the broker runs as the guest and is the
+only process that witnesses the events, so the guest must be able to write.
+Append-only gives the tamper-resistance intended by "read-only". Administrators
+have full control of both.
+
+Both files are pre-created by the installer and never deleted at runtime — a file
+recreated by a guest would inherit the folder ACL, which is read-only for Users,
+and the next guest could not write it.
+
+### Known limits
+
+- **A session open across a reboot is closed at the last heartbeat**, correctly,
+  but a machine that never signs in again leaves the row open until it does.
+- **Two `SessionEnd` sources.** `LaunchAndExit` reconstructs from the heartbeat;
+  `Session` mode writes its own row directly. The `Detail` column distinguishes
+  them (`SessionSignedOut` vs `ApplicationExited`, `TimeLimitReached`).
 - This file names patron accounts with timestamps — it is a patron activity
   record. Apply whatever retention policy governs such records; uninstall deletes
   it unless run with `-KeepLogs`.

@@ -56,7 +56,7 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $productVersion = '0.3.1'
+    $productVersion = '0.3.2'
     $sentinelSubKey = 'SOFTWARE\UMDLibraries\LibGuestSessionBroker'
 }
 
@@ -240,6 +240,20 @@ end {
             $csvAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
                 $users, 'AppendData', 'None', 'None', 'Allow')))
             Set-Acl -LiteralPath $auditCsv -AclObject $csvAcl
+
+            # Session heartbeat state. Users get Modify because the watcher
+            # overwrites it every heartbeat, unlike the append-only audit CSV.
+            # Pre-created here and never deleted at runtime: a file recreated by a
+            # guest would inherit the folder ACL, which is read-only for Users, and
+            # the next guest could not write it.
+            $sessionState = Join-Path $Path 'session-state.json'
+            if (-not (Test-Path -LiteralPath $sessionState)) {
+                Set-Content -LiteralPath $sessionState -Value '' -Encoding UTF8
+            }
+            $stateAcl = Get-Acl -LiteralPath $sessionState
+            $stateAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $users, 'Modify', 'None', 'None', 'Allow')))
+            Set-Acl -LiteralPath $sessionState -AclObject $stateAcl
         }
     }
 
