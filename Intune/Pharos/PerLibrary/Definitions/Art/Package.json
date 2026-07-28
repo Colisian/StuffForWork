@@ -1,0 +1,17 @@
+{
+  "SchemaVersion": 1,
+  "PackageId": "Art",
+  "DisplayName": "Pharos Printers - Art Library",
+  "Version": "9.2.10000.194",
+  "Installers": [
+    {
+      "FileName": "LIB-Art_for_x64.exe",
+      "Arguments": "-quiet",
+      "Sha256": "9C6DF851E8A29BB804E388DF73BF11691700C0A39E2128AD4912D9CBE0BAB71D"
+    }
+  ],
+  "ExpectedPrinters": [
+    "LIB-ArtBW",
+    "LIB-ArtColor"
+  ]
+}

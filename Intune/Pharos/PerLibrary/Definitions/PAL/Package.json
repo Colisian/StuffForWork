@@ -1,0 +1,17 @@
+{
+  "SchemaVersion": 1,
+  "PackageId": "PAL",
+  "DisplayName": "Pharos Printers - Performing Arts Library",
+  "Version": "9.2.10000.194",
+  "Installers": [
+    {
+      "FileName": "LIB-PAL_for_x64.exe",
+      "Arguments": "-quiet",
+      "Sha256": "D1E96A3956000DF2EEEB2DC055F81423829E4B629DB18FA8766907A29415BF6D"
+    }
+  ],
+  "ExpectedPrinters": [
+    "LIB-PALBW",
+    "LIB-PALColor"
+  ]
+}

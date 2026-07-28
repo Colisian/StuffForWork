@@ -1,0 +1,17 @@
+{
+  "SchemaVersion": 1,
+  "PackageId": "Architecture",
+  "DisplayName": "Pharos Printers - Architecture Library",
+  "Version": "9.2.10000.194",
+  "Installers": [
+    {
+      "FileName": "LIB-Arch_for_x64.exe",
+      "Arguments": "-quiet",
+      "Sha256": "EFD3F8E73DBE97CF3F47E686C7661698B59D91C0FCE08633FCD4B6679CFCB684"
+    }
+  ],
+  "ExpectedPrinters": [
+    "LIB-ArchBW",
+    "LIB-ArchColor"
+  ]
+}

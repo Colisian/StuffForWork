@@ -1,0 +1,17 @@
+{
+  "SchemaVersion": 1,
+  "PackageId": "EPSL",
+  "DisplayName": "Pharos Printers - STEM Library (EPSL)",
+  "Version": "9.2.10000.194",
+  "Installers": [
+    {
+      "FileName": "LIB-EPSL_for_x64.exe",
+      "Arguments": "-quiet",
+      "Sha256": "F902DA8CE2F778443B84655E0E10E514C34C79855C732351F0AC2BC37D80A5D1"
+    }
+  ],
+  "ExpectedPrinters": [
+    "LIB-EPSLBW",
+    "LIB-EPSLColor"
+  ]
+}

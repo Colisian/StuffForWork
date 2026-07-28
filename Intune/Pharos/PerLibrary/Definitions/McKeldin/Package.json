@@ -1,0 +1,23 @@
+{
+  "SchemaVersion": 1,
+  "PackageId": "McKeldin",
+  "DisplayName": "Pharos Printers - McKeldin Library",
+  "Version": "9.2.10000.194",
+  "Installers": [
+    {
+      "FileName": "LIB-Mckeldin_for_x64.exe",
+      "Arguments": "-quiet",
+      "Sha256": "59EE7476CB73AE862131F3F00D3D2FEB68CDF113EA489FE250174AEE06C48008"
+    },
+    {
+      "FileName": "LIB-Mck2FloorWideFormat_for_x64.exe",
+      "Arguments": "-quiet",
+      "Sha256": "48E8D7E00525A74654F4B9181233AEDBDCE234703987577F9B007D6C158A9731"
+    }
+  ],
+  "ExpectedPrinters": [
+    "LIB-MckBW",
+    "LIB-MckColor",
+    "LIB-Mck2FWideFormat"
+  ]
+}

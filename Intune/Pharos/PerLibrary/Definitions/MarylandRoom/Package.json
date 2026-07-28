@@ -1,0 +1,17 @@
+{
+  "SchemaVersion": 1,
+  "PackageId": "MarylandRoom",
+  "DisplayName": "Pharos Printers - Maryland Room",
+  "Version": "9.2.10000.194",
+  "Installers": [
+    {
+      "FileName": "LIB-MarylandRoom_for_x64.exe",
+      "Arguments": "-quiet",
+      "Sha256": "AE0236DEBE26FEA803FDA75636C7FE76AF0C208FFB9995793672275D20FAB20E"
+    }
+  ],
+  "ExpectedPrinters": [
+    "LIB-MarylandRoomBW",
+    "LIB-MarylandRoomColor"
+  ]
+}
