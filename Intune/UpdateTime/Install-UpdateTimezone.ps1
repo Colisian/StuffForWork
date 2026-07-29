@@ -69,7 +69,6 @@ $LogDir     = Join-Path -Path $env:ProgramData -ChildPath 'IntuneLogs'
 $LogPath    = Join-Path -Path $LogDir -ChildPath 'LIBR-SetTimeZoneEastern.log'
 $MarkerPath = 'HKLM:\SOFTWARE\LIBR\Deployments\TimeZoneEastern'
 $TzAutoPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\tzautoupdate'
-$TzInfoPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\TimeZoneInformation'
 
 if (-not (Test-Path -Path $LogDir)) {
     New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
