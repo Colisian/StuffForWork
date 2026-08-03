@@ -1,0 +1,48 @@
+﻿{
+    "SchemaVersion":  1,
+    "PackageVersion":  "1.0.0",
+    "BackupCreatedUtc":  "2026-08-02T01:01:43.8271184Z",
+    "Files":  [
+                  {
+                      "Name":  "user.png",
+                      "Existed":  true,
+                      "BackupPath":  "C:\\Users\\cmcleod1\\OneDrive - University of Maryland\\Documents\\Work\\StuffForWork\\Intune\\.codex-test\\AccountPicture-bf916c8fe2774223b0876a5b9b61cf61\\UMDLibraries\\LoginScreenAccountPicture\\State\\Backup\\user.png"
+                  },
+                  {
+                      "Name":  "user.jpg",
+                      "Existed":  true,
+                      "BackupPath":  "C:\\Users\\cmcleod1\\OneDrive - University of Maryland\\Documents\\Work\\StuffForWork\\Intune\\.codex-test\\AccountPicture-bf916c8fe2774223b0876a5b9b61cf61\\UMDLibraries\\LoginScreenAccountPicture\\State\\Backup\\user.jpg"
+                  },
+                  {
+                      "Name":  "user.bmp",
+                      "Existed":  true,
+                      "BackupPath":  "C:\\Users\\cmcleod1\\OneDrive - University of Maryland\\Documents\\Work\\StuffForWork\\Intune\\.codex-test\\AccountPicture-bf916c8fe2774223b0876a5b9b61cf61\\UMDLibraries\\LoginScreenAccountPicture\\State\\Backup\\user.bmp"
+                  },
+                  {
+                      "Name":  "user-192.png",
+                      "Existed":  true,
+                      "BackupPath":  "C:\\Users\\cmcleod1\\OneDrive - University of Maryland\\Documents\\Work\\StuffForWork\\Intune\\.codex-test\\AccountPicture-bf916c8fe2774223b0876a5b9b61cf61\\UMDLibraries\\LoginScreenAccountPicture\\State\\Backup\\user-192.png"
+                  },
+                  {
+                      "Name":  "user-48.png",
+                      "Existed":  true,
+                      "BackupPath":  "C:\\Users\\cmcleod1\\OneDrive - University of Maryland\\Documents\\Work\\StuffForWork\\Intune\\.codex-test\\AccountPicture-bf916c8fe2774223b0876a5b9b61cf61\\UMDLibraries\\LoginScreenAccountPicture\\State\\Backup\\user-48.png"
+                  },
+                  {
+                      "Name":  "user-40.png",
+                      "Existed":  true,
+                      "BackupPath":  "C:\\Users\\cmcleod1\\OneDrive - University of Maryland\\Documents\\Work\\StuffForWork\\Intune\\.codex-test\\AccountPicture-bf916c8fe2774223b0876a5b9b61cf61\\UMDLibraries\\LoginScreenAccountPicture\\State\\Backup\\user-40.png"
+                  },
+                  {
+                      "Name":  "user-32.png",
+                      "Existed":  true,
+                      "BackupPath":  "C:\\Users\\cmcleod1\\OneDrive - University of Maryland\\Documents\\Work\\StuffForWork\\Intune\\.codex-test\\AccountPicture-bf916c8fe2774223b0876a5b9b61cf61\\UMDLibraries\\LoginScreenAccountPicture\\State\\Backup\\user-32.png"
+                  }
+              ],
+    "Policy":  {
+                   "Existed":  false,
+                   "Value":  null,
+                   "Kind":  null
+               },
+    "DeployedHashes":  null
+}

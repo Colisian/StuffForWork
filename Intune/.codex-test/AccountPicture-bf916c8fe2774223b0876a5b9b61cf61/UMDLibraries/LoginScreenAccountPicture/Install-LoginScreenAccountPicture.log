@@ -1,0 +1,15 @@
+﻿[2026-08-01 21:01:43] [INFO] Starting UMD Libraries Login Screen Account Picture v1.0.0 as LIBRWK93ZMR74\CodexSandboxOffline.
+[2026-08-01 21:01:43] [INFO] Package content directory: C:\Users\cmcleod1\OneDrive - University of Maryland\Documents\Work\StuffForWork\Intune\LoginScreenAccountPicture\Source
+[2026-08-01 21:01:43] [INFO] Backed up the original Windows account pictures and policy state to C:\Users\cmcleod1\OneDrive - University of Maryland\Documents\Work\StuffForWork\Intune\.codex-test\AccountPicture-bf916c8fe2774223b0876a5b9b61cf61\UMDLibraries\LoginScreenAccountPicture\State.
+[2026-08-01 21:01:43] [INFO] Installed user.png (448x448, PNG).
+[2026-08-01 21:01:44] [INFO] Installed user.jpg (448x448, JPEG).
+[2026-08-01 21:01:44] [INFO] Installed user.bmp (448x448, BMP).
+[2026-08-01 21:01:44] [INFO] Installed user-192.png (192x192, PNG).
+[2026-08-01 21:01:44] [INFO] Installed user-48.png (48x48, PNG).
+[2026-08-01 21:01:44] [INFO] Installed user-40.png (40x40, PNG).
+[2026-08-01 21:01:44] [INFO] Installed user-32.png (32x32, PNG).
+[2026-08-01 21:01:44] [ERROR] Installation failed: Access to the registry key 'HKEY_CURRENT_USER\SOFTWARE\UMDLibraries\CodexTest\AccountPicture-bf916c8fe2774223b0876a5b9b61cf61\Policies\Explorer' is denied.
+[2026-08-01 21:01:44] [ERROR] At line:314 char:13
++             New-Item -Path $policyPath -Force | Out-Null
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[2026-08-01 21:01:44] [INFO] Exiting with code 1.

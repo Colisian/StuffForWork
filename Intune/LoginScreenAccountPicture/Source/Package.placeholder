@@ -1,0 +1,4 @@
+This file is the required -s setup-file placeholder for IntuneWinAppUtil.exe.
+
+The PowerShell script installer in Intune performs the installation. The two
+PNG files and the versioned install/uninstall scripts remain bundled content.
