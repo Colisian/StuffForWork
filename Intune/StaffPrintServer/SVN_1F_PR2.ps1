@@ -26,7 +26,7 @@
 #>
 
 # Parameters
-$PrinterName     = "SVN_1F_PR2"
+$PrinterName     = "SVN_1F_PR1"
 $PrintServer     = "LIBRPS403v.ad.umd.edu"
 $PrinterPath     = "\\$PrintServer\$PrinterName"
 
