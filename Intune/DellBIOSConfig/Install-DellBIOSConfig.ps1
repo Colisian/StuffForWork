@@ -6,23 +6,13 @@
 .DESCRIPTION
     Intended for an Intune Win32 app running as SYSTEM in 64-bit Windows PowerShell.
     Dell Command | Configure 5.2.2.292 (or a compatible 5.x release) must already
-    be installed. This script deliberately never changes an existing setup/admin
-    password: it sets the configured password only when cctk reports that no setup
-    password exists (exit code 0). If a password already exists, cctk returns 41.
-
-    SECURITY WARNING
-    A BIOS password embedded in a PowerShell script or supplied on an Intune command
-    line is recoverable by a sufficiently privileged administrator. An .intunewin
-    package is not a secret store. Do not put the password in logs, tickets, source
-    control, or broadly accessible shares. Use a protected deployment process and
-    rotate the password separately if that risk is unacceptable.
+    be installed. This version does not create, clear, or supply a BIOS setup/admin
+    password. It is intended for new Dell devices that have no existing setup
+    password. Dell Command | Configure rejects protected setting changes when an
+    existing password is present, so those devices fail without changing the marker.
 #>
 [CmdletBinding()]
-param(
-    # Replace the placeholder before packaging, or pass -BiosPassword at deployment time.
-    # CCTK documentation requires quoted passwords containing special characters.
-    [string]$BiosPassword = 'REPLACE_WITH_YOUR_STANDARD_BIOS_PASSWORD'
-)
+param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -57,35 +47,6 @@ function Get-CctkPath {
     throw 'Dell Command | Configure cctk.exe was not found. Install Dell Command | Configure before this app runs.'
 }
 
-function ConvertTo-CctkPasswordArgument {
-    param([Parameter(Mandatory)][string]$Option, [Parameter(Mandatory)][string]$Password)
-
-    # A literal double quote cannot safely be expressed with the documented cctk quoting convention.
-    if ($Password.Contains('"')) {
-        throw 'The configured BIOS password cannot contain a double quote ("). Choose a password supported by Dell Command | Configure.'
-    }
-
-    return ('--{0}="{1}"' -f $Option, $Password)
-}
-
-function ConvertTo-CctkPasswordArgumentSafe {
-    param([Parameter(Mandatory)][string]$Option, [Parameter(Mandatory)][string]$Password)
-
-    if ($Password.IndexOf([char]34) -ge 0) {
-        throw 'The configured BIOS password cannot contain a double quote. Choose a password supported by Dell Command | Configure.'
-    }
-
-    # Build the documented quoted argument without PowerShell escape characters.
-    return ('--{0}=' + [char]34 + $Password + [char]34)
-}
-
-function Protect-CctkText {
-    param([AllowNull()][object]$Text)
-
-    # Do not write password-bearing cctk arguments or any echoed equivalent to the log.
-    return ([string]$Text -replace '(?i)(--(?:SetupPwd|ValSetupPwd)=)"?[^\s"]*"?', '$1***')
-}
-
 function Invoke-Cctk {
     param(
         [Parameter(Mandatory)][string]$Cctk,
@@ -95,12 +56,12 @@ function Invoke-Cctk {
 
     $cctkLog = Join-Path $LogRoot ('cctk-{0}-{1}-{2}.log' -f $Operation, (Get-Date -Format 'yyyyMMdd-HHmmssfff'), ([guid]::NewGuid().ToString('N').Substring(0, 6)))
     $allArguments = @($Arguments) + ("-l=$cctkLog")
-    Write-Log ("CCTK {0}: {1}" -f $Operation, ((@($allArguments | ForEach-Object { Protect-CctkText $_ }) -join ' ')))
+    Write-Log ("CCTK {0}: {1}" -f $Operation, ($allArguments -join ' '))
 
     $output = @(& $Cctk @allArguments 2>&1)
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) {
-        Write-Log ("CCTK {0} output: {1}" -f $Operation, (Protect-CctkText $line))
+        Write-Log ("CCTK {0} output: {1}" -f $Operation, $line)
     }
     Write-Log ("CCTK {0} exit code: {1}" -f $Operation, $exitCode)
 
@@ -158,13 +119,6 @@ try {
     New-Item -ItemType Directory -Path $LogRoot -Force | Out-Null
     Write-Log "Starting Dell BIOS configuration deployment version $ConfigVersion."
 
-    if ([string]::IsNullOrWhiteSpace($BiosPassword) -or $BiosPassword -eq 'REPLACE_WITH_YOUR_STANDARD_BIOS_PASSWORD') {
-        throw 'The BIOS password placeholder has not been replaced. Set the BiosPassword parameter before packaging or provide -BiosPassword at runtime.'
-    }
-    if ($BiosPassword.Length -lt 4) {
-        throw 'The BIOS password must be at least four characters. Dell Command | Configure documents a four-character minimum.'
-    }
-
     $computerSystem = Get-CimInstance -ClassName Win32_ComputerSystem
     if ($computerSystem.Manufacturer -notmatch '(?i)dell') {
         Write-Log "Device manufacturer '$($computerSystem.Manufacturer)' is not Dell. No BIOS changes were made." 'WARN'
@@ -180,16 +134,6 @@ try {
     $cctkVersion = ($versionResult.Output -join ' ').Trim()
     Write-Log "Using cctk.exe: $cctk. Version output: $cctkVersion"
 
-    # Dell exit code 41 means an old setup password is required: a password already exists.
-    # We intentionally do not overwrite or clear an existing password.
-    $setPasswordResult = Invoke-Cctk -Cctk $cctk -Operation 'Set-SetupPassword-IfMissing' -Arguments @((ConvertTo-CctkPasswordArgumentSafe -Option 'SetupPwd' -Password $BiosPassword))
-    switch ($setPasswordResult.ExitCode) {
-        0  { $passwordState = 'SetByDeployment'; Write-Log 'No setup password was present; the standard setup password was set.' }
-        41 { $passwordState = 'AlreadyExisted';  Write-Log 'A setup/admin password already exists; it was not changed.' }
-        default { throw "Unable to establish setup-password state. Dell CCTK exit code: $($setPasswordResult.ExitCode)." }
-    }
-
-    $validationPasswordArgument = ConvertTo-CctkPasswordArgumentSafe -Option 'ValSetupPwd' -Password $BiosPassword
     $desiredSettings = @(
         [pscustomobject]@{ OutputName = 'WakeOnLan';  CctkOption = 'WakeonLAN'; DesiredValue = 'LanOnly' },
         [pscustomobject]@{ OutputName = 'AcPwrRcvry'; CctkOption = 'AcPwrRcvry'; DesiredValue = 'Last' },
@@ -207,7 +151,7 @@ try {
         }
 
         Write-Log "Changing $($setting.OutputName) from '$currentValue' to '$($setting.DesiredValue)'."
-        $setResult = Invoke-Cctk -Cctk $cctk -Operation ("Set-{0}" -f $setting.OutputName) -Arguments @("--$($setting.CctkOption)=$($setting.DesiredValue)", $validationPasswordArgument)
+        $setResult = Invoke-Cctk -Cctk $cctk -Operation ("Set-{0}" -f $setting.OutputName) -Arguments @("--$($setting.CctkOption)=$($setting.DesiredValue)")
         if ($setResult.ExitCode -ne 0) {
             throw "Failed to set $($setting.OutputName). Dell CCTK exit code: $($setResult.ExitCode)."
         }
@@ -223,7 +167,7 @@ try {
         $verifiedSettings[$setting.OutputName] = $actualValue
     }
 
-    Set-RegistryMarker -Cctk $cctk -AppliedSettings $verifiedSettings -PasswordState $passwordState -CctkVersion $cctkVersion
+    Set-RegistryMarker -Cctk $cctk -AppliedSettings $verifiedSettings -PasswordState 'NotConfigured' -CctkVersion $cctkVersion
     Write-Log "Dell BIOS configuration version $ConfigVersion completed and verified successfully."
     exit 0
 }

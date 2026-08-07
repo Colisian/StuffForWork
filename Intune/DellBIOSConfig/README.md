@@ -16,11 +16,15 @@ The script reads each setting, changes only noncompliant values, then reads all 
 
 ## Important password and security behavior
 
-1. In `Install-DellBIOSConfig.ps1`, replace `REPLACE_WITH_YOUR_STANDARD_BIOS_PASSWORD` with the approved standard BIOS setup/admin password before packaging. Alternatively, pass `-BiosPassword` in the install command, but that places the secret in Intune command-line metadata.
-2. The script uses Dell's documented `--SetupPwd` behavior to determine state. An exit code of **0** means there was no setup password and the script set the standard password. Exit code **41** means a setup password already exists; it is not changed.
-3. If an existing device has a different unknown password and a setting needs to change, cctk will reject the supplied password and the installation fails safely. No marker is written.
-4. An `.intunewin` package and PowerShell script are **not secret stores**. A sufficiently privileged user can recover an embedded password. Do not store this package, the password, or logs in broadly accessible locations. Do not commit a real password to source control.
-5. The script never writes the password to its own log. The password is necessarily presented to cctk at runtime.
+This initial-deployment version does not create, clear, or supply a BIOS setup/admin password. It is suitable only for new Dell devices that do not already have a BIOS setup password.
+
+If a device already has a BIOS password, Dell Command | Configure rejects any protected setting change without the current password. The installation fails, no compliance marker is written, and the existing password is not changed.
+
+### Later enabling the BIOS password
+
+If you later restore the password-enabled version of `Install-DellBIOSConfig.ps1`, it can set the password even when these five settings were already applied by this initial-deployment version. The installer establishes the password first, then skips settings that already match their required values.
+
+Intune will not automatically rerun the app solely because the installer has changed: the current detection script will see `Version=1.0.0`, `State=Compliant`, and compliant BIOS values. To deploy the password-enabled revision, change `$ConfigVersion` in **both** `Install-DellBIOSConfig.ps1` and `Detect-DellBIOSConfig.ps1` (for example, from `1.0.0` to `1.0.1`), then repackage and reupload the Win32 app and its detection script. The old marker then fails detection and causes Intune to run the updated installer.
 
 ## Prerequisite and dependency
 
@@ -36,16 +40,15 @@ Dell's current documentation lists the supported option names and values used he
 
 ## Create the .intunewin package
 
-1. Make the password change described above.
-2. Place the three `.ps1` files in the same source folder (this folder).
-3. Use the Microsoft Win32 Content Prep Tool to create the `.intunewin` file. The setup file can be `Install-DellBIOSConfig.ps1`.
-4. Upload the resulting package as a Windows app (Win32) in Intune.
+1. Place the three `.ps1` files in the same source folder (this folder).
+2. Use the Microsoft Win32 Content Prep Tool to create the `.intunewin` file. The setup file can be `Install-DellBIOSConfig.ps1`.
+3. Upload the resulting package as a Windows app (Win32) in Intune.
 
 ## Exact Intune Win32 app settings
 
 ### Program
 
-After replacing the placeholder in the install script, use:
+Use:
 
 ```text
 Install command:
@@ -76,6 +79,29 @@ The script exits `0` and writes a detection string only when all of these are tr
 
 For detection, select **Run script as 32-bit process on 64-bit clients: No**.
 
+## Verify a test deployment
+
+After Intune reports the app installed, run the following from an elevated **64-bit** PowerShell session on the test Dell device. It queries the live BIOS values through Dell Command | Configure; each result should match the required value listed above.
+
+```powershell
+$cctk = Join-Path ${env:ProgramFiles(x86)} 'Dell\Command Configure\X86_64\cctk.exe'
+
+& $cctk --WakeonLAN
+& $cctk --AcPwrRcvry
+& $cctk --AutoOn
+& $cctk --AutoOnHr
+& $cctk --AutoOnMn
+```
+
+Expected values are `WakeOnLan=LanOnly`, `AcPwrRcvry=Last`, `AutoOn=Everyday`, `AutoOnHr=6`, and `AutoOnMn=0`. You can also confirm that the installer completed its verification and wrote the Intune marker:
+
+```powershell
+Get-ItemProperty -Path 'HKLM:\SOFTWARE\StuffForWork\DellBIOSConfig' |
+    Select-Object Version, State, PasswordState, AppliedUtc, CctkVersion, SettingsJson
+```
+
+For this password-free initial version, `State` should be `Compliant` and `PasswordState` should be `NotConfigured`. Review the newest log in `C:\ProgramData\Dell\BIOSConfig` if either check does not show the expected result.
+
 ### Dependencies and assignments
 
 - Add the Dell Command | Configure Win32 app as a dependency and ensure it installs first.
@@ -96,11 +122,11 @@ Successful deployments create this 64-bit registry marker:
 HKLM\SOFTWARE\StuffForWork\DellBIOSConfig
 ```
 
-The marker stores version, UTC apply time, cctk path/version, password state (`SetByDeployment` or `AlreadyExisted`), and the non-secret settings JSON. It never stores the BIOS password.
+The marker stores version, UTC apply time, cctk path/version, password state (`NotConfigured`), and the non-secret settings JSON.
 
 ## Uninstall / rollback behavior
 
-The default uninstall command removes **only** the deployment marker. It intentionally does not clear the BIOS password and does not reverse the BIOS values, because this package does not know the prior safe values.
+The default uninstall command removes **only** the deployment marker. It does not alter a BIOS password and does not reverse the BIOS values, because this package does not know the prior safe values.
 
 To explicitly clear the current setup password, use a separate, tightly controlled Intune app with this command (replace the placeholder):
 
