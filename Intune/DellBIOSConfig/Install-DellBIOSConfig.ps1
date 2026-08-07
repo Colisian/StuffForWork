@@ -51,11 +51,16 @@ function Invoke-Cctk {
     param(
         [Parameter(Mandatory)][string]$Cctk,
         [Parameter(Mandatory)][string]$Operation,
-        [Parameter(Mandatory)][string[]]$Arguments
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [switch]$SkipCctkLog
     )
 
-    $cctkLog = Join-Path $LogRoot ('cctk-{0}-{1}-{2}.log' -f $Operation, (Get-Date -Format 'yyyyMMdd-HHmmssfff'), ([guid]::NewGuid().ToString('N').Substring(0, 6)))
-    $allArguments = @($Arguments) + ("-l=$cctkLog")
+    $cctkLog = $null
+    $allArguments = @($Arguments)
+    if (-not $SkipCctkLog) {
+        $cctkLog = Join-Path $LogRoot ('cctk-{0}-{1}-{2}.log' -f $Operation, (Get-Date -Format 'yyyyMMdd-HHmmssfff'), ([guid]::NewGuid().ToString('N').Substring(0, 6)))
+        $allArguments += "-l=$cctkLog"
+    }
     Write-Log ("CCTK {0}: {1}" -f $Operation, ($allArguments -join ' '))
 
     $output = @(& $Cctk @allArguments 2>&1)
@@ -127,7 +132,7 @@ try {
     Write-Log "Dell hardware detected: model '$($computerSystem.Model)'."
 
     $cctk = Get-CctkPath
-    $versionResult = Invoke-Cctk -Cctk $cctk -Operation 'Version' -Arguments @('--Version')
+    $versionResult = Invoke-Cctk -Cctk $cctk -Operation 'Version' -Arguments @('--Version') -SkipCctkLog
     if ($versionResult.ExitCode -ne 0) {
         throw "CCTK could not report its version. Dell CCTK exit code: $($versionResult.ExitCode)."
     }
