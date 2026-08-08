@@ -101,7 +101,7 @@ function Set-RegistryMarker {
     param(
         [Parameter(Mandatory)][string]$Cctk,
         [Parameter(Mandatory)][hashtable]$AppliedSettings,
-        [Parameter(Mandatory)][string]$PasswordState,
+        [Parameter(Mandatory)][SecureString]$PasswordState,
         [string]$CctkVersion
     )
 
