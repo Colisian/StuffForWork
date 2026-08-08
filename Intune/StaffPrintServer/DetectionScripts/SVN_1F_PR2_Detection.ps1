@@ -11,12 +11,12 @@
     Returns exit code 0 if the printer connection exists, 1 if not found.
 
 .NOTES
-    Printer Name: SVN_1F_PR2
+    Printer Name: SVN_1F_PR1
     Print Server: LIBRPS403v.ad.umd.edu
     Key checked:  <user hive>\Printers\Connections\,,LIBRPS403v.ad.umd.edu,SVN_1F_PR2
 #>
 
-$PrinterName   = "SVN_1F_PR2"
+$PrinterName   = "SVN_1F_PR1"
 $PrintServer   = "LIBRPS403v.ad.umd.edu"
 $connectionKey = ",,$PrintServer,$PrinterName"
 
