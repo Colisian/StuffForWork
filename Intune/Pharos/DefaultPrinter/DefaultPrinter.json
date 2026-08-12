@@ -1,0 +1,9 @@
+{
+  "SchemaVersion": 1,
+  "PackageId": "DefaultPrinter-Mck2FWideFormat",
+  "DisplayName": "Default Printer - LIB-Mck2FWideFormat",
+  "Version": "1.0.0",
+  "PrinterName": "LIB-Mck2FWideFormat",
+  "OverrideExistingDefault": true,
+  "PrinterWaitSeconds": 60
+}
