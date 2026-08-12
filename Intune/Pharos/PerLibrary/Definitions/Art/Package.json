@@ -11,7 +11,7 @@
     }
   ],
   "ExpectedPrinters": [
-    "LIB-ArtBW",
-    "LIB-ArtColor"
+    "ArtBW",
+    "ArtColor"
   ]
 }

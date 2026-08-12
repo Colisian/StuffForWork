@@ -1,6 +1,6 @@
-# Default Printer — LIB-Mck2FWideFormat
+# Default Printer — Mck2FWideFormat
 
-Intune Win32 app that makes the Pharos wide-format queue **`LIB-Mck2FWideFormat`**
+Intune Win32 app that makes the Pharos wide-format queue **`Mck2FWideFormat`**
 the default printer for **every user** of a machine — existing profiles, the
 logged-in user, and any profile created later.
 
@@ -11,9 +11,11 @@ logged-in user, and any profile created later.
 > unless you specifically need a dependency on the Pharos package or a supported
 > uninstall.
 
-> The queue name is `LIB-Mck2FWideFormat`, not `Mck2FloorWideFormat`. That is the
-> `<printername>` inside `LIB-Mck2FloorWideFormat_for_x64.exe`, and it matches
-> `ExpectedPrinters` in `PerLibrary/Definitions/McKeldin/Package.json`.
+> **The queue is `Mck2FWideFormat`** — confirmed on `LIBRWKMCKP2WF1`, see
+> [`PlatformScript/PharosDiscovery/`](PlatformScript/PharosDiscovery/). Two traps:
+> the installer filename says `Mck2FloorWideFormat` but the queue drops "Floor",
+> and there is **no `LIB-` prefix** — Pharos strips it when creating the spool
+> queue, even though it appears in the EXE's own manifest.
 
 ## Why this needs three moving parts
 
@@ -44,7 +46,7 @@ does three things:
 
 ```json
 {
-  "PrinterName": "LIB-Mck2FWideFormat",
+  "PrinterName": "Mck2FWideFormat",
   "OverrideExistingDefault": true,
   "PrinterWaitSeconds": 60
 }
@@ -106,9 +108,9 @@ registry view, so this is belt-and-braces.)
 
 **Per user** (under `Software\Microsoft\Windows NT\CurrentVersion\`):
 
-- `Windows\Device` = `LIB-Mck2FWideFormat,winspool,<port>`
+- `Windows\Device` = `Mck2FWideFormat,winspool,<port>`
 - `Windows\LegacyDefaultPrinterMode` = `1`
-- `Devices\LIB-Mck2FWideFormat` and `PrinterPorts\LIB-Mck2FWideFormat`
+- `Devices\Mck2FWideFormat` and `PrinterPorts\Mck2FWideFormat`
 - `Software\UMD\Pharos\DefaultPrinter` — backup of the previous default
 
 The backup is written **once** and never overwritten, so redeploying cannot lose

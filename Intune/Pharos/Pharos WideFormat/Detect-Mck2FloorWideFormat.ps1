@@ -16,10 +16,15 @@ param()
 $ErrorActionPreference = 'SilentlyContinue'
 
 # ---- Config ----
-# Print queue name is taken from the installer manifest inside
-# LIB-Mck2FloorWideFormat_for_x64.exe (<printername> / <spoolqueuename>).
-# Note the queue is "Mck2FWideFormat", NOT "Mck2FloorWideFormat".
-$PrinterName  = 'LIB-Mck2FWideFormat'
+# Queue name confirmed on real hardware (LIBRWKMCKP2WF1) - see
+# DefaultPrinter\PlatformScript\PharosDiscovery\DiscoveryMCKWF.txt.
+#
+# Two traps here, both previously got this wrong:
+#   - the queue is "Mck2FWideFormat", NOT "Mck2FloorWideFormat" (the EXE
+#     filename says Floor, the queue does not);
+#   - there is NO "LIB-" prefix. That prefix is on the installer filename and
+#     inside its manifest, but Pharos strips it when creating the spool queue.
+$PrinterName  = 'Mck2FWideFormat'
 $PopupExe     = 'C:\Program Files (x86)\Pharos\Bin\Popup.exe'
 $MarkerFile   = Join-Path $env:ProgramData 'UMD\Pharos\Mck2FloorWideFormat_x64.installed'
 

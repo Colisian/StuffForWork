@@ -11,7 +11,7 @@ That string is the **spooler queue name** (Win32_Printer.Name), which is not
 always what Settings > Printers & scanners displays:
 
   - Locally installed queue (what the Pharos EXEs create)
-        Name = 'LIB-MckBW'                    Settings shows: LIB-MckBW
+        Name = 'McKeldinBW'                   Settings shows: McKeldinBW
   - Connection to a shared print server queue
         Name = '\\LIBRPS403v\MCK_1F_PR4'      Settings shows: MCK_1F_PR4
   - Redirected over RDP / Windows 365

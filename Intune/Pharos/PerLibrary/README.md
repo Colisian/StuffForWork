@@ -26,12 +26,25 @@ implementation improves it by:
 
 | Package ID | Intune app name | Vendor payload | Verified printer queues |
 |---|---|---|---|
-| `Architecture` | Pharos Printers - Architecture Library | `LIB-Arch_for_x64.exe` | `LIB-ArchBW`, `LIB-ArchColor` |
-| `Art` | Pharos Printers - Art Library | `LIB-Art_for_x64.exe` | `LIB-ArtBW`, `LIB-ArtColor` |
-| `EPSL` | Pharos Printers - STEM Library (EPSL) | `LIB-EPSL_for_x64.exe` | `LIB-EPSLBW`, `LIB-EPSLColor` |
-| `MarylandRoom` | Pharos Printers - Maryland Room | `LIB-MarylandRoom_for_x64.exe` | `LIB-MarylandRoomBW`, `LIB-MarylandRoomColor` |
-| `McKeldin` | Pharos Printers - McKeldin Library | `LIB-Mckeldin_for_x64.exe` and wide-format payload | `LIB-MckBW`, `LIB-MckColor`, `LIB-Mck2FWideFormat` |
-| `PAL` | Pharos Printers - Performing Arts Library | `LIB-PAL_for_x64.exe` | `LIB-PALBW`, `LIB-PALColor` |
+| `Architecture` | Pharos Printers - Architecture Library | `LIB-Arch_for_x64.exe` | `ArchBW`, `ArchColor` |
+| `Art` | Pharos Printers - Art Library | `LIB-Art_for_x64.exe` | `ArtBW`, `ArtColor` |
+| `EPSL` | Pharos Printers - STEM Library (EPSL) | `LIB-EPSL_for_x64.exe` | `EPSLBW`, `EPSLColor` |
+| `MarylandRoom` | Pharos Printers - Maryland Room | `LIB-MarylandRoom_for_x64.exe` | `LIB-MarylandRoomBW`, `LIB-MarylandRoomColor` ⚠️ **unverified** |
+| `McKeldin` | Pharos Printers - McKeldin Library | `LIB-Mckeldin_for_x64.exe` and wide-format payload | `McKeldinBW`, `McKeldinColor`, `Mck2FWideFormat` |
+| `PAL` | Pharos Printers - Performing Arts Library | `LIB-PAL_for_x64.exe` | `PALBW`, `PALColor` |
+
+> **Queue names carry no `LIB-` prefix.** It appears on the installer filenames
+> and inside their manifests, but Pharos strips it when creating the local spool
+> queue. These names were corrected on 2026-08-12 after on-device discovery
+> (`DefaultPrinter/PlatformScript/PharosDiscovery/`); before that every entry
+> read `LIB-*`, which made `Install-PharosLocation.ps1` throw
+> `Printer verification failed` on every install. McKeldin was doubly wrong —
+> the queues are `McKeldinBW`/`McKeldinColor`, not `MckBW`/`MckColor`.
+>
+> Maryland Room is still unverified: no discovery has been run there, so its row
+> keeps the original names and will still fail verification. Run
+> `DefaultPrinter/PlatformScript/Get-PharosPrinterInventory.ps1` on a
+> `LIBRWKMDRP*` PC and correct `Definitions/MarylandRoom/Package.json`.
 
 The old host-name script did not deploy the Architecture payload even though it
 was bundled. Architecture is included here as its own package.
@@ -140,8 +153,9 @@ Run in 64-bit Windows PowerShell as an administrator:
 # Shared Pharos client
 Test-Path 'C:\Program Files (x86)\Pharos\Bin\Popup.exe'
 
-# All Pharos queues currently present
-Get-Printer | Where-Object Name -Like 'LIB-*' |
+# All Pharos queues currently present. Match on the Pharos port, not a name
+# prefix: the queues are named ArchBW / EPSLColor / Mck2FWideFormat etc.
+Get-Printer | Where-Object PortName -Like 'Pharos*' |
     Select-Object Name, DriverName, PortName
 
 # Example detection state

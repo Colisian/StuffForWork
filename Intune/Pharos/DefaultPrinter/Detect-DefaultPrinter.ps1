@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-Intune Win32 app custom detection rule for the LIB-Mck2FWideFormat default
+Intune Win32 app custom detection rule for the Mck2FWideFormat default
 printer configuration.
 
 .DESCRIPTION

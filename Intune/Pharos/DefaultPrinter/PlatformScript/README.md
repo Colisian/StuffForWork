@@ -35,7 +35,7 @@ not always the label shown in Settings > Printers & scanners:**
 
 | Situation | `Win32_Printer.Name` | Settings shows |
 |---|---|---|
-| Locally installed queue (what the Pharos EXEs create) | `LIB-MckBW` | `LIB-MckBW` |
+| Locally installed queue (what the Pharos EXEs create) | `McKeldinBW` | `McKeldinBW` |
 | Connection to a shared print server queue | `\\LIBRPS403v\MCK_1F_PR4` | `MCK_1F_PR4` |
 | RDP / Windows 365 redirected | `McKeldin Library - Color (redirected 1)` | belongs to the **client**, not this PC |
 
@@ -98,8 +98,8 @@ order the rules appear in the table**. Reordering or inserting rules cannot
 silently send patrons to the plotter.
 
 Verified: with the table deliberately reordered so `LIBRWKMCK*` comes first,
-first-match-wins returns `LIB-MckBW` for a wide-format station while the
-implemented matcher still returns `LIB-Mck2FWideFormat`.
+first-match-wins returns `McKeldinBW` for a wide-format station while the
+implemented matcher still returns `Mck2FWideFormat`.
 
 ## Why `LegacyDefaultPrinterMode` matters
 
@@ -182,7 +182,7 @@ it can run before the Pharos queues exist. Two mitigations are built in:
 If the queue never appears the script exits **1** with an actionable message:
 
 ```text
-Print queue 'LIB-Mck2FWideFormat' did not appear within 90s.
+Print queue 'Mck2FWideFormat' did not appear within 90s.
 Is the Pharos package for McKeldin 2nd Floor Wide Format assigned to this device?
 ```
 
@@ -241,18 +241,24 @@ Get-ItemProperty 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows' |
   standard user and writes only that user's HKCU. Nothing here should attract
   CrowdStrike or Rapid7 attention.
 
-## Known bad queue names elsewhere in the repo
+## Queue names corrected elsewhere in the repo (2026-08-12)
 
-The same `LIB-` mistake exists in code that predates this work. Neither is
-touched by this deployment, but both are broken by it:
+The same `LIB-` mistake existed in code predating this work. Both were live
+faults, and both are now fixed:
 
-| File | Has | Should be | Effect |
+| File | Was | Now | Fault it caused |
 |---|---|---|---|
-| `PerLibrary/Definitions/*/Package.json` (all 6) | `LIB-MckBW`, `LIB-EPSLBW`, … | `McKeldinBW`, `EPSLBW`, … | `Install-PharosLocation.ps1` verifies `ExpectedPrinters` and **throws** `Printer verification failed` — every install reports Failed |
-| `Pharos WideFormat/Detect-Mck2FloorWideFormat.ps1` | `LIB-Mck2FWideFormat` | `Mck2FWideFormat` | Detection never matches, so Intune reinstalls that app forever |
+| `PerLibrary/Definitions/{Architecture,Art,EPSL,McKeldin,PAL}/Package.json` | `LIB-ArchBW`, `LIB-MckBW`, … | `ArchBW`, `McKeldinBW`, … | `Install-PharosLocation.ps1` verifies `ExpectedPrinters` and **threw** `Printer verification failed` — every install of those apps reported Failed |
+| `Pharos WideFormat/Detect-Mck2FloorWideFormat.ps1` | `LIB-Mck2FWideFormat` | `Mck2FWideFormat` | Detection never matched, so Intune reinstalled that app on every check-in |
 
-McKeldin needs both fixes: `LIB-MckBW` → `McKeldinBW` and
-`LIB-MckColor` → `McKeldinColor`.
+McKeldin needed two corrections, not one: the queues are `McKeldinBW` /
+`McKeldinColor`, not `MckBW` / `MckColor`.
 
-Maryland Room and Architecture names should be confirmed by discovery before
-their `Package.json` files are corrected.
+**`Definitions/MarylandRoom/Package.json` is deliberately unchanged** — no
+discovery has been run there, so it still reads `LIB-MarylandRoomBW` /
+`LIB-MarylandRoomColor` and that package will still fail verification. Run
+`Get-PharosPrinterInventory.ps1` on a `LIBRWKMDRP*` PC and correct it.
+
+`PackageSources/` is gitignored and regenerated from `Definitions/` by
+`New-PharosIntunePackages.ps1`, so it needs no edit — but rebuild the affected
+`.intunewin` packages before reassigning them.

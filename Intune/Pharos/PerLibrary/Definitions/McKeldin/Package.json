@@ -16,8 +16,8 @@
     }
   ],
   "ExpectedPrinters": [
-    "LIB-MckBW",
-    "LIB-MckColor",
-    "LIB-Mck2FWideFormat"
+    "McKeldinBW",
+    "McKeldinColor",
+    "Mck2FWideFormat"
   ]
 }
