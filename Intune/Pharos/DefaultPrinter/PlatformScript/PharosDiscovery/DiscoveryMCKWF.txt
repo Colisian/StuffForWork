@@ -1,0 +1,43 @@
+Device name : LIBRWKMCKP2WF1
+User        : cmcleod1
+
+
+QueueName(match this)                               Source                     PortName        Default DriverName                               
+---------------------                               ------                     --------        ------- ----------                               
+Adobe PDF                                           Local                      Documents\*.pdf   False Adobe PDF Converter                      
+ARCH 1st Floor Printer 2 (redirected 5)             RDP-redirected (client PC) TS001             False Microsoft Print To PDF                   
+Architecture Library - Black & White (redirected 5) RDP-redirected (client PC) TS003             False Microsoft Print To PDF                   
+Architecture Library - Color (redirected 5)         RDP-redirected (client PC) TS004             False Microsoft Print To PDF                   
+Art Library - Black & White (redirected 5)          RDP-redirected (client PC) TS005             False Microsoft Print To PDF                   
+Art Library - Color (redirected 5)                  RDP-redirected (client PC) TS006             False Microsoft Print To PDF                   
+EPSL Library - Black & White (redirected 5)         RDP-redirected (client PC) TS007             False Microsoft Print To PDF                   
+EPSL Library - Color (redirected 5)                 RDP-redirected (client PC) TS008             False Microsoft Print To PDF                   
+Hornbake 1st Floor Printer 2 (redirected 5)         RDP-redirected (client PC) TS002             False Microsoft Print To PDF                   
+Hornbake Library - Black & White (redirected 5)     RDP-redirected (client PC) TS009             False Microsoft Print To PDF                   
+Hornbake Library - Color (redirected 5)             RDP-redirected (client PC) TS010             False Microsoft Print To PDF                   
+Maryland Room - Color (redirected 5)                RDP-redirected (client PC) TS012             False Microsoft Print To PDF                   
+Mck2FWideFormat                                     Pharos Popup (local)       PharosPopupPort    True HP DesignJet Universal Print Driver HPGL2
+McKeldin Library - Black & White (redirected 5)     RDP-redirected (client PC) TS014             False Microsoft Print To PDF                   
+McKeldin Library - Color (redirected 5)             RDP-redirected (client PC) TS015             False Microsoft Print To PDF                   
+McKeldin Library - Wide Format (redirected 5)       RDP-redirected (client PC) TS013             False Microsoft Print To PDF                   
+McKeldinBW                                          Pharos Popup (local)       PharosPopupPort   False Canon iR-ADV C5030/5035 PS3              
+McKeldinColor                                       Pharos Popup (local)       PharosPopupPort   False Canon iR-ADV C5030/5035 PS3              
+Microsoft Print to PDF                              Local                      PORTPROMPT:       False Microsoft Print To PDF                   
+OneNote (Desktop)                                   Local                      nul:              False Send to Microsoft OneNote 16 Driver      
+PAL Library - Black & White (redirected 5)          RDP-redirected (client PC) TS016             False Microsoft Print To PDF                   
+
+
+
+--- Queues the Pharos Popup packages create (LIB-*) ---
+  NONE FOUND. Either the Pharos package is not installed on this PC,
+  or this fleet gets its queues by another route. Use the exact strings
+  in the QueueName column above in the script mapping.
+
+--- Current default ---
+  Win32_Printer default : Mck2FWideFormat
+  HKCU Device value     : Mck2FWideFormat,winspool,Ne00:
+  LegacyDefaultPrinterMode : 0
+
+  NOTE: Windows is managing the default printer on this PC, so the
+        default will drift to the last-used queue. The deployment
+        script sets LegacyDefaultPrinterMode = 1 to stop that.

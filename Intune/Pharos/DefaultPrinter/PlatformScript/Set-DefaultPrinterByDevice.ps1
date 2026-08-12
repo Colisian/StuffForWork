@@ -59,27 +59,39 @@ $ErrorActionPreference = 'Stop'
 # Prefixes come from the legacy PSADT deployment, Deploy-Application.ps1:210-215.
 #
 # PrinterName is a CANDIDATE LIST, tried in order; the first queue that actually
-# exists on the device wins. Two naming schemes are in use on this fleet:
+# exists on the device wins.
 #
-#   LIB-MckBW                          created by the bundled Pharos Popup EXEs
-#                                      (verified against the manifests inside
-#                                      LIB-*_for_x64.exe, where displayname is
-#                                      empty so the queue name is the only name)
-#   McKeldin Library - Black & White   the friendly names visible in
-#                                      Settings > Printers & scanners on other
-#                                      machines in the estate
+# The real queue names carry NO 'LIB-' prefix. That prefix appears only on the
+# vendor installer filenames and inside their manifests -- Pharos strips it when
+# it creates the local spool queue. Confirmed by running
+# Get-PharosPrinterInventory.ps1 on real hardware (see PharosDiscovery\):
 #
-# Listing both means the script works under either scheme without a redeploy,
-# and the log records which name it matched. Confirm the real names on a lab PC
-# with Get-PharosPrinterInventory.ps1 and prune this list once known.
+#   LIBRWKMCKP2WF1  -> Mck2FWideFormat, McKeldinBW, McKeldinColor
+#   LIBRWKSTEMP1F1  -> EPSLBW, EPSLColor
+#   Art PC          -> ArtBW, ArtColor
+#   LIBRWKPALP1F2   -> PALBW, PALColor
+#   LIBRWKARCHP1F1  -> ArchBW, ArchColor
+#
+# Note McKeldin differs beyond the prefix too: the queue is 'McKeldinBW', not
+# the 'MckBW' that PerLibrary/Definitions/McKeldin/Package.json claims.
+#
+# STEM-named devices legitimately carry the EPSL queues - the library was
+# renamed but the print queues were not. That mismatch is expected, not a typo.
+#
+# Maryland Room is the one site with no discovery output yet, so it keeps a
+# candidate list as a safety net. Run Get-PharosPrinterInventory.ps1 on a
+# Maryland Room PC and reduce that rule to the single real name.
 $script:deviceRule = @(
-    [pscustomobject]@{ Pattern = 'LIBRWKMCKP2WF*'; PrinterName = @('LIB-Mck2FWideFormat', 'McKeldin Library - Wide Format'); Location = 'McKeldin 2nd Floor Wide Format' }
-    [pscustomobject]@{ Pattern = 'LIBRWKMCK*'; PrinterName = @('LIB-MckBW', 'McKeldin Library - Black & White'); Location = 'McKeldin Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKSTEM*'; PrinterName = @('LIB-EPSLBW', 'EPSL Library - Black & White'); Location = 'STEM Library (EPSL)' }
-    [pscustomobject]@{ Pattern = 'LIBRWKART*'; PrinterName = @('LIB-ArtBW', 'Art Library - Black & White'); Location = 'Art Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKMDRP*'; PrinterName = @('LIB-MarylandRoomBW', 'Maryland Room - Black & White'); Location = 'Maryland Room' }
-    [pscustomobject]@{ Pattern = 'LIBRWKPAL*'; PrinterName = @('LIB-PALBW', 'PAL Library - Black & White'); Location = 'Performing Arts Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKARCH*'; PrinterName = @('LIB-ArchBW', 'Architecture Library - Black & White'); Location = 'Architecture Library' }
+    # --- verified against real hardware ---
+    [pscustomobject]@{ Pattern = 'LIBRWKMCKP2WF*'; PrinterName = @('Mck2FWideFormat'); Location = 'McKeldin 2nd Floor Wide Format' }
+    [pscustomobject]@{ Pattern = 'LIBRWKMCK*'; PrinterName = @('McKeldinBW'); Location = 'McKeldin Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKSTEM*'; PrinterName = @('EPSLBW'); Location = 'STEM Library (EPSL queues)' }
+    [pscustomobject]@{ Pattern = 'LIBRWKART*'; PrinterName = @('ArtBW'); Location = 'Art Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKPAL*'; PrinterName = @('PALBW'); Location = 'Performing Arts Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKARCH*'; PrinterName = @('ArchBW'); Location = 'Architecture Library' }
+
+    # --- UNVERIFIED: candidates until discovery is run at Maryland Room ---
+    [pscustomobject]@{ Pattern = 'LIBRWKMDRP*'; PrinterName = @('MarylandRoomBW', 'LIB-MarylandRoomBW'); Location = 'Maryland Room' }
 )
 
 # ProgramData keeps every location's logs together, and a per-user filename means

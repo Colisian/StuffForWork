@@ -1,0 +1,45 @@
+Device name : LIBRWKSTEMP1F1
+User        : cmcleod1
+
+
+QueueName(match this)                               Source                     PortName        Default DriverName                         
+---------------------                               ------                     --------        ------- ----------                         
+Adobe PDF                                           Local                      Documents\*.pdf    True Adobe PDF Converter                
+ARCH 1st Floor Printer 2 (redirected 7)             RDP-redirected (client PC) TS001             False Microsoft Print To PDF             
+Architecture Library - Black & White (redirected 7) RDP-redirected (client PC) TS003             False Microsoft Print To PDF             
+Architecture Library - Color (redirected 7)         RDP-redirected (client PC) TS004             False Microsoft Print To PDF             
+Art Library - Black & White (redirected 7)          RDP-redirected (client PC) TS005             False Microsoft Print To PDF             
+Art Library - Color (redirected 7)                  RDP-redirected (client PC) TS006             False Microsoft Print To PDF             
+EPSL Library - Black & White (redirected 7)         RDP-redirected (client PC) TS007             False Microsoft Print To PDF             
+EPSL Library - Color (redirected 7)                 RDP-redirected (client PC) TS008             False Microsoft Print To PDF             
+EPSLBW                                              Pharos Popup (local)       PharosPopupPort   False Canon iR-ADV C5030/5035 PS3        
+EPSLColor                                           Pharos Popup (local)       PharosPopupPort   False Canon iR-ADV C5030/5035 PS3        
+Hornbake 1st Floor Printer 2 (redirected 7)         RDP-redirected (client PC) TS002             False Microsoft Print To PDF             
+Hornbake Library - Black & White (redirected 7)     RDP-redirected (client PC) TS009             False Microsoft Print To PDF             
+Hornbake Library - Color (redirected 7)             RDP-redirected (client PC) TS010             False Microsoft Print To PDF             
+LIB-ArchMobileBW (redirected 7)                     RDP-redirected (client PC) TS018             False Microsoft Print To PDF             
+Maryland Room - Black & White (redirected 7)        RDP-redirected (client PC) TS011             False Microsoft Print To PDF             
+Maryland Room - Color (redirected 7)                RDP-redirected (client PC) TS012             False Microsoft Print To PDF             
+MCK_5F_PR1 (redirected 7)                           RDP-redirected (client PC) TS019             False Microsoft Print To PDF             
+McKeldin 6th Floor Printer 1 (redirected 7)         RDP-redirected (client PC) TS020             False Microsoft Print To PDF             
+McKeldin Library - Black & White (redirected 7)     RDP-redirected (client PC) TS014             False Microsoft Print To PDF             
+McKeldin Library - Color (redirected 7)             RDP-redirected (client PC) TS015             False Microsoft Print To PDF             
+McKeldin Library - Wide Format (redirected 7)       RDP-redirected (client PC) TS013             False Microsoft Print To PDF             
+Microsoft Print to PDF                              Local                      PORTPROMPT:       False Microsoft Print To PDF             
+OneNote (Desktop)                                   Local                      nul:              False Send to Microsoft OneNote 16 Driver
+PAL Library - Black & White (redirected 7)          RDP-redirected (client PC) TS016             False Microsoft Print To PDF             
+PAL Library - Color (redirected 7)                  RDP-redirected (client PC) TS017             False Microsoft Print To PDF             
+
+
+
+--- Queues the Pharos Popup packages create (LIB-*) ---
+  LIB-ArchMobileBW (redirected 7)
+
+--- Current default ---
+  Win32_Printer default : Adobe PDF
+  HKCU Device value     : Adobe PDF,winspool,Ne00:
+  LegacyDefaultPrinterMode : 0
+
+  NOTE: Windows is managing the default printer on this PC, so the
+        default will drift to the last-used queue. The deployment
+        script sets LegacyDefaultPrinterMode = 1 to stop that.

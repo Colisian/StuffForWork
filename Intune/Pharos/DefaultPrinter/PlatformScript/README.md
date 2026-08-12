@@ -12,15 +12,18 @@ platform script the right shape for this job.
 Each rule carries **candidate queue names**, tried in order; the first one that
 actually exists on the device wins.
 
-| Device name | Location | Default printer (candidates in order) |
-|---|---|---|
-| `LIBRWKMCKP2WF*` | McKeldin 2nd Floor Wide Format | `LIB-Mck2FWideFormat` → `McKeldin Library - Wide Format` |
-| `LIBRWKMCK*` | McKeldin Library | `LIB-MckBW` → `McKeldin Library - Black & White` |
-| `LIBRWKSTEM*` | STEM Library (EPSL) | `LIB-EPSLBW` → `EPSL Library - Black & White` |
-| `LIBRWKART*` | Art Library | `LIB-ArtBW` → `Art Library - Black & White` |
-| `LIBRWKMDRP*` | Maryland Room | `LIB-MarylandRoomBW` → `Maryland Room - Black & White` |
-| `LIBRWKPAL*` | Performing Arts Library | `LIB-PALBW` → `PAL Library - Black & White` |
-| `LIBRWKARCH*` | Architecture Library | `LIB-ArchBW` → `Architecture Library - Black & White` |
+| Device name | Location | Default printer | Verified |
+|---|---|---|---|
+| `LIBRWKMCKP2WF*` | McKeldin 2nd Floor Wide Format | `Mck2FWideFormat` | ✅ `LIBRWKMCKP2WF1` |
+| `LIBRWKMCK*` | McKeldin Library | `McKeldinBW` | ✅ `LIBRWKMCKP2WF1` |
+| `LIBRWKSTEM*` | STEM Library (**EPSL** queues) | `EPSLBW` | ✅ `LIBRWKSTEMP1F1` |
+| `LIBRWKART*` | Art Library | `ArtBW` | ✅ Art PC |
+| `LIBRWKPAL*` | Performing Arts Library | `PALBW` | ✅ `LIBRWKPALP1F2` |
+| `LIBRWKARCH*` | Architecture Library | `ArchBW` | ✅ `LIBRWKARCHP1F1` |
+| `LIBRWKMDRP*` | Maryland Room | `MarylandRoomBW` → `LIB-MarylandRoomBW` | ⚠️ **unverified** |
+
+**STEM-named devices carry EPSL queues on purpose** — the library was renamed but
+the print queues were not. `LIBRWKSTEM*` → `EPSLBW` is correct, not a typo.
 
 A device matching no rule is left completely alone and reports success — it is
 out of scope, not broken.
@@ -36,21 +39,34 @@ not always the label shown in Settings > Printers & scanners:**
 | Connection to a shared print server queue | `\\LIBRPS403v\MCK_1F_PR4` | `MCK_1F_PR4` |
 | RDP / Windows 365 redirected | `McKeldin Library - Color (redirected 1)` | belongs to the **client**, not this PC |
 
-Two naming schemes are genuinely present in the estate:
+### The `LIB-` prefix does not exist on real queues
 
-- The bundled vendor installers create `LIB-*` queues. Verified by reading the
-  manifests embedded in `LIB-*_for_x64.exe` — every one specifies
-  `<printername>LIB-...</printername>` with `<displayname>` **empty**, so the
-  queue name is the only name. This also matches `ExpectedPrinters` in
-  `PerLibrary/Definitions/*/Package.json`, which the existing install script
-  already verifies against and would fail on if wrong.
-- Friendly names like `McKeldin Library - Black & White` are visible elsewhere in
-  the estate — they appear as RDP-redirected queues, meaning some machine really
-  does have queues named that way.
+Discovery output in [`PharosDiscovery/`](PharosDiscovery/) settles this. The
+actual local queues, identified by `PortName = PharosPopupPort`:
 
-Listing both means the deployment works under either scheme with no redeploy,
-and the log records which name it matched. **Confirm the real names on an actual
-lab PC and prune the list**, rather than leaving the ambiguity in place forever.
+```text
+LIBRWKMCKP2WF1  ->  Mck2FWideFormat, McKeldinBW, McKeldinColor
+LIBRWKSTEMP1F1  ->  EPSLBW, EPSLColor
+Art PC          ->  ArtBW, ArtColor
+LIBRWKPALP1F2   ->  PALBW, PALColor
+LIBRWKARCHP1F1  ->  ArchBW, ArchColor
+```
+
+The device names also confirm a `LIBRWK<SITE>P<floor>F<n>` convention, which is
+what the prefix rules rely on.
+
+**`LIB-` appears only on the vendor installer filenames and inside their
+manifests — Pharos strips it when creating the local spool queue.** Reading
+`<printername>` out of the EXE was therefore misleading; only on-device
+discovery is authoritative.
+
+McKeldin differs beyond the prefix as well: the queue is `McKeldinBW`, not the
+`MckBW` recorded in `PerLibrary/Definitions/McKeldin/Package.json`.
+
+The friendly names (`McKeldin Library - Black & White`) turned out to be **RDP
+redirections from the technician's own client PC**, present in every capture
+regardless of which lab machine was inspected. They are not queues on the lab
+PCs at all, which is why both scripts exclude `(redirected N)`.
 
 ### Redirected queues never count
 
@@ -202,9 +218,17 @@ Get-ItemProperty 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows' |
 
 ## Caveats
 
-- **Queue names are unconfirmed on real lab hardware.** The `LIB-*` names are
-  verified from the vendor EXE manifests, but no lab PC has been inspected
-  directly. Run `Get-PharosPrinterInventory.ps1` before assigning broadly.
+- **Maryland Room is still unverified.** Run `Get-PharosPrinterInventory.ps1` on
+  one of its PCs and reduce that rule to the single real name. Until then it
+  falls back through its candidate list, and a mismatch surfaces as exit 1 with
+  the queue names logged — it cannot set the wrong printer.
+- **Black & white is an assumption.** Every machine inspected had
+  `LegacyDefaultPrinterMode = 0`, so its current default is drift, not policy —
+  two had drifted to `Adobe PDF`. That said, Art and Architecture both currently
+  sit on their Color queue, which may or may not reflect what those libraries
+  want. Worth a quick confirmation; it is one word per rule to change.
+- **Two repo files carry the wrong queue names** and predate this work — see
+  "Known bad queue names elsewhere in the repo" below.
 - **Hostname naming is the weak point.** This machine is `LIBRWK93ZMR74` — a
   `LIBRWK` device with an asset-tag suffix rather than a location prefix. If any
   lab PC has been renamed to that scheme it will match no rule and silently keep
@@ -216,3 +240,19 @@ Get-ItemProperty 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows' |
 - **Security:** no credentials, no network calls, no elevation. It runs as the
   standard user and writes only that user's HKCU. Nothing here should attract
   CrowdStrike or Rapid7 attention.
+
+## Known bad queue names elsewhere in the repo
+
+The same `LIB-` mistake exists in code that predates this work. Neither is
+touched by this deployment, but both are broken by it:
+
+| File | Has | Should be | Effect |
+|---|---|---|---|
+| `PerLibrary/Definitions/*/Package.json` (all 6) | `LIB-MckBW`, `LIB-EPSLBW`, … | `McKeldinBW`, `EPSLBW`, … | `Install-PharosLocation.ps1` verifies `ExpectedPrinters` and **throws** `Printer verification failed` — every install reports Failed |
+| `Pharos WideFormat/Detect-Mck2FloorWideFormat.ps1` | `LIB-Mck2FWideFormat` | `Mck2FWideFormat` | Detection never matches, so Intune reinstalls that app forever |
+
+McKeldin needs both fixes: `LIB-MckBW` → `McKeldinBW` and
+`LIB-MckColor` → `McKeldinColor`.
+
+Maryland Room and Architecture names should be confirmed by discovery before
+their `Package.json` files are corrected.

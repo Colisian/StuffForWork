@@ -108,15 +108,21 @@ try {
         Format-Table -AutoSize -Wrap
 
     Write-Host ''
-    Write-Host '--- Queues the Pharos Popup packages create (LIB-*) ---'
-    $pharos = @($printers | Where-Object { $_.Name -like 'LIB-*' })
+    Write-Host '--- Pharos Popup queues installed locally (these are the names to map) ---'
+    # Identified by the Pharos port, not by a name prefix: the queues carry no
+    # 'LIB-' prefix even though the vendor installers and their manifests do.
+    $pharos = @($printers | Where-Object {
+            $_.Name -notmatch '\(redirected \d+\)$' -and
+            ($_.PortName -like 'Pharos*' -or $_.PortName -like 'PS[0-9]*')
+        })
+
     if ($pharos.Count -eq 0) {
         Write-Host '  NONE FOUND. Either the Pharos package is not installed on this PC,'
         Write-Host '  or this fleet gets its queues by another route. Use the exact strings'
         Write-Host '  in the QueueName column above in the script mapping.'
     }
     else {
-        $pharos | ForEach-Object { Write-Host "  $($_.Name)" }
+        $pharos | ForEach-Object { Write-Host "  $($_.Name)   [port $($_.PortName)]" }
     }
 
     Write-Host ''

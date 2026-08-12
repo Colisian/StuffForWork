@@ -34,8 +34,11 @@ param()
 $ErrorActionPreference = 'SilentlyContinue'
 
 # ---- Config: keep in sync with DefaultPrinter.json ----
-$expectedPrinter = 'LIB-Mck2FWideFormat'
-$expectedVersion = '1.0.0'
+# The real queue has no 'LIB-' prefix. That prefix is on the vendor installer
+# filename and inside its manifest, but Pharos strips it when creating the local
+# spool queue. Confirmed on LIBRWKMCKP2WF1 (see PlatformScript\PharosDiscovery\).
+$expectedPrinter = 'Mck2FWideFormat'
+$expectedVersion = '1.0.1'
 $sentinelPath = 'SOFTWARE\UMD\Pharos\DefaultPrinter'
 $payloadPath = Join-Path -Path $env:ProgramData -ChildPath 'UMD\Pharos\Set-DefaultPrinter.User.ps1'
 $taskName = 'Set-DefaultPrinter'

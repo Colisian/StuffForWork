@@ -41,16 +41,19 @@ $ErrorActionPreference = 'SilentlyContinue'
 
 # ---- Device name to default printer map (keep in sync with the remediation) ----
 # PrinterName is a candidate list: any of these being the enforced default counts
-# as compliant. See Set-DefaultPrinterByDevice.ps1 for why two naming schemes are
-# listed.
+# as compliant. Real queue names carry no 'LIB-' prefix; see
+# Set-DefaultPrinterByDevice.ps1 for the discovery evidence.
 $deviceRule = @(
-    [pscustomobject]@{ Pattern = 'LIBRWKMCKP2WF*'; PrinterName = @('LIB-Mck2FWideFormat', 'McKeldin Library - Wide Format'); Location = 'McKeldin 2nd Floor Wide Format' }
-    [pscustomobject]@{ Pattern = 'LIBRWKMCK*'; PrinterName = @('LIB-MckBW', 'McKeldin Library - Black & White'); Location = 'McKeldin Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKSTEM*'; PrinterName = @('LIB-EPSLBW', 'EPSL Library - Black & White'); Location = 'STEM Library (EPSL)' }
-    [pscustomobject]@{ Pattern = 'LIBRWKART*'; PrinterName = @('LIB-ArtBW', 'Art Library - Black & White'); Location = 'Art Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKMDRP*'; PrinterName = @('LIB-MarylandRoomBW', 'Maryland Room - Black & White'); Location = 'Maryland Room' }
-    [pscustomobject]@{ Pattern = 'LIBRWKPAL*'; PrinterName = @('LIB-PALBW', 'PAL Library - Black & White'); Location = 'Performing Arts Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKARCH*'; PrinterName = @('LIB-ArchBW', 'Architecture Library - Black & White'); Location = 'Architecture Library' }
+    # --- verified against real hardware ---
+    [pscustomobject]@{ Pattern = 'LIBRWKMCKP2WF*'; PrinterName = @('Mck2FWideFormat'); Location = 'McKeldin 2nd Floor Wide Format' }
+    [pscustomobject]@{ Pattern = 'LIBRWKMCK*'; PrinterName = @('McKeldinBW'); Location = 'McKeldin Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKSTEM*'; PrinterName = @('EPSLBW'); Location = 'STEM Library (EPSL queues)' }
+    [pscustomobject]@{ Pattern = 'LIBRWKART*'; PrinterName = @('ArtBW'); Location = 'Art Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKPAL*'; PrinterName = @('PALBW'); Location = 'Performing Arts Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKARCH*'; PrinterName = @('ArchBW'); Location = 'Architecture Library' }
+
+    # --- UNVERIFIED: candidates until discovery is run at Maryland Room ---
+    [pscustomobject]@{ Pattern = 'LIBRWKMDRP*'; PrinterName = @('MarylandRoomBW', 'LIB-MarylandRoomBW'); Location = 'Maryland Room' }
 )
 
 try {
