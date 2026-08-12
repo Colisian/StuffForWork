@@ -57,15 +57,29 @@ $ErrorActionPreference = 'Stop'
 
 # ---- Device name to default printer map ----------------------------------
 # Prefixes come from the legacy PSADT deployment, Deploy-Application.ps1:210-215.
-# Queue names come from PerLibrary/Definitions/<Location>/Package.json.
+#
+# PrinterName is a CANDIDATE LIST, tried in order; the first queue that actually
+# exists on the device wins. Two naming schemes are in use on this fleet:
+#
+#   LIB-MckBW                          created by the bundled Pharos Popup EXEs
+#                                      (verified against the manifests inside
+#                                      LIB-*_for_x64.exe, where displayname is
+#                                      empty so the queue name is the only name)
+#   McKeldin Library - Black & White   the friendly names visible in
+#                                      Settings > Printers & scanners on other
+#                                      machines in the estate
+#
+# Listing both means the script works under either scheme without a redeploy,
+# and the log records which name it matched. Confirm the real names on a lab PC
+# with Get-PharosPrinterInventory.ps1 and prune this list once known.
 $script:deviceRule = @(
-    [pscustomobject]@{ Pattern = 'LIBRWKMCKP2WF*'; PrinterName = 'LIB-Mck2FWideFormat'; Location = 'McKeldin 2nd Floor Wide Format' }
-    [pscustomobject]@{ Pattern = 'LIBRWKMCK*'; PrinterName = 'LIB-MckBW'; Location = 'McKeldin Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKSTEM*'; PrinterName = 'LIB-EPSLBW'; Location = 'STEM Library (EPSL)' }
-    [pscustomobject]@{ Pattern = 'LIBRWKART*'; PrinterName = 'LIB-ArtBW'; Location = 'Art Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKMDRP*'; PrinterName = 'LIB-MarylandRoomBW'; Location = 'Maryland Room' }
-    [pscustomobject]@{ Pattern = 'LIBRWKPAL*'; PrinterName = 'LIB-PALBW'; Location = 'Performing Arts Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKARCH*'; PrinterName = 'LIB-ArchBW'; Location = 'Architecture Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKMCKP2WF*'; PrinterName = @('LIB-Mck2FWideFormat', 'McKeldin Library - Wide Format'); Location = 'McKeldin 2nd Floor Wide Format' }
+    [pscustomobject]@{ Pattern = 'LIBRWKMCK*'; PrinterName = @('LIB-MckBW', 'McKeldin Library - Black & White'); Location = 'McKeldin Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKSTEM*'; PrinterName = @('LIB-EPSLBW', 'EPSL Library - Black & White'); Location = 'STEM Library (EPSL)' }
+    [pscustomobject]@{ Pattern = 'LIBRWKART*'; PrinterName = @('LIB-ArtBW', 'Art Library - Black & White'); Location = 'Art Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKMDRP*'; PrinterName = @('LIB-MarylandRoomBW', 'Maryland Room - Black & White'); Location = 'Maryland Room' }
+    [pscustomobject]@{ Pattern = 'LIBRWKPAL*'; PrinterName = @('LIB-PALBW', 'PAL Library - Black & White'); Location = 'Performing Arts Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKARCH*'; PrinterName = @('LIB-ArchBW', 'Architecture Library - Black & White'); Location = 'Architecture Library' }
 )
 
 # ProgramData keeps every location's logs together, and a per-user filename means
@@ -159,13 +173,40 @@ function Get-DevicePrinterRule {
         Select-Object -First 1)
 }
 
-function Wait-PrinterQueue {
+function Get-LocalPrinter {
     <#
     .SYNOPSIS
-    Waits for a print queue to be visible to the current user.
+    Returns the print queues genuinely installed on this machine.
 
-    .PARAMETER Name
-    Print queue name.
+    .DESCRIPTION
+    Excludes RDP-redirected queues. Those belong to the remote client, carry a
+    "(redirected N)" suffix, and vanish with the session, so making one the
+    default would be meaningless.
+
+    Filtering happens client-side rather than through a WQL -Filter because the
+    friendly queue names contain spaces and ampersands, which are awkward to
+    escape safely in a WQL string literal.
+
+    .NOTES
+    Author: Oji / University of Maryland Libraries
+    Date: 2026-08-12
+    Version: 1.0.0
+    #>
+    [CmdletBinding()]
+    param()
+
+    return @(Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '\(redirected \d+\)$' })
+}
+
+function Resolve-PrinterQueue {
+    <#
+    .SYNOPSIS
+    Waits for any of the candidate queue names to appear, and returns the first
+    one present.
+
+    .PARAMETER CandidateName
+    Queue names to try, in order of preference.
 
     .PARAMETER TimeoutSeconds
     Maximum time to wait.
@@ -178,7 +219,7 @@ function Wait-PrinterQueue {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Name,
+        [string[]]$CandidateName,
 
         [Parameter()]
         [ValidateRange(0, 600)]
@@ -187,13 +228,20 @@ function Wait-PrinterQueue {
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
-        $printer = Get-CimInstance -ClassName Win32_Printer -Filter "Name='$Name'" -ErrorAction SilentlyContinue
-        if ($printer) {
-            return $printer
+        $installed = Get-LocalPrinter
+        foreach ($candidate in $CandidateName) {
+            $printer = $installed | Where-Object { $_.Name -eq $candidate } | Select-Object -First 1
+            if ($printer) {
+                return $printer
+            }
+        }
+
+        if ((Get-Date) -ge $deadline) {
+            break
         }
 
         Start-Sleep -Seconds 5
-    } while ((Get-Date) -lt $deadline)
+    } while ($true)
 
     return $null
 }
@@ -253,8 +301,8 @@ function Test-DefaultPrinterState {
     .SYNOPSIS
     Tests whether the named queue is already the enforced default.
 
-    .PARAMETER PrinterName
-    Print queue name.
+    .PARAMETER CandidateName
+    Acceptable queue names for this device.
 
     .NOTES
     Author: Oji / University of Maryland Libraries
@@ -264,11 +312,11 @@ function Test-DefaultPrinterState {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$PrinterName
+        [string[]]$CandidateName
     )
 
-    $printer = Get-CimInstance -ClassName Win32_Printer -Filter "Name='$PrinterName'" -ErrorAction SilentlyContinue
-    if (-not ($printer -and $printer.Default)) {
+    $default = Get-LocalPrinter | Where-Object { $_.Default } | Select-Object -First 1
+    if (-not ($default -and $default.Name -in $CandidateName)) {
         return $false
     }
 
@@ -300,26 +348,26 @@ function Set-DeviceDefaultPrinter {
         return 0
     }
 
-    Write-DefaultPrinterLog -Message "Matched '$($rule.Pattern)' -> $($rule.Location); target queue '$($rule.PrinterName)'."
+    $candidateList = @($rule.PrinterName) -join "', '"
+    Write-DefaultPrinterLog -Message "Matched '$($rule.Pattern)' -> $($rule.Location); candidate queues '$candidateList'."
 
-    if (Test-DefaultPrinterState -PrinterName $rule.PrinterName) {
-        Write-DefaultPrinterLog -Message "'$($rule.PrinterName)' is already the enforced default; nothing to do."
+    if (Test-DefaultPrinterState -CandidateName $rule.PrinterName) {
+        Write-DefaultPrinterLog -Message 'Default printer is already correct and enforced; nothing to do.'
         return 0
     }
 
-    $printer = Wait-PrinterQueue -Name $rule.PrinterName -TimeoutSeconds $PrinterWaitSeconds
+    $printer = Resolve-PrinterQueue -CandidateName $rule.PrinterName -TimeoutSeconds $PrinterWaitSeconds
     if (-not $printer) {
-        Write-DefaultPrinterLog -Message "Print queue '$($rule.PrinterName)' did not appear within ${PrinterWaitSeconds}s. Is the Pharos package for $($rule.Location) assigned to this device?" -Level ERROR
+        Write-DefaultPrinterLog -Message "None of the candidate queues ('$candidateList') appeared within ${PrinterWaitSeconds}s. Is the Pharos package for $($rule.Location) assigned to this device, and do the names in the rule table match the real queue names? Run Get-PharosPrinterInventory.ps1 on this PC to list them." -Level ERROR
         return 1
     }
 
-    if ($PSCmdlet.ShouldProcess($rule.PrinterName, 'Set as default printer')) {
-        $currentDefault = Get-CimInstance -ClassName Win32_Printer -Filter 'Default=True' -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+    if ($PSCmdlet.ShouldProcess($printer.Name, 'Set as default printer')) {
+        $currentDefault = Get-LocalPrinter | Where-Object { $_.Default } | Select-Object -First 1
 
         $result = Invoke-CimMethod -InputObject $printer -MethodName 'SetDefaultPrinter' -ErrorAction SilentlyContinue
         if ($result -and $result.ReturnValue -eq 0) {
-            Write-DefaultPrinterLog -Message "Default changed from '$(if ($currentDefault) { $currentDefault.Name } else { 'none' })' to '$($rule.PrinterName)'."
+            Write-DefaultPrinterLog -Message "Default changed from '$(if ($currentDefault) { $currentDefault.Name } else { 'none' })' to '$($printer.Name)'."
         }
         else {
             $returnValue = if ($result) { $result.ReturnValue } else { 'no result' }
@@ -329,9 +377,9 @@ function Set-DeviceDefaultPrinter {
 
     # Always written: SetDefaultPrinter does not clear LegacyDefaultPrinterMode,
     # so without this Windows can take the default back later in the session.
-    Set-LegacyDefaultPrinterValue -PrinterName $rule.PrinterName -PortName $printer.PortName -WhatIf:$WhatIfPreference
+    Set-LegacyDefaultPrinterValue -PrinterName $printer.Name -PortName $printer.PortName -WhatIf:$WhatIfPreference
 
-    Write-DefaultPrinterLog -Message "Default printer enforced: '$($rule.PrinterName)' on port '$($printer.PortName)'."
+    Write-DefaultPrinterLog -Message "Default printer enforced: '$($printer.Name)' on port '$($printer.PortName)'."
     return 0
 }
 

@@ -9,18 +9,69 @@ platform script the right shape for this job.
 
 ## Mapping
 
-| Device name | Location | Default printer |
+Each rule carries **candidate queue names**, tried in order; the first one that
+actually exists on the device wins.
+
+| Device name | Location | Default printer (candidates in order) |
 |---|---|---|
-| `LIBRWKMCKP2WF*` | McKeldin 2nd Floor Wide Format | `LIB-Mck2FWideFormat` |
-| `LIBRWKMCK*` | McKeldin Library | `LIB-MckBW` |
-| `LIBRWKSTEM*` | STEM Library (EPSL) | `LIB-EPSLBW` |
-| `LIBRWKART*` | Art Library | `LIB-ArtBW` |
-| `LIBRWKMDRP*` | Maryland Room | `LIB-MarylandRoomBW` |
-| `LIBRWKPAL*` | Performing Arts Library | `LIB-PALBW` |
-| `LIBRWKARCH*` | Architecture Library | `LIB-ArchBW` |
+| `LIBRWKMCKP2WF*` | McKeldin 2nd Floor Wide Format | `LIB-Mck2FWideFormat` → `McKeldin Library - Wide Format` |
+| `LIBRWKMCK*` | McKeldin Library | `LIB-MckBW` → `McKeldin Library - Black & White` |
+| `LIBRWKSTEM*` | STEM Library (EPSL) | `LIB-EPSLBW` → `EPSL Library - Black & White` |
+| `LIBRWKART*` | Art Library | `LIB-ArtBW` → `Art Library - Black & White` |
+| `LIBRWKMDRP*` | Maryland Room | `LIB-MarylandRoomBW` → `Maryland Room - Black & White` |
+| `LIBRWKPAL*` | Performing Arts Library | `LIB-PALBW` → `PAL Library - Black & White` |
+| `LIBRWKARCH*` | Architecture Library | `LIB-ArchBW` → `Architecture Library - Black & White` |
 
 A device matching no rule is left completely alone and reports success — it is
 out of scope, not broken.
+
+### Why two names per location
+
+**The script must match the spooler queue name (`Win32_Printer.Name`), which is
+not always the label shown in Settings > Printers & scanners:**
+
+| Situation | `Win32_Printer.Name` | Settings shows |
+|---|---|---|
+| Locally installed queue (what the Pharos EXEs create) | `LIB-MckBW` | `LIB-MckBW` |
+| Connection to a shared print server queue | `\\LIBRPS403v\MCK_1F_PR4` | `MCK_1F_PR4` |
+| RDP / Windows 365 redirected | `McKeldin Library - Color (redirected 1)` | belongs to the **client**, not this PC |
+
+Two naming schemes are genuinely present in the estate:
+
+- The bundled vendor installers create `LIB-*` queues. Verified by reading the
+  manifests embedded in `LIB-*_for_x64.exe` — every one specifies
+  `<printername>LIB-...</printername>` with `<displayname>` **empty**, so the
+  queue name is the only name. This also matches `ExpectedPrinters` in
+  `PerLibrary/Definitions/*/Package.json`, which the existing install script
+  already verifies against and would fail on if wrong.
+- Friendly names like `McKeldin Library - Black & White` are visible elsewhere in
+  the estate — they appear as RDP-redirected queues, meaning some machine really
+  does have queues named that way.
+
+Listing both means the deployment works under either scheme with no redeploy,
+and the log records which name it matched. **Confirm the real names on an actual
+lab PC and prune the list**, rather than leaving the ambiguity in place forever.
+
+### Redirected queues never count
+
+A queue ending in `(redirected N)` belongs to the remote client and disappears
+with the session, so making it the default would be meaningless. Both scripts
+exclude them. Verified: on a machine where `McKeldin Library - Black & White`
+exists *only* as a redirected queue, detection correctly reports non-compliant.
+
+## Confirm the real queue names first
+
+Run on a representative lab PC of each location, as the patron-facing user:
+
+```powershell
+.\Get-PharosPrinterInventory.ps1
+```
+
+It lists every queue with the exact string to match, classifies each as
+`Pharos Popup (local)` / `Print server connection` / `RDP-redirected` / `Local`,
+and reports the current default and `LegacyDefaultPrinterMode`. Read-only.
+
+Then trim each rule to the single name that machine actually reports.
 
 ### Most-specific-wins, not first-match-wins
 
@@ -151,6 +202,9 @@ Get-ItemProperty 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows' |
 
 ## Caveats
 
+- **Queue names are unconfirmed on real lab hardware.** The `LIB-*` names are
+  verified from the vendor EXE manifests, but no lab PC has been inspected
+  directly. Run `Get-PharosPrinterInventory.ps1` before assigning broadly.
 - **Hostname naming is the weak point.** This machine is `LIBRWK93ZMR74` — a
   `LIBRWK` device with an asset-tag suffix rather than a location prefix. If any
   lab PC has been renamed to that scheme it will match no rule and silently keep

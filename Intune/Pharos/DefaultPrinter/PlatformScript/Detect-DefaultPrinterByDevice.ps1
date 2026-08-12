@@ -40,14 +40,17 @@ param()
 $ErrorActionPreference = 'SilentlyContinue'
 
 # ---- Device name to default printer map (keep in sync with the remediation) ----
+# PrinterName is a candidate list: any of these being the enforced default counts
+# as compliant. See Set-DefaultPrinterByDevice.ps1 for why two naming schemes are
+# listed.
 $deviceRule = @(
-    [pscustomobject]@{ Pattern = 'LIBRWKMCKP2WF*'; PrinterName = 'LIB-Mck2FWideFormat'; Location = 'McKeldin 2nd Floor Wide Format' }
-    [pscustomobject]@{ Pattern = 'LIBRWKMCK*'; PrinterName = 'LIB-MckBW'; Location = 'McKeldin Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKSTEM*'; PrinterName = 'LIB-EPSLBW'; Location = 'STEM Library (EPSL)' }
-    [pscustomobject]@{ Pattern = 'LIBRWKART*'; PrinterName = 'LIB-ArtBW'; Location = 'Art Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKMDRP*'; PrinterName = 'LIB-MarylandRoomBW'; Location = 'Maryland Room' }
-    [pscustomobject]@{ Pattern = 'LIBRWKPAL*'; PrinterName = 'LIB-PALBW'; Location = 'Performing Arts Library' }
-    [pscustomobject]@{ Pattern = 'LIBRWKARCH*'; PrinterName = 'LIB-ArchBW'; Location = 'Architecture Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKMCKP2WF*'; PrinterName = @('LIB-Mck2FWideFormat', 'McKeldin Library - Wide Format'); Location = 'McKeldin 2nd Floor Wide Format' }
+    [pscustomobject]@{ Pattern = 'LIBRWKMCK*'; PrinterName = @('LIB-MckBW', 'McKeldin Library - Black & White'); Location = 'McKeldin Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKSTEM*'; PrinterName = @('LIB-EPSLBW', 'EPSL Library - Black & White'); Location = 'STEM Library (EPSL)' }
+    [pscustomobject]@{ Pattern = 'LIBRWKART*'; PrinterName = @('LIB-ArtBW', 'Art Library - Black & White'); Location = 'Art Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKMDRP*'; PrinterName = @('LIB-MarylandRoomBW', 'Maryland Room - Black & White'); Location = 'Maryland Room' }
+    [pscustomobject]@{ Pattern = 'LIBRWKPAL*'; PrinterName = @('LIB-PALBW', 'PAL Library - Black & White'); Location = 'Performing Arts Library' }
+    [pscustomobject]@{ Pattern = 'LIBRWKARCH*'; PrinterName = @('LIB-ArchBW', 'Architecture Library - Black & White'); Location = 'Architecture Library' }
 )
 
 try {
@@ -62,27 +65,32 @@ try {
     $rule = $match | Sort-Object -Property @{ Expression = { $_.Pattern.TrimEnd('*').Length } } -Descending |
         Select-Object -First 1
 
-    $printer = Get-CimInstance -ClassName Win32_Printer -Filter "Name='$($rule.PrinterName)'" -ErrorAction SilentlyContinue
+    # RDP-redirected queues belong to the remote client and disappear with the
+    # session, so they can never satisfy this check.
+    $installed = @(Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '\(redirected \d+\)$' })
+
+    $candidateList = @($rule.PrinterName) -join "', '"
+    $printer = $installed | Where-Object { $_.Name -in $rule.PrinterName } | Select-Object -First 1
     if (-not $printer) {
-        Write-Output "Queue '$($rule.PrinterName)' is not installed."
+        Write-Output "None of the candidate queues ('$candidateList') are installed."
         exit 1
     }
 
-    if (-not $printer.Default) {
-        $currentDefault = Get-CimInstance -ClassName Win32_Printer -Filter 'Default=True' -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        Write-Output "Default is '$(if ($currentDefault) { $currentDefault.Name } else { 'none' })', expected '$($rule.PrinterName)'."
+    $currentDefault = $installed | Where-Object { $_.Default } | Select-Object -First 1
+    if (-not ($currentDefault -and $currentDefault.Name -in $rule.PrinterName)) {
+        Write-Output "Default is '$(if ($currentDefault) { $currentDefault.Name } else { 'none' })', expected one of '$candidateList'."
         exit 1
     }
 
     $legacyMode = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows' `
             -Name 'LegacyDefaultPrinterMode' -ErrorAction SilentlyContinue).LegacyDefaultPrinterMode
     if ($legacyMode -ne 1) {
-        Write-Output "'$($rule.PrinterName)' is default but Windows still manages the default printer."
+        Write-Output "'$($currentDefault.Name)' is default but Windows still manages the default printer."
         exit 1
     }
 
-    Write-Output "Compliant: '$($rule.PrinterName)' ($($rule.Location))."
+    Write-Output "Compliant: '$($currentDefault.Name)' ($($rule.Location))."
     exit 0
 }
 catch {
