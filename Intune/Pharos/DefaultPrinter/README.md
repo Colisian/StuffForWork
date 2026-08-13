@@ -1,21 +1,22 @@
-# Default Printer — Mck2FWideFormat
+# Default Printer by Device Name — Win32 app
 
-Intune Win32 app that makes the Pharos wide-format queue **`Mck2FWideFormat`**
-the default printer for **every user** of a machine — existing profiles, the
-logged-in user, and any profile created later.
+Intune Win32 app that sets the default printer for **every user** of a machine —
+existing profiles, the logged-in user, and any profile created later — choosing
+the queue from the **computer name**.
 
-> **See also: [`PlatformScript/`](PlatformScript/README.md)** — a simpler,
-> device-name-driven version that sets the right default per library location.
-> A platform script running in user context gets per-user execution natively, so
-> it needs none of the scheduled task and hive-loading machinery below. Prefer it
-> unless you specifically need a dependency on the Pharos package or a supported
-> uninstall.
+> **Alternative: [`PlatformScript/`](PlatformScript/README.md)** — the same
+> mapping delivered as an Intune platform script. It gets per-user execution
+> natively and needs none of the scheduled task or hive-loading machinery below,
+> but it runs **once per user** with no dependency ordering and no uninstall.
+> Use this Win32 app when you want a dependency on the Pharos package, a
+> supported uninstall, or per-device detection reporting.
 
-> **The queue is `Mck2FWideFormat`** — confirmed on `LIBRWKMCKP2WF1`, see
-> [`PlatformScript/PharosDiscovery/`](PlatformScript/PharosDiscovery/). Two traps:
-> the installer filename says `Mck2FloorWideFormat` but the queue drops "Floor",
-> and there is **no `LIB-` prefix** — Pharos strips it when creating the spool
-> queue, even though it appears in the EXE's own manifest.
+> **Queue names carry no `LIB-` prefix.** Pharos strips it when creating the
+> local spool queue, even though it appears in the vendor EXE filename and its
+> manifest. The wide-format queue also drops "Floor": the installer is
+> `LIB-Mck2FloorWideFormat_for_x64.exe`, the queue is `Mck2FWideFormat`. All
+> names confirmed on real hardware — see
+> [`PlatformScript/PharosDiscovery/`](PlatformScript/PharosDiscovery/).
 
 ## Why this needs three moving parts
 
@@ -37,55 +38,147 @@ does three things:
 | `Uninstall-DefaultPrinter.ps1` | Uninstall script (SYSTEM) |
 | `Detect-DefaultPrinter.ps1` | Custom detection script |
 | `Set-DefaultPrinter.User.ps1` | Payload staged to ProgramData, run per user at logon |
-| `DefaultPrinter.json` | Bundled config — the only file to edit for a different queue |
+| `DefaultPrinter.json` | Bundled config — the device-name rule table, the only file to edit |
 | `install.cmd` / `uninstall.cmd` | Wrappers that force the 64-bit PowerShell host |
 
 ## Configuration
 
-`DefaultPrinter.json`:
+All mapping lives in `DefaultPrinter.json`. Verified against real hardware:
 
-```json
-{
-  "PrinterName": "Mck2FWideFormat",
-  "OverrideExistingDefault": true,
-  "PrinterWaitSeconds": 60
-}
-```
+| Device name | Location | Default printer |
+|---|---|---|
+| `LIBRWKMCKP2WF*` | McKeldin 2nd Floor Wide Format | `Mck2FWideFormat` |
+| `LIBRWKMCK*` | McKeldin Library | `McKeldinBW` |
+| `LIBRWKSTEM*` | STEM Library (**EPSL** queues) | `EPSLBW` |
+| `LIBRWKART*` | Art Library | `ArtBW` |
+| `LIBRWKPAL*` | Performing Arts Library | `PALBW` |
+| `LIBRWKARCH*` | Architecture Library | `ArchBW` |
+| `LIBRWKMDRP*` | Maryland Room | `MarylandRoomBW` → `LIB-MarylandRoomBW` ⚠️ unverified |
 
-- **`OverrideExistingDefault: true`** replaces a default the user picked themselves.
-  Right for lab/public machines. Set to `false` for staff machines to only fill in
-  a default where none exists.
-- **`PrinterWaitSeconds`** — how long the logon task waits for the queue to appear
-  before giving up, for machines still installing the Pharos package.
+`PrinterName` is a **candidate list**, tried in order; the first queue that
+actually exists wins. Maryland Room keeps two candidates because no discovery has
+been run there.
 
-Changing the printer means editing **two** files: `DefaultPrinter.json` and the
-hardcoded `$expectedPrinter` / `$expectedVersion` in `Detect-DefaultPrinter.ps1`.
-Intune runs detection standalone with no access to the bundled JSON.
+**Rule matching is most-specific-wins, not first-match-wins.** `LIBRWKMCKP2WF01`
+matches both `LIBRWKMCKP2WF*` and `LIBRWKMCK*`; the longer literal prefix takes
+it, so reordering the array cannot silently send patrons to the plotter.
+
+**STEM-named devices carry EPSL queues on purpose** — the library was renamed,
+the print queues were not.
+
+Other settings:
+
+- **`OverrideExistingDefault: true`** replaces a default the user picked
+  themselves. Right for lab/public machines. Set to `false` for staff machines to
+  only fill in a default where none exists.
+- **`PrinterWaitSeconds`** — how long the logon task waits for the queue to
+  appear, for machines still installing the Pharos package.
+
+**Changing the mapping** means editing `DefaultPrinter.json` **and** bumping
+`Version` there plus `$expectedVersion` in `Detect-DefaultPrinter.ps1`. Detection
+runs standalone with no access to the bundled JSON, and the version bump is what
+makes Intune re-run the install on already-configured devices.
 
 ## Packaging
 
-```powershell
-IntuneWinAppUtil.exe -c ".\Intune\Pharos\DefaultPrinter" -s ".\DefaultPrinter.json" -o ".\Output"
+### What goes in the `.intunewin`
+
+Package **this folder only** — five files. Do **not** include `PlatformScript\`
+(that is the alternative deployment, plus the discovery captures):
+
+```text
+DefaultPrinter\
+  install.cmd                    <- install command
+  uninstall.cmd                  <- uninstall command
+  Install-DefaultPrinter.ps1
+  Uninstall-DefaultPrinter.ps1
+  Set-DefaultPrinter.User.ps1    <- staged to ProgramData, run per user at logon
+  DefaultPrinter.json            <- the device-name rule table
 ```
 
-`-s` is a required placeholder for script-driven installs; any bundled file works.
+`Detect-DefaultPrinter.ps1` is **not** packaged — it is uploaded separately as
+the custom detection script. Including it does no harm, but it is never used
+from inside the package.
+
+### Build
+
+```powershell
+$src = "C:\...\StuffForWork\Intune\Pharos\DefaultPrinter"
+$stage = "$env:TEMP\DefaultPrinterPkg"
+
+# Stage without PlatformScript\ so the discovery captures are not shipped
+New-Item -ItemType Directory -Force -Path $stage | Out-Null
+Copy-Item "$src\*" -Destination $stage -Force -Exclude 'PlatformScript','README.md'
+
+IntuneWinAppUtil.exe -c $stage -s "$stage\install.cmd" -o ".\Output"
+```
+
+`-s` is a required placeholder for script-driven installs; pointing it at
+`install.cmd` keeps the setup file and the install command consistent.
 
 ## Intune app settings
 
+**Program**
+
+```text
+Install command:
+install.cmd
+
+Uninstall command:
+uninstall.cmd
+
+Install behavior:          System
+Device restart behavior:   No specific action
+```
+
+Both `.cmd` wrappers resolve `%SystemRoot%\Sysnative\...\powershell.exe` when it
+exists, so the scripts always run in the 64-bit host regardless of how the Intune
+Management Extension launches them. That matters because `HKLM\SOFTWARE` is
+WOW64-redirected and the detection sentinel would otherwise land in
+`Wow6432Node`.
+
+If you prefer explicit commands over the wrappers, use:
+
+```text
+%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-DefaultPrinter.ps1
+%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-DefaultPrinter.ps1
+```
+
+**Return codes** — keep the defaults: `0` Success, `1` Failed, `3010` Soft reboot.
+
+**Requirements**
+
+- Operating system architecture: 64-bit
+- Minimum OS: the oldest Windows 10/11 release in the public-PC fleet
+
+**Detection**
+
+Choose **Use a custom detection script** and upload `Detect-DefaultPrinter.ps1`.
+
 | Setting | Value |
 |---|---|
-| Install command | `install.cmd` |
-| Uninstall command | `uninstall.cmd` |
-| Install behavior | **System** |
-| Device restart behavior | No specific action |
-| Detection rule | Use a custom detection script → `Detect-DefaultPrinter.ps1` |
-| Run script as 32-bit process | **No** |
+| Run script as 32-bit process on 64-bit clients | **No** |
 | Enforce script signature check | **No** |
 
-**Dependency (required):** add the Pharos McKeldin package as a *dependency* with
-"automatically install" enabled. The install **fails with exit 1 if the queue is
-not present** — it needs the real port name to write the registry values, and
-guessing one would produce a broken default printer.
+**Dependencies (required):** add the Pharos package for each location you assign
+this to, with "automatically install" enabled. On an in-scope device the install
+**fails with exit 1 if none of that location's candidate queues exist** — it
+needs the real port name to write the registry values, and guessing one would
+produce a broken default printer.
+
+**Assignments:** assign as Required to the same device groups that receive the
+Pharos packages. Devices whose name matches no rule are handled gracefully — see
+below — so a slightly broad assignment is safe.
+
+### Devices outside the rule table
+
+A device matching no `Pattern` is **not** an error. The install stages the
+payload, registers the logon task, writes a sentinel of `(out of scope)`, and
+exits 0, so Intune reports Installed rather than retrying forever. No default
+printer is touched on that machine.
+
+The payload and task are still staged deliberately: a machine later renamed into
+scope starts working at the next logon without redeploying the app.
 
 ### Method B — pasted PowerShell installer
 
@@ -108,9 +201,9 @@ registry view, so this is belt-and-braces.)
 
 **Per user** (under `Software\Microsoft\Windows NT\CurrentVersion\`):
 
-- `Windows\Device` = `Mck2FWideFormat,winspool,<port>`
+- `Windows\Device` = `<resolved queue>,winspool,<port>`
 - `Windows\LegacyDefaultPrinterMode` = `1`
-- `Devices\Mck2FWideFormat` and `PrinterPorts\Mck2FWideFormat`
+- `Devices\<resolved queue>` and `PrinterPorts\<resolved queue>`
 - `Software\UMD\Pharos\DefaultPrinter` — backup of the previous default
 
 The backup is written **once** and never overwritten, so redeploying cannot lose

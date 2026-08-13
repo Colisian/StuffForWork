@@ -136,8 +136,9 @@ function Write-DefaultPrinterLog {
                 New-Item -Path $logDirectory -ItemType Directory -Force | Out-Null
             }
 
-            # This runs at every sign-in, so cap growth rather than letting the
-            # file accumulate indefinitely on a shared lab PC.
+            # Cap growth rather than letting the file accumulate indefinitely on
+            # a shared lab PC, especially when deployed as a scheduled
+            # Remediation rather than a run-once platform script.
             if ((Test-Path -LiteralPath $candidate) -and (Get-Item -LiteralPath $candidate).Length -gt 256KB) {
                 $tail = Get-Content -LiteralPath $candidate -Tail 500
                 Set-Content -LiteralPath $candidate -Value $tail -Encoding UTF8

@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
-Intune Win32 app custom detection rule for the Mck2FWideFormat default
-printer configuration.
+Intune Win32 app custom detection rule for the device-mapped default printer
+configuration.
 
 .DESCRIPTION
 This app changes state (registry values and a scheduled task) rather than
@@ -33,12 +33,13 @@ param()
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-# ---- Config: keep in sync with DefaultPrinter.json ----
-# The real queue has no 'LIB-' prefix. That prefix is on the vendor installer
-# filename and inside its manifest, but Pharos strips it when creating the local
-# spool queue. Confirmed on LIBRWKMCKP2WF1 (see PlatformScript\PharosDiscovery\).
-$expectedPrinter = 'Mck2FWideFormat'
-$expectedVersion = '1.0.1'
+# ---- Config: keep $expectedVersion in sync with DefaultPrinter.json ----
+# Deliberately does NOT check which printer was configured. The install script
+# already resolved the device's rule and would have failed if the queue was
+# missing, so re-deriving the mapping here would mean maintaining the rule table
+# in two places for no gain. Bumping Version in DefaultPrinter.json (and here)
+# is what forces a re-run after a mapping change.
+$expectedVersion = '2.0.0'
 $sentinelPath = 'SOFTWARE\UMD\Pharos\DefaultPrinter'
 $payloadPath = Join-Path -Path $env:ProgramData -ChildPath 'UMD\Pharos\Set-DefaultPrinter.User.ps1'
 $taskName = 'Set-DefaultPrinter'
@@ -93,11 +94,13 @@ function Get-Hklm64Value {
 try {
     $reasons = @()
 
+    # Recorded for the operator's benefit only; a device out of scope stores
+    # '(out of scope)' here and is still correctly reported as installed.
     $sentinelPrinter = [string](Get-Hklm64Value -Path $sentinelPath -Name 'PrinterName')
     $sentinelVersion = [string](Get-Hklm64Value -Path $sentinelPath -Name 'Version')
 
-    if ($sentinelPrinter -ne $expectedPrinter) {
-        $reasons += "sentinel PrinterName is '$sentinelPrinter', expected '$expectedPrinter'"
+    if ([string]::IsNullOrWhiteSpace($sentinelPrinter)) {
+        $reasons += 'sentinel PrinterName missing'
     }
 
     if ($sentinelVersion -ne $expectedVersion) {
@@ -118,7 +121,7 @@ try {
 
     if ($reasons.Count -eq 0) {
         # DETECTED - any STDOUT text plus exit 0 satisfies Intune
-        Write-Output "Detected: default printer '$expectedPrinter' enforced (version $expectedVersion)."
+        Write-Output "Detected: default printer '$sentinelPrinter' enforced (version $expectedVersion)."
         exit 0
     }
 

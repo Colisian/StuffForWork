@@ -1,14 +1,16 @@
 <#
 .SYNOPSIS
-Sets the signed-in user's default printer to the queue named in DefaultPrinter.json.
+Sets the signed-in user's default printer from the device-name rules in
+DefaultPrinter.json.
 
 .DESCRIPTION
 Runs in the interactive user's context, launched at logon by the scheduled task
-that Install-DefaultPrinter.ps1 registers. Waits briefly for the print queue to
-appear (the Pharos package may still be installing on a freshly imaged machine),
-sets the default through Win32_Printer, and writes the legacy HKCU printer
-values as a backstop. Also clears "Let Windows manage my default printer", which
-otherwise reverts the default to the last-used queue.
+that Install-DefaultPrinter.ps1 registers. Maps the computer name to a library
+location, waits briefly for that queue to appear (the Pharos package may still
+be installing on a freshly imaged machine), sets the default through
+Win32_Printer, and writes the legacy HKCU printer values as a backstop. Also
+clears "Let Windows manage my default printer", which otherwise reverts the
+default to the last-used queue.
 
 This script never throws to the caller: a failure here must not stall a logon.
 
@@ -81,13 +83,74 @@ function Write-DefaultPrinterLog {
     }
 }
 
-function Wait-PrinterQueue {
+function Get-DevicePrinterRule {
     <#
     .SYNOPSIS
-    Waits for a print queue to be visible to the current user.
+    Returns the rule matching a device name, or $null when out of scope.
 
-    .PARAMETER Name
-    Print queue name.
+    .DESCRIPTION
+    Most-specific match wins, so 'LIBRWKMCKP2WF*' beats the broader
+    'LIBRWKMCK*' regardless of the order rules appear in DefaultPrinter.json.
+
+    .PARAMETER Rule
+    Rule objects from DefaultPrinter.json.
+
+    .PARAMETER DeviceName
+    Computer name to match.
+
+    .NOTES
+    Author: Oji / University of Maryland Libraries
+    Date: 2026-08-12
+    Version: 2.0.0
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [object[]]$Rule,
+
+        [Parameter(Mandatory)]
+        [string]$DeviceName
+    )
+
+    $match = @($Rule | Where-Object { $DeviceName -like $_.Pattern })
+    if ($match.Count -eq 0) {
+        return $null
+    }
+
+    return ($match | Sort-Object -Property @{ Expression = { $_.Pattern.TrimEnd('*').Length } } -Descending |
+        Select-Object -First 1)
+}
+
+function Get-LocalPrinter {
+    <#
+    .SYNOPSIS
+    Returns the print queues genuinely installed on this machine.
+
+    .DESCRIPTION
+    Excludes RDP-redirected queues, which belong to the remote client and vanish
+    with the session.
+
+    .NOTES
+    Author: Oji / University of Maryland Libraries
+    Date: 2026-08-12
+    Version: 2.0.0
+    #>
+    [CmdletBinding()]
+    param()
+
+    return @(Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '\(redirected \d+\)$' })
+}
+
+function Resolve-PrinterQueue {
+    <#
+    .SYNOPSIS
+    Waits for any of the candidate queue names to appear and returns the first
+    one present.
+
+    .PARAMETER CandidateName
+    Queue names to try, in order of preference.
 
     .PARAMETER TimeoutSeconds
     Maximum time to wait.
@@ -95,12 +158,12 @@ function Wait-PrinterQueue {
     .NOTES
     Author: Oji / University of Maryland Libraries
     Date: 2026-08-12
-    Version: 1.0.0
+    Version: 2.0.0
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Name,
+        [string[]]$CandidateName,
 
         [Parameter()]
         [ValidateRange(0, 600)]
@@ -109,13 +172,20 @@ function Wait-PrinterQueue {
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
-        $printer = Get-CimInstance -ClassName Win32_Printer -Filter "Name='$Name'" -ErrorAction SilentlyContinue
-        if ($printer) {
-            return $printer
+        $installed = Get-LocalPrinter
+        foreach ($candidate in $CandidateName) {
+            $printer = $installed | Where-Object { $_.Name -eq $candidate } | Select-Object -First 1
+            if ($printer) {
+                return $printer
+            }
+        }
+
+        if ((Get-Date) -ge $deadline) {
+            break
         }
 
         Start-Sleep -Seconds 3
-    } while ((Get-Date) -lt $deadline)
+    } while ($true)
 
     return $null
 }
@@ -194,9 +264,8 @@ function Set-UserDefaultPrinter {
     }
 
     $configuration = Get-Content -LiteralPath $ConfigurationPath -Raw | ConvertFrom-Json
-    $printerName = [string]$configuration.PrinterName
-    if ([string]::IsNullOrWhiteSpace($printerName)) {
-        throw 'Package configuration is missing PrinterName.'
+    if (-not $configuration.PSObject.Properties['Rules']) {
+        throw 'Package configuration is missing Rules.'
     }
 
     $override = $true
@@ -209,27 +278,33 @@ function Set-UserDefaultPrinter {
         $waitSeconds = [int]$configuration.PrinterWaitSeconds
     }
 
-    Write-DefaultPrinterLog -Message "Applying default printer '$printerName' for user '$env:USERNAME'."
+    $rule = Get-DevicePrinterRule -Rule @($configuration.Rules) -DeviceName $env:COMPUTERNAME
+    if (-not $rule) {
+        Write-DefaultPrinterLog -Message "No rule matches device '$env:COMPUTERNAME'; leaving the default unchanged."
+        return
+    }
 
-    $printer = Wait-PrinterQueue -Name $printerName -TimeoutSeconds $waitSeconds
+    $candidateList = @($rule.PrinterName) -join "', '"
+    Write-DefaultPrinterLog -Message "User '$env:USERNAME': matched '$($rule.Pattern)' -> $($rule.Location); candidates '$candidateList'."
+
+    $printer = Resolve-PrinterQueue -CandidateName @($rule.PrinterName) -TimeoutSeconds $waitSeconds
     if (-not $printer) {
-        Write-DefaultPrinterLog -Message "Print queue '$printerName' is not present after ${waitSeconds}s; nothing to do." -Level WARN
+        Write-DefaultPrinterLog -Message "None of the candidate queues ('$candidateList') are present after ${waitSeconds}s; nothing to do." -Level WARN
         return
     }
 
     if ($printer.Default) {
-        Write-DefaultPrinterLog -Message "'$printerName' is already the default printer."
+        Write-DefaultPrinterLog -Message "'$($printer.Name)' is already the default printer."
     }
     else {
-        $currentDefault = Get-CimInstance -ClassName Win32_Printer -Filter 'Default=True' -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+        $currentDefault = Get-LocalPrinter | Where-Object { $_.Default } | Select-Object -First 1
 
         if ($currentDefault -and -not $override) {
             Write-DefaultPrinterLog -Message "Default is '$($currentDefault.Name)' and OverrideExistingDefault is false; leaving it unchanged."
             return
         }
 
-        if ($PSCmdlet.ShouldProcess($printerName, 'Set as default printer')) {
+        if ($PSCmdlet.ShouldProcess($printer.Name, 'Set as default printer')) {
             $result = Invoke-CimMethod -InputObject $printer -MethodName 'SetDefaultPrinter' -ErrorAction SilentlyContinue
             if ($result -and $result.ReturnValue -eq 0) {
                 Write-DefaultPrinterLog -Message "Win32_Printer.SetDefaultPrinter succeeded (previous default: $(if ($currentDefault) { $currentDefault.Name } else { 'none' }))."
@@ -244,8 +319,8 @@ function Set-UserDefaultPrinter {
     # Always write the legacy values: SetDefaultPrinter does not clear
     # LegacyDefaultPrinterMode, so without this Windows can take the default
     # back the next time the user prints somewhere else.
-    Set-LegacyDefaultPrinterValue -PrinterName $printerName -PortName $printer.PortName -WhatIf:$WhatIfPreference
-    Write-DefaultPrinterLog -Message "Default printer enforcement complete for '$printerName' (port '$($printer.PortName)')."
+    Set-LegacyDefaultPrinterValue -PrinterName $printer.Name -PortName $printer.PortName -WhatIf:$WhatIfPreference
+    Write-DefaultPrinterLog -Message "Default printer enforcement complete for '$($printer.Name)' (port '$($printer.PortName)')."
 }
 
 try {
