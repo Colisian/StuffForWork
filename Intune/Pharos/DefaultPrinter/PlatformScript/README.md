@@ -4,8 +4,8 @@ Sets each public PC's default printer from its **computer name**, using the same
 hostname prefixes as the legacy PSADT deployment
 (`Pharos\PharosApp Deploy\Deploy-Application.ps1:210-215`).
 
-Runs in the **logged-on user's context at every sign-in**, which is what makes a
-platform script the right shape for this job.
+Runs in the **logged-on user's context, once per user per device**, which is what
+makes a platform script the right shape for this job.
 
 ## Mapping
 
@@ -136,8 +136,26 @@ Assign to your **device** groups for the public PCs.
 > Active Setup entry, or offline hive loading is needed. Set it to No and the
 > script writes SYSTEM's own HKCU, which no patron will ever see.
 
-Platform scripts re-run at each sign-in when run in user context, so the mapping
-self-applies to every new patron session.
+### Execution frequency — read this before relying on it
+
+**Platform scripts run once, not on a schedule and not at every logon.** There is
+no "run at every sign-in" option. With logged-on credentials the Intune
+Management Extension tracks execution **per user per device**, so:
+
+| Event | Script runs? |
+|---|---|
+| New patron signs in for the first time on this PC | **Yes** |
+| Same patron signs in again later | No |
+| Patron changes their default printer mid-session | No |
+| Script fails | Retries 3 times over later check-ins |
+| You re-upload a modified script | Yes, once more per user |
+
+For a public PC that is mostly fine — every new profile gets the default set. The
+gap is a **returning** patron who has since changed their default, and any drift
+after the script has run for them.
+
+If that gap matters, deploy as a Remediation instead (below). It is the same
+script and it *does* repeat on a schedule.
 
 ## Alternative: deploy as a Remediation (recommended if you want reporting)
 
@@ -161,11 +179,12 @@ Both scripts carry the same rule table — **edit them together.**
 | | Platform script | Remediation | Win32 app (`..\` parent folder) |
 |---|---|---|---|
 | Per-user execution | Native | Native | Simulated via scheduled task + hive loading |
-| Runs at | Each sign-in | Schedule + sign-in | Install time |
+| Runs | **Once per user**, at that user's first sign-in | On a schedule, per user | Once at install, then a logon task |
+| Covers a brand-new patron profile | **Yes** | **Yes** | **Yes** |
+| Corrects a returning patron who changed their default | **No** | **Yes** | Yes (logon task) |
 | Dependency on the Pharos package | No | No | **Yes** |
 | Uninstall / revert | No | No | **Yes** |
 | Reporting | Run status only | **Per-device compliance** | Detection rule |
-| Self-heals drift | At next sign-in | **Yes** | No |
 
 The Win32 app in the parent folder remains the option to use if you need Intune
 to install the Pharos package *first* via a dependency, or need a supported
@@ -177,7 +196,8 @@ A platform script cannot be ordered after a Win32 app, so on a freshly imaged PC
 it can run before the Pharos queues exist. Two mitigations are built in:
 
 - `-PrinterWaitSeconds` (default 90) waits for the queue to appear.
-- Running at every sign-in means the next patron fixes it.
+- A failed run is retried 3 times over later check-ins, and the next new patron
+  gets a fresh run regardless.
 
 If the queue never appears the script exits **1** with an actionable message:
 
@@ -193,8 +213,8 @@ Is the Pharos package for McKeldin 2nd Floor Wide Format assigned to this device
 
 A per-user filename means each user owns their own file, so a standard account
 can append to it — ProgramData ACLs let users create files but not write to one
-owned by SYSTEM. The log self-trims to the last 500 lines past 256 KB, since it
-is appended at every sign-in on a shared PC.
+owned by SYSTEM. The log self-trims to the last 500 lines past 256 KB, which
+matters if you deploy as a Remediation and it runs on a schedule.
 
 ## Verification
 

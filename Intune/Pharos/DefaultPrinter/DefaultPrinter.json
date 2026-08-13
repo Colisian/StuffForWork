@@ -1,9 +1,45 @@
 {
-  "SchemaVersion": 1,
-  "PackageId": "DefaultPrinter-Mck2FWideFormat",
-  "DisplayName": "Default Printer - Mck2FWideFormat",
-  "Version": "1.0.1",
-  "PrinterName": "Mck2FWideFormat",
+  "SchemaVersion": 2,
+  "PackageId": "DefaultPrinter-ByDevice",
+  "DisplayName": "Default Printer by Device Name",
+  "Version": "2.0.0",
   "OverrideExistingDefault": true,
-  "PrinterWaitSeconds": 60
+  "PrinterWaitSeconds": 60,
+  "Rules": [
+    {
+      "Pattern": "LIBRWKMCKP2WF*",
+      "PrinterName": [ "Mck2FWideFormat" ],
+      "Location": "McKeldin 2nd Floor Wide Format"
+    },
+    {
+      "Pattern": "LIBRWKMCK*",
+      "PrinterName": [ "McKeldinBW" ],
+      "Location": "McKeldin Library"
+    },
+    {
+      "Pattern": "LIBRWKSTEM*",
+      "PrinterName": [ "EPSLBW" ],
+      "Location": "STEM Library (EPSL queues)"
+    },
+    {
+      "Pattern": "LIBRWKART*",
+      "PrinterName": [ "ArtBW" ],
+      "Location": "Art Library"
+    },
+    {
+      "Pattern": "LIBRWKPAL*",
+      "PrinterName": [ "PALBW" ],
+      "Location": "Performing Arts Library"
+    },
+    {
+      "Pattern": "LIBRWKARCH*",
+      "PrinterName": [ "ArchBW" ],
+      "Location": "Architecture Library"
+    },
+    {
+      "Pattern": "LIBRWKMDRP*",
+      "PrinterName": [ "MarylandRoomBW", "LIB-MarylandRoomBW" ],
+      "Location": "Maryland Room (UNVERIFIED - run Get-PharosPrinterInventory.ps1)"
+    }
+  ]
 }

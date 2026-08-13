@@ -294,35 +294,94 @@ function Invoke-RegExe {
     }
 }
 
-function Get-PrinterPortName {
+function Get-DevicePrinterRule {
     <#
     .SYNOPSIS
-    Returns the port backing a local print queue.
+    Returns the rule matching a device name, or $null when out of scope.
 
-    .PARAMETER Name
-    Print queue name.
+    .DESCRIPTION
+    Selects the MOST SPECIFIC match rather than the first. 'LIBRWKMCKP2WF*' and
+    'LIBRWKMCK*' both match a wide-format station; the longer literal prefix
+    wins, so reordering the rules in DefaultPrinter.json cannot silently point
+    patrons at the plotter.
+
+    .PARAMETER Rule
+    Rule objects from DefaultPrinter.json.
+
+    .PARAMETER DeviceName
+    Computer name to match.
 
     .NOTES
     Author: Oji / University of Maryland Libraries
     Date: 2026-08-12
-    Version: 1.0.0
+    Version: 2.0.0
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Name
+        [AllowEmptyCollection()]
+        [object[]]$Rule,
+
+        [Parameter(Mandatory)]
+        [string]$DeviceName
     )
 
-    $printer = Get-CimInstance -ClassName Win32_Printer -Filter "Name='$Name'" -ErrorAction SilentlyContinue
-    if ($printer) {
-        return [string]$printer.PortName
+    $match = @($Rule | Where-Object { $DeviceName -like $_.Pattern })
+    if ($match.Count -eq 0) {
+        return $null
     }
 
-    # HKLM\SYSTEM is not WOW64-redirected, so the raw spooler key is a safe
-    # fallback when WMI is unavailable during a servicing window.
-    $spoolerKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Print\Printers\$Name"
-    if (Test-Path -LiteralPath $spoolerKey) {
-        return [string](Get-ItemProperty -LiteralPath $spoolerKey -Name 'Port' -ErrorAction SilentlyContinue).Port
+    return ($match | Sort-Object -Property @{ Expression = { $_.Pattern.TrimEnd('*').Length } } -Descending |
+        Select-Object -First 1)
+}
+
+function Get-LocalPrinter {
+    <#
+    .SYNOPSIS
+    Returns the print queues genuinely installed on this machine.
+
+    .DESCRIPTION
+    Excludes RDP-redirected queues, which belong to the remote client and vanish
+    with the session. Filtering is client-side rather than by WQL -Filter
+    because queue names can contain spaces and ampersands.
+
+    .NOTES
+    Author: Oji / University of Maryland Libraries
+    Date: 2026-08-12
+    Version: 2.0.0
+    #>
+    [CmdletBinding()]
+    param()
+
+    return @(Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '\(redirected \d+\)$' })
+}
+
+function Resolve-PrinterQueue {
+    <#
+    .SYNOPSIS
+    Returns the first candidate queue that exists on this machine.
+
+    .PARAMETER CandidateName
+    Queue names to try, in order of preference.
+
+    .NOTES
+    Author: Oji / University of Maryland Libraries
+    Date: 2026-08-12
+    Version: 2.0.0
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string[]]$CandidateName
+    )
+
+    $installed = Get-LocalPrinter
+    foreach ($candidate in $CandidateName) {
+        $printer = $installed | Where-Object { $_.Name -eq $candidate } | Select-Object -First 1
+        if ($printer) {
+            return $printer
+        }
     }
 
     return $null
@@ -613,45 +672,61 @@ function Install-DefaultPrinter {
     }
 
     $configuration = Get-Content -LiteralPath $ConfigurationPath -Raw | ConvertFrom-Json
-    foreach ($propertyName in 'PackageId', 'DisplayName', 'Version', 'PrinterName') {
+    foreach ($propertyName in 'PackageId', 'DisplayName', 'Version', 'Rules') {
         if (-not $configuration.PSObject.Properties[$propertyName]) {
             throw "Package configuration is missing '$propertyName'."
         }
     }
 
-    $printerName = [string]$configuration.PrinterName
     $override = $true
     if ($configuration.PSObject.Properties['OverrideExistingDefault']) {
         $override = [bool]$configuration.OverrideExistingDefault
     }
 
-    Write-DefaultPrinterLog -Message "Configuring '$($configuration.DisplayName)' version $($configuration.Version)."
+    Write-DefaultPrinterLog -Message "Configuring '$($configuration.DisplayName)' version $($configuration.Version) on device '$env:COMPUTERNAME'."
 
-    $portName = Get-PrinterPortName -Name $printerName
-    if (-not $portName) {
-        throw "Print queue '$printerName' is not installed on this machine. Deploy the Pharos package first and set it as a dependency of this app."
-    }
-
-    Write-DefaultPrinterLog -Message "Found print queue '$printerName' on port '$portName'."
-
+    # Stage the payload and register the logon task regardless of whether this
+    # device is in scope. A machine renamed into scope later is then handled at
+    # the next logon without redeploying the app.
     $payloadPath = Install-DefaultPrinterPayload -Configuration $configuration -SourceDirectory $scriptDir -WhatIf:$WhatIfPreference
     Write-DefaultPrinterLog -Message "Per-user payload staged at '$payloadPath'."
 
     Register-DefaultPrinterTask -PayloadPath $payloadPath -WhatIf:$WhatIfPreference
     Write-DefaultPrinterLog -Message "Logon task '$script:taskPath$script:taskName' registered for BUILTIN\Users."
 
-    Invoke-ForEachUserHive -Operation 'Default printer' `
-        -ArgumentList @($printerName, $portName, $override, $WhatIfPreference) `
-        -Action {
-        param($hiveRoot, $queueName, $queuePort, $replaceExisting, $whatIf)
-        Set-HiveDefaultPrinter -HiveRoot $hiveRoot `
-            -PrinterName $queueName `
-            -PortName $queuePort `
-            -OverrideExistingDefault $replaceExisting `
-            -WhatIf:$whatIf
+    $rule = Get-DevicePrinterRule -Rule @($configuration.Rules) -DeviceName $env:COMPUTERNAME
+    $sentinelPrinter = '(out of scope)'
+
+    if (-not $rule) {
+        # Not a failure: the app is simply assigned to a device outside the map.
+        # Exit 0 with a sentinel so Intune reports Installed instead of retrying.
+        Write-DefaultPrinterLog -Message 'No rule matches this device name; leaving every default printer unchanged.' -Level WARN
+    }
+    else {
+        $candidateList = @($rule.PrinterName) -join "', '"
+        Write-DefaultPrinterLog -Message "Matched '$($rule.Pattern)' -> $($rule.Location); candidate queues '$candidateList'."
+
+        $printer = Resolve-PrinterQueue -CandidateName @($rule.PrinterName)
+        if (-not $printer) {
+            throw "None of the candidate queues ('$candidateList') are installed on this machine. Deploy the Pharos package for $($rule.Location) first and set it as a dependency of this app."
+        }
+
+        $sentinelPrinter = [string]$printer.Name
+        Write-DefaultPrinterLog -Message "Resolved queue '$($printer.Name)' on port '$($printer.PortName)'."
+
+        Invoke-ForEachUserHive -Operation 'Default printer' `
+            -ArgumentList @($printer.Name, $printer.PortName, $override, $WhatIfPreference) `
+            -Action {
+            param($hiveRoot, $queueName, $queuePort, $replaceExisting, $whatIf)
+            Set-HiveDefaultPrinter -HiveRoot $hiveRoot `
+                -PrinterName $queueName `
+                -PortName $queuePort `
+                -OverrideExistingDefault $replaceExisting `
+                -WhatIf:$whatIf
+        }
     }
 
-    Set-Hklm64Value -Path $script:sentinelPath -Name 'PrinterName' -Value $printerName -WhatIf:$WhatIfPreference
+    Set-Hklm64Value -Path $script:sentinelPath -Name 'PrinterName' -Value $sentinelPrinter -WhatIf:$WhatIfPreference
     Set-Hklm64Value -Path $script:sentinelPath -Name 'DisplayName' -Value ([string]$configuration.DisplayName) -WhatIf:$WhatIfPreference
     Set-Hklm64Value -Path $script:sentinelPath -Name 'Version' -Value ([string]$configuration.Version) -WhatIf:$WhatIfPreference
     Set-Hklm64Value -Path $script:sentinelPath -Name 'PayloadPath' -Value $payloadPath -WhatIf:$WhatIfPreference
