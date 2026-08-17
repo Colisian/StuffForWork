@@ -10,7 +10,7 @@
 | MSI UpgradeCode | `{A88EC12B-58F4-4B3F-BF83-1292E455C1E9}` |
 | Install context | Device / SYSTEM / all users |
 | Architecture | 64-bit |
-| Default licensing | Named User; user changes permitted |
+| Default licensing | Named User through `https://uofmd.maps.arcgis.com/`; settings locked |
 | Logs | `C:\ProgramData\ArcGISDrone2Map` |
 
 The original Esri download was extracted into `Source\Drone2Map`. Packaging the MSI and CAB
@@ -41,7 +41,15 @@ the PowerShell wrapper below.
 
 ## Intune Program settings
 
-### Method A — command line (recommended)
+### Required settings for either method
+
+- Install behavior: **System**
+- Device restart behavior: **Determine behavior based on return codes**
+- Return codes: keep `0` as success; configure `3010` as soft reboot
+- Installation time required: allow at least **60 minutes** for slower devices
+- Operating system architecture: **64-bit**
+
+### Method A — command-line alternative
 
 Install command:
 
@@ -55,19 +63,19 @@ Uninstall command:
 %SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-ArcGISDrone2Map.ps1
 ```
 
-Additional settings:
+### Method B — uploaded PowerShell script installer (selected method)
 
-- Install behavior: **System**
-- Device restart behavior: **App install may force a device restart**
-- Return codes: keep `0` as success; configure `3010` as soft reboot
-- Installation time required: allow at least **60 minutes** for slower devices
-- Require a 64-bit operating system
+Choose **PowerShell script** as the installer type, then upload the install and uninstall scripts
+from the `Source` directory. Use the default parameter values and set **Run script as 32-bit
+process on 64-bit clients** to **No** for both scripts. The source files (`Drone2Map.msi` and both
+CAB files) must remain bundled in the `.intunewin` package.
 
-### Method B — PowerShell script installer boxes
+Set **Enforce script signature check** to **No** because these scripts are not code-signed. Change
+this to **Yes** only after signing them with a code-signing certificate trusted by managed devices.
 
-Paste the install and uninstall script contents into their respective boxes. Use the default
-parameter values and configure the scripts to run in the **64-bit** PowerShell host. The source
-files (`Drone2Map.msi` and both CAB files) must remain bundled in the `.intunewin` package.
+The uploaded install script defaults to Named User licensing through
+`https://uofmd.maps.arcgis.com/` and locks the authorization settings for all users. Both uploaded
+scripts are well below Intune's 50 KB script limit.
 
 ## Detection rule
 
@@ -88,7 +96,7 @@ Detection requires both:
 - Automatic Esri error reporting: disabled
 - In-app update checks: disabled; Intune owns patching and supersedence
 - No credentials, tokens, or license secrets are stored in the package
-- ArcGIS Online connectivity remains available for Named User licensing
+- Named User licensing is set to `https://uofmd.maps.arcgis.com/` and locked for all users
 
 Disabling in-app update checks means the Intune app owner must monitor Esri releases and publish
 superseding packages. CrowdStrike or Rapid7 may observe the large MSI extraction/install workload;
@@ -125,8 +133,8 @@ Method A can override the default without editing the package:
 # Let each user select licensing on first launch
 .\Install-ArcGISDrone2Map.ps1 -AuthorizationType UserChoice
 
-# Set an ArcGIS Enterprise Named User licensing portal
-.\Install-ArcGISDrone2Map.ps1 -AuthorizationType NamedUser -LicenseUrl 'https://portal.example.edu'
+# Explicitly set the UMD ArcGIS Online Named User licensing URL
+.\Install-ArcGISDrone2Map.ps1 -AuthorizationType NamedUser -LicenseUrl 'https://uofmd.maps.arcgis.com/'
 ```
 
 The uninstall intentionally retains user projects and per-user sign-in preferences.

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Silently removes ArcGIS Drone2Map 2026.1.
 
@@ -21,8 +21,11 @@
 .NOTES
     Author  : Oji McLeod (cmcleod1@umd.edu) - ITFO / Digital Services & Technologies, UMD Libraries
     Date    : 2026-08-17
-    Version : 1.0.0
+    Version : 1.1.0
     Exit    : 0 = removed/already absent, 3010 = removed/reboot required, 1 = failure
+
+    1.1.0 - Added a 64-bit host check for consistent MSI and sentinel registry access.
+    1.0.0 - Initial release.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param()
@@ -48,6 +51,10 @@ begin {
 process {
     try {
         Write-Output "[$(Get-Date -Format s)] ArcGIS Drone2Map uninstall starting."
+
+        if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+            throw 'This uninstaller must run in 64-bit PowerShell. In Intune, set Run script as 32-bit process on 64-bit clients to No.'
+        }
 
         $registered = $false
         foreach ($root in $uninstallRoots) {

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Intune Win32 custom detection script for ArcGIS Drone2Map 2026.1.
 
@@ -23,6 +23,11 @@
 param()
 
 $ErrorActionPreference = 'SilentlyContinue'
+
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    # Return not detected if the Intune detection rule was accidentally set to 32-bit.
+    exit 0
+}
 
 $sentinelPath = 'HKLM:\SOFTWARE\UMD\Intune\ArcGISDrone2Map'
 $expectedVersion = '2026.1.0.1901'

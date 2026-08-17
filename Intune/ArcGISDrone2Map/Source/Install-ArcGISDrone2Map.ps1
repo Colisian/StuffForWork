@@ -1,12 +1,13 @@
-<#
+﻿<#
 .SYNOPSIS
     Silently installs ArcGIS Drone2Map 2026.1 for all users.
 
 .DESCRIPTION
     Installs the bundled Drone2Map.msi as a per-machine application under the SYSTEM
-    account. The default UMD Libraries build uses Named User licensing, allows users to
-    adjust their licensing settings, disables Esri usage/error reporting, and disables
-    in-app update checks so updates remain managed by Intune.
+    account. The default UMD Libraries build uses Named User licensing through the UMD
+    ArcGIS Online organization, locks the authorization settings for all users, disables
+    Esri usage/error reporting, and disables in-app update checks so updates remain
+    managed by Intune.
 
     A registry sentinel is written only after Windows Installer returns success. The
     companion Intune detection script requires both this sentinel and the MSI product
@@ -21,8 +22,8 @@
     omits the MSI authorization properties so the user chooses on first launch.
 
 .PARAMETER LicenseUrl
-    Optional ArcGIS Enterprise licensing portal URL. When supplied, NamedUser licensing
-    is enforced for the installation. Do not place credentials or tokens in this value.
+    Named User licensing URL. Defaults to the University of Maryland ArcGIS Online
+    organization. Do not place credentials or tokens in this value.
 
 .PARAMETER EnableUsageReporting
     Enables the Esri User Experience Improvement program. Disabled by default.
@@ -43,15 +44,19 @@
     Installs the standard UMD Libraries per-machine Named User configuration.
 
 .EXAMPLE
-    .\Install-ArcGISDrone2Map.ps1 -LicenseUrl 'https://portal.example.edu'
+    .\Install-ArcGISDrone2Map.ps1 -LicenseUrl 'https://uofmd.maps.arcgis.com/'
 
-    Configures an ArcGIS Enterprise portal for Named User licensing.
+    Explicitly configures the UMD ArcGIS Online organization for Named User licensing.
 
 .NOTES
     Author  : Oji McLeod - ITFO / Digital Services & Technologies, UMD Libraries
     Date    : 2026-08-17
-    Version : 1.0.0
+    Version : 1.1.0
     Exit    : 0 = success, 3010 = success/reboot required, 1 = failure
+
+    1.1.0 - Made the UMD ArcGIS Online licensing URL the upload-script default, locked
+            authorization settings, and added 64-bit/process and MSI-registration checks.
+    1.0.0 - Initial release.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -59,7 +64,7 @@ param(
     [string]$AuthorizationType = 'NamedUser',
 
     [ValidatePattern('^https://')]
-    [string]$LicenseUrl,
+    [string]$LicenseUrl = 'https://uofmd.maps.arcgis.com/',
 
     [switch]$EnableUsageReporting,
     [switch]$EnableErrorReports,
@@ -89,6 +94,10 @@ process {
         Write-Output "[$(Get-Date -Format s)] ArcGIS Drone2Map installation starting."
         Write-Output "Script directory: $scriptDir"
 
+        if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+            throw 'This installer must run in 64-bit PowerShell. In Intune, set Run script as 32-bit process on 64-bit clients to No.'
+        }
+
         $msi = Get-ChildItem -LiteralPath $scriptDir -Filter 'Drone2Map.msi' -File -Recurse |
                Select-Object -First 1
         if (-not $msi) {
@@ -98,8 +107,8 @@ process {
         Write-Output "Installer: $($msi.FullName)"
         Write-Output "Expected version: $packageVersion"
 
-        if ($LicenseUrl -and $AuthorizationType -ne 'NamedUser') {
-            throw 'LicenseUrl can only be used with AuthorizationType NamedUser.'
+        if ($AuthorizationType -ne 'NamedUser' -and $PSBoundParameters.ContainsKey('LicenseUrl')) {
+            throw 'An explicitly supplied LicenseUrl can only be used with AuthorizationType NamedUser.'
         }
 
         $msiArguments = @(
@@ -117,19 +126,19 @@ process {
         switch ($AuthorizationType) {
             'NamedUser' {
                 $msiArguments += 'AUTHORIZATION_TYPE=NAMED_USER'
-                $msiArguments += 'LOCK_AUTH_SETTINGS=FALSE'
+                $msiArguments += 'LOCK_AUTH_SETTINGS=TRUE'
                 $msiArguments += 'ArcGIS_Connection=TRUE'
             }
             'SingleUse' {
                 $msiArguments += 'AUTHORIZATION_TYPE=SINGLE_USE'
-                $msiArguments += 'LOCK_AUTH_SETTINGS=FALSE'
+                $msiArguments += 'LOCK_AUTH_SETTINGS=TRUE'
             }
             'UserChoice' {
                 Write-Output 'Authorization properties omitted; the user will choose on first launch.'
             }
         }
 
-        if ($LicenseUrl) {
+        if ($AuthorizationType -eq 'NamedUser' -and $LicenseUrl) {
             $msiArguments += "LICENSE_URL=`"$LicenseUrl`""
         }
         if ($ExtraMsiProperties) {
@@ -158,6 +167,16 @@ process {
             default {
                 throw "ArcGIS Drone2Map installation failed with exit code $exitCode. See '$nativeLog'."
             }
+        }
+
+        $productPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$expectedProductCode"
+        if (-not (Test-Path -LiteralPath $productPath)) {
+            throw "Windows Installer returned success, but product registration '$productPath' was not found."
+        }
+
+        $registeredProduct = Get-ItemProperty -LiteralPath $productPath
+        if ($registeredProduct.DisplayName -notlike 'ArcGIS Drone2Map*') {
+            throw "ProductCode $expectedProductCode is registered with unexpected display name '$($registeredProduct.DisplayName)'."
         }
 
         if (-not (Test-Path -LiteralPath $sentinelPath)) {
