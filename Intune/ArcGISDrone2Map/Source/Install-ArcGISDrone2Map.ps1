@@ -48,7 +48,7 @@
     Configures an ArcGIS Enterprise portal for Named User licensing.
 
 .NOTES
-    Author  : Oji McLeod (cmcleod1@umd.edu) - ITFO / Digital Services & Technologies, UMD Libraries
+    Author  : Oji McLeod - ITFO / Digital Services & Technologies, UMD Libraries
     Date    : 2026-08-17
     Version : 1.0.0
     Exit    : 0 = success, 3010 = success/reboot required, 1 = failure
