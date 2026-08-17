@@ -19,6 +19,8 @@
 *.dmg
 *.png
 *.jpg
+*.cab
+*.pdf
 *.DS_Store
 /Fonts_Rick/*
 !/Fonts_Rick/
