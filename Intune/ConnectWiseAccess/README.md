@@ -37,13 +37,14 @@ $packageRoot = 'C:\Users\cmcleod1\OneDrive - University of Maryland\Documents\Wo
 
 .\IntuneWinAppUtil.exe `
     -c (Join-Path $packageRoot 'Source') `
-    -s 'ScreenConnect.ClientSetup.msi' `
+    -s 'Install-ConnectWiseAccess.ps1' `
     -o (Join-Path $packageRoot 'Output') `
     -q
 ```
 
-For script-driven installations, `-s` is a required packaging placeholder. The MSI is
-bundled alongside the PowerShell scripts and the install command below calls the wrapper.
+For script-driven installations, `-s` is a required packaging placeholder. Using the
+install wrapper as the setup entry point prevents Intune from treating the vendor MSI as
+the app's direct installer while still bundling the MSI alongside all PowerShell scripts.
 
 ## Intune app configuration
 
@@ -63,8 +64,16 @@ Uninstall command:
 powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-ConnectWiseAccess.ps1
 ```
 
-The same script bodies can instead be pasted into Intune's Win32 PowerShell script
-installer/uninstaller boxes without modification (Method B).
+PowerShell upload — Method B, confirmed in the current Intune tenant UI:
+
+- Installer type: **PowerShell script**
+- Install script: upload `Source\Install-ConnectWiseAccess.ps1`
+- Uninstaller type: **PowerShell script**
+- Uninstall script: upload `Source\Uninstall-ConnectWiseAccess.ps1`
+
+Both scripts are authored for the upload workflow without modification and are well below
+Intune's 50 KB script limit. The command-line fields above are not used when the matching
+PowerShell script types are selected.
 
 - Install behavior: **System**
 - Device restart behavior: **No specific action**
