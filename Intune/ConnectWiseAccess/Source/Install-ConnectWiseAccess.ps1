@@ -34,7 +34,8 @@
 [CmdletBinding(SupportsShouldProcess)]
 param()
 
-function Get-ConnectWiseAccessProduct {
+begin {
+    function Get-ConnectWiseAccessProduct {
     <#
     .SYNOPSIS
         Gets registered MSI products for the UMD Libraries ConnectWise Access agent.
@@ -74,9 +75,8 @@ function Get-ConnectWiseAccessProduct {
                 }
         }
     }
-}
+    }
 
-begin {
     $ErrorActionPreference = 'Stop'
     $script:result = 1
     $script:transcriptStarted = $false
