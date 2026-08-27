@@ -9,7 +9,9 @@ Runs as SYSTEM from an Intune Win32 app PowerShell script installer. The script:
 2. Exports the complete GraphicsDrivers\Configuration key before making changes.
 3. Saves each original Rotation value so uninstall can restore it precisely.
 4. Sets each matching Rotation value to 2 (90 degrees clockwise / portrait).
-5. Writes a state-based detection sentinel under 64-bit HKLM\SOFTWARE.
+5. Finds USB-class devices whose names contain USB 3.x and disables any enabled
+   Device Manager power-management or wake option exposed by Windows.
+6. Writes a state-based detection sentinel under 64-bit HKLM\SOFTWARE.
 
 The default MonitorKeyPattern of * is intended for dedicated, single-display
 microfilm workstations. If a workstation has other displays that must remain in
@@ -30,7 +32,7 @@ powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-MicrofilmPortr
 .NOTES
 Author: Oji / University of Maryland Libraries
 Date: 2026-08-27
-Version: 1.0.0
+Version: 1.1.0
 #>
 
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
@@ -42,7 +44,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$script:appVersion = '1.0.0'
+$script:appVersion = '1.1.0'
 $script:desiredRotation = 2
 $script:configurationSubKey = 'SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Configuration'
 $script:sentinelSubKey = 'SOFTWARE\UMD Libraries\MicrofilmPortraitDisplay'
@@ -65,7 +67,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding()]
         param(
@@ -100,7 +102,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding()]
         param(
@@ -168,7 +170,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
         param(
@@ -198,6 +200,110 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         }
     }
 
+    function Get-Usb3PowerSetting {
+        <#
+        .SYNOPSIS
+        Returns power-management settings associated with present USB 3.x devices.
+
+        .DESCRIPTION
+        Finds USB-class Plug and Play devices whose friendly name contains a
+        USB 3.x version, then correlates them to the Device Manager power and
+        wake checkboxes exposed through root\wmi.
+
+        .NOTES
+        Author: Oji / University of Maryland Libraries
+        Date: 2026-08-27
+        Version: 1.1.0
+        #>
+        [CmdletBinding()]
+        param()
+
+        $devices = @(Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPClass = 'USB'" |
+                Where-Object {
+                    $_.Present -ne $false -and
+                    $_.Name -match '(?i)\bUSB\s*3(?:\.\d+)+\b'
+                })
+
+        $settings = [System.Collections.Generic.List[object]]::new()
+        foreach ($settingClass in 'MSPower_DeviceEnable', 'MSPower_DeviceWakeEnable') {
+            $classInstances = @(Get-CimInstance -Namespace root\wmi -ClassName $settingClass -ErrorAction SilentlyContinue)
+            foreach ($device in $devices) {
+                foreach ($classInstance in $classInstances) {
+                    $instanceName = [string]$classInstance.InstanceName
+                    if (-not $instanceName.StartsWith(
+                            [string]$device.PNPDeviceID,
+                            [System.StringComparison]::OrdinalIgnoreCase)) {
+                        continue
+                    }
+
+                    $settings.Add([pscustomobject]@{
+                            DeviceName    = [string]$device.Name
+                            PnpDeviceId   = [string]$device.PNPDeviceID
+                            SettingClass  = $settingClass
+                            InstanceName  = $instanceName
+                            CurrentEnable = [bool]$classInstance.Enable
+                        })
+                }
+            }
+        }
+
+        return $settings
+    }
+
+    function Set-Usb3PowerSetting {
+        <#
+        .SYNOPSIS
+        Enables or disables one Device Manager power-management setting.
+
+        .PARAMETER SettingClass
+        WMI class holding the power-management setting.
+
+        .PARAMETER InstanceName
+        Exact WMI instance name associated with the Plug and Play device.
+
+        .PARAMETER Enable
+        Desired checkbox state.
+
+        .NOTES
+        Author: Oji / University of Maryland Libraries
+        Date: 2026-08-27
+        Version: 1.1.0
+        #>
+        [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+        param(
+            [Parameter(Mandatory)]
+            [ValidateSet('MSPower_DeviceEnable', 'MSPower_DeviceWakeEnable')]
+            [string]$SettingClass,
+
+            [Parameter(Mandatory)]
+            [string]$InstanceName,
+
+            [Parameter(Mandatory)]
+            [bool]$Enable
+        )
+
+        $target = "$SettingClass::$InstanceName"
+        if (-not $PSCmdlet.ShouldProcess($target, "Set Device Manager power option to '$Enable'")) {
+            return
+        }
+
+        $setting = Get-CimInstance -Namespace root\wmi -ClassName $SettingClass |
+            Where-Object { $_.InstanceName -eq $InstanceName } |
+            Select-Object -First 1
+        if (-not $setting) {
+            throw "USB power setting disappeared before it could be changed: $target"
+        }
+
+        Set-CimInstance -InputObject $setting -Property @{ Enable = $Enable } | Out-Null
+
+        $verified = Get-CimInstance -Namespace root\wmi -ClassName $SettingClass |
+            Where-Object { $_.InstanceName -eq $InstanceName } |
+            Select-Object -First 1
+        if (-not $verified -or [bool]$verified.Enable -ne $Enable) {
+            throw "USB power setting verification failed: $target"
+        }
+    }
+
     function Save-RotationState {
         <#
         .SYNOPSIS
@@ -209,7 +315,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
         param(
@@ -249,7 +355,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
         param(
@@ -298,7 +404,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
         param(
@@ -311,7 +417,13 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
             throw "No Rotation values were found in matching 00 or 00\00 keys. MonitorKeyPattern: '$KeyPattern'."
         }
 
+        $usbPowerTargets = @(Get-Usb3PowerSetting)
+        if ($usbPowerTargets.Count -eq 0) {
+            throw 'USB 3.x devices were found with no Device Manager power-management settings, or no present USB 3.x device matched the expected name.'
+        }
+
         Write-MicrofilmLog -Message "Found $($targets.Count) Rotation value(s) matching monitor pattern '$KeyPattern'."
+        Write-MicrofilmLog -Message "Found $($usbPowerTargets.Count) power-management setting(s) across USB 3.x devices."
 
         $backupPath = Join-Path -Path $script:backupRoot -ChildPath (
             'GraphicsDrivers-Configuration-{0}.reg' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
@@ -319,6 +431,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         Write-MicrofilmLog -Message "Graphics configuration backup: $backupPath"
 
         $savedValues = [System.Collections.Generic.List[object]]::new()
+        $savedUsbPowerValues = [System.Collections.Generic.List[object]]::new()
         $capturedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
 
         if (Test-Path -LiteralPath $script:statePath -PathType Leaf) {
@@ -330,6 +443,11 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
             $capturedAtUtc = [string]$existingState.CapturedAtUtc
             foreach ($value in @($existingState.Values)) {
                 $savedValues.Add($value)
+            }
+            if ($existingState.PSObject.Properties['UsbPowerValues']) {
+                foreach ($value in @($existingState.UsbPowerValues)) {
+                    $savedUsbPowerValues.Add($value)
+                }
             }
             Write-MicrofilmLog -Message 'Existing original-state file found; preserved previously captured values.'
         }
@@ -347,12 +465,31 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
             }
         }
 
+        foreach ($usbPowerTarget in $usbPowerTargets) {
+            $alreadySaved = $savedUsbPowerValues |
+                Where-Object {
+                    $_.SettingClass -eq $usbPowerTarget.SettingClass -and
+                    $_.InstanceName -eq $usbPowerTarget.InstanceName
+                } |
+                Select-Object -First 1
+            if (-not $alreadySaved) {
+                $savedUsbPowerValues.Add([pscustomobject]@{
+                        DeviceName     = $usbPowerTarget.DeviceName
+                        PnpDeviceId    = $usbPowerTarget.PnpDeviceId
+                        SettingClass   = $usbPowerTarget.SettingClass
+                        InstanceName   = $usbPowerTarget.InstanceName
+                        OriginalEnable = $usbPowerTarget.CurrentEnable
+                    })
+            }
+        }
+
         $state = [pscustomobject]@{
             SchemaVersion     = 1
             AppVersion        = $script:appVersion
             CapturedAtUtc     = $capturedAtUtc
             MonitorKeyPattern = $KeyPattern
             Values            = @($savedValues)
+            UsbPowerValues    = @($savedUsbPowerValues)
         }
         Save-RotationState -State $state -WhatIf:$WhatIfPreference
 
@@ -363,6 +500,19 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
                 -Kind DWord `
                 -WhatIf:$WhatIfPreference
             Write-MicrofilmLog -Message "Set HKLM:\$($target.RegistrySubKey)\Rotation from $($target.CurrentValue) to $($script:desiredRotation)."
+        }
+
+        foreach ($usbPowerTarget in $usbPowerTargets) {
+            if ($usbPowerTarget.CurrentEnable) {
+                Set-Usb3PowerSetting -SettingClass $usbPowerTarget.SettingClass `
+                    -InstanceName $usbPowerTarget.InstanceName `
+                    -Enable $false `
+                    -WhatIf:$WhatIfPreference
+                Write-MicrofilmLog -Message "Unchecked $($usbPowerTarget.SettingClass) for '$($usbPowerTarget.DeviceName)'."
+            }
+            else {
+                Write-MicrofilmLog -Message "$($usbPowerTarget.SettingClass) was already unchecked for '$($usbPowerTarget.DeviceName)'."
+            }
         }
 
         if (-not $WhatIfPreference) {
@@ -376,11 +526,12 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         Set-Hklm64Value -SubKey $script:sentinelSubKey -Name 'Version' -Value $script:appVersion -Kind String -WhatIf:$WhatIfPreference
         Set-Hklm64Value -SubKey $script:sentinelSubKey -Name 'DesiredRotation' -Value $script:desiredRotation -Kind DWord -WhatIf:$WhatIfPreference
         Set-Hklm64Value -SubKey $script:sentinelSubKey -Name 'TargetCount' -Value $savedValues.Count -Kind DWord -WhatIf:$WhatIfPreference
+        Set-Hklm64Value -SubKey $script:sentinelSubKey -Name 'UsbPowerTargetCount' -Value $savedUsbPowerValues.Count -Kind DWord -WhatIf:$WhatIfPreference
         Set-Hklm64Value -SubKey $script:sentinelSubKey -Name 'ConfiguredOnUtc' -Value ((Get-Date).ToUniversalTime().ToString('o')) -Kind String -WhatIf:$WhatIfPreference
         Set-Hklm64Value -SubKey $script:sentinelSubKey -Name 'StateFile' -Value $script:statePath -Kind String -WhatIf:$WhatIfPreference
         Set-Hklm64Value -SubKey $script:sentinelSubKey -Name 'LastBackupFile' -Value $backupPath -Kind String -WhatIf:$WhatIfPreference
 
-        Write-MicrofilmLog -Message "Portrait rotation configured. A Windows restart is required. Version: $($script:appVersion)."
+        Write-MicrofilmLog -Message "Portrait rotation and USB 3.x power management configured. A Windows restart is required. Version: $($script:appVersion)."
     }
 
     try {

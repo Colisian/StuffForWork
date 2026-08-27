@@ -4,9 +4,10 @@ Restores the monitor Rotation values saved by the microfilm portrait display ins
 
 .DESCRIPTION
 Runs as SYSTEM from an Intune Win32 app PowerShell uninstall script. The script
-restores only the Rotation values captured before installation, removes the
-detection sentinel, and archives the state JSON and full REG backup for recovery.
-Position.cx, Position.cy, and every other graphics value are left unchanged.
+restores only the Rotation values and USB 3.x Device Manager power-management
+options captured before installation, removes the detection sentinel, and
+archives the state JSON and full REG backup for recovery. Position.cx,
+Position.cy, and every other graphics value are left unchanged.
 
 .EXAMPLE
 powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-MicrofilmPortraitDisplay.ps1
@@ -14,7 +15,7 @@ powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-MicrofilmPor
 .NOTES
 Author: Oji / University of Maryland Libraries
 Date: 2026-08-27
-Version: 1.0.0
+Version: 1.1.0
 #>
 
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
@@ -42,7 +43,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding()]
         param(
@@ -77,7 +78,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding()]
         param(
@@ -121,7 +122,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
         param(
@@ -164,6 +165,61 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         }
     }
 
+    function Set-Usb3PowerSetting {
+        <#
+        .SYNOPSIS
+        Restores one Device Manager power-management setting for a USB 3.x device.
+
+        .PARAMETER SettingClass
+        WMI class holding the power-management setting.
+
+        .PARAMETER InstanceName
+        Exact WMI instance name associated with the Plug and Play device.
+
+        .PARAMETER Enable
+        Original checkbox state to restore.
+
+        .NOTES
+        Author: Oji / University of Maryland Libraries
+        Date: 2026-08-27
+        Version: 1.1.0
+        #>
+        [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+        param(
+            [Parameter(Mandatory)]
+            [ValidateSet('MSPower_DeviceEnable', 'MSPower_DeviceWakeEnable')]
+            [string]$SettingClass,
+
+            [Parameter(Mandatory)]
+            [string]$InstanceName,
+
+            [Parameter(Mandatory)]
+            [bool]$Enable
+        )
+
+        $target = "$SettingClass::$InstanceName"
+        if (-not $PSCmdlet.ShouldProcess($target, "Restore Device Manager power option to '$Enable'")) {
+            return
+        }
+
+        $setting = Get-CimInstance -Namespace root\wmi -ClassName $SettingClass -ErrorAction SilentlyContinue |
+            Where-Object { $_.InstanceName -eq $InstanceName } |
+            Select-Object -First 1
+        if (-not $setting) {
+            Write-MicrofilmLog -Message "Skipped missing USB power setting $target; it was not recreated." -Level WARN
+            return
+        }
+
+        Set-CimInstance -InputObject $setting -Property @{ Enable = $Enable } | Out-Null
+
+        $verified = Get-CimInstance -Namespace root\wmi -ClassName $SettingClass -ErrorAction SilentlyContinue |
+            Where-Object { $_.InstanceName -eq $InstanceName } |
+            Select-Object -First 1
+        if (-not $verified -or [bool]$verified.Enable -ne $Enable) {
+            throw "USB power setting verification failed while restoring $target"
+        }
+    }
+
     function Remove-Hklm64SubKey {
         <#
         .SYNOPSIS
@@ -175,7 +231,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
         param(
@@ -209,7 +265,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
         param(
@@ -240,7 +296,7 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
         .NOTES
         Author: Oji / University of Maryland Libraries
         Date: 2026-08-27
-        Version: 1.0.0
+        Version: 1.1.0
         #>
         [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
         param()
@@ -271,12 +327,22 @@ $script:statePath = Join-Path -Path $script:dataRoot -ChildPath 'OriginalRotatio
             Write-MicrofilmLog -Message "Restored HKLM:\$($savedValue.RegistrySubKey)\Rotation to $($savedValue.OriginalValue)."
         }
 
+        if ($state.PSObject.Properties['UsbPowerValues']) {
+            foreach ($savedUsbPowerValue in @($state.UsbPowerValues)) {
+                Set-Usb3PowerSetting -SettingClass ([string]$savedUsbPowerValue.SettingClass) `
+                    -InstanceName ([string]$savedUsbPowerValue.InstanceName) `
+                    -Enable ([bool]$savedUsbPowerValue.OriginalEnable) `
+                    -WhatIf:$WhatIfPreference
+                Write-MicrofilmLog -Message "Restored $($savedUsbPowerValue.SettingClass) for '$($savedUsbPowerValue.DeviceName)' to $($savedUsbPowerValue.OriginalEnable)."
+            }
+        }
+
         if ($sentinelExists) {
             Remove-Hklm64SubKey -SubKey $script:sentinelSubKey -WhatIf:$WhatIfPreference
         }
         Move-RotationStateToArchive -SourcePath $script:statePath -WhatIf:$WhatIfPreference
 
-        Write-MicrofilmLog -Message 'Original monitor rotation values restored. A Windows restart is required.'
+        Write-MicrofilmLog -Message 'Original monitor rotation and USB 3.x power-management values restored. A Windows restart is required.'
     }
 
     try {

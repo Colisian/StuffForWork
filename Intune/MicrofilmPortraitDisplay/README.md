@@ -1,8 +1,9 @@
 # Microfilm Portrait Display — Intune Win32 App
 
 Sets the matching Windows monitor-configuration `Rotation` values to `2`
-(90 degrees clockwise / portrait), preserves the original values, and restores
-them during uninstall.
+(90 degrees clockwise / portrait), disables enabled Device Manager power
+options for USB 3.x devices, preserves the original values, and restores them
+during uninstall.
 
 > [!IMPORTANT]
 > The install script defaults to `MonitorKeyPattern = '*'`. This is appropriate
@@ -15,8 +16,8 @@ them during uninstall.
 
 | File | Purpose |
 |---|---|
-| `Install-MicrofilmPortraitDisplay.ps1` | Backs up and sets matching `Rotation` values to `2` |
-| `Uninstall-MicrofilmPortraitDisplay.ps1` | Restores the exact original values |
+| `Install-MicrofilmPortraitDisplay.ps1` | Sets portrait rotation and unchecks USB 3.x power options |
+| `Uninstall-MicrofilmPortraitDisplay.ps1` | Restores the exact original rotation and USB power values |
 | `Detect-MicrofilmPortraitDisplay.ps1` | Intune custom detection script |
 | `Source\placeholder.txt` | Required source placeholder for `.intunewin` packaging |
 
@@ -30,6 +31,10 @@ them during uninstall.
 
 - Sets only the matching `Rotation` values to `2`.
 - Does **not** modify `Position.cx`, `Position.cy`, resolution, or placement.
+- Finds present USB-class devices whose names contain versions such as
+  `USB 3.0`, `USB 3.10`, or `USB 3.20`.
+- Unchecks any enabled power-management or wake option that Windows exposes for
+  those devices through the same system interfaces used by Device Manager.
 - Saves original values and writes a state-based sentinel.
 - Returns `3010` so Intune can report a soft reboot; it never forces a restart.
 
@@ -87,7 +92,7 @@ uninstall logic is uploaded separately on the **Program** page.
 | Name | `UMD Libraries - Microfilm Portrait Display` |
 | Description | `Sets dedicated microfilm workstation displays to portrait orientation.` |
 | Publisher | `University of Maryland Libraries` |
-| Version | `1.0.0` |
+| Version | `1.1.0` |
 
 ### Program
 
@@ -131,8 +136,9 @@ Choose **Use a custom detection script** and upload
 | Run script as 32-bit process on 64-bit clients | `No` |
 | Enforce script signature check | `No`, unless signed |
 
-Detection requires the sentinel, saved original-state file, and every target
-`Rotation` value to equal `2`. A file/folder rule is intentionally not used.
+Detection requires the sentinel, saved original-state file, every target
+`Rotation` value to equal `2`, and every saved USB 3.x power option to remain
+unchecked. A file/folder rule is intentionally not used.
 
 ### Assignment
 
@@ -158,7 +164,8 @@ After a real install and restart:
 $LASTEXITCODE
 ```
 
-Expected: one `Detected:` line and exit code `0`.
+Expected: one `Detected:` line mentioning portrait rotation and USB power
+management, followed by exit code `0`.
 
 Inspect the sentinel:
 
@@ -179,6 +186,18 @@ Dry-run uninstall:
 - Intune Management Extension log:
   `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\IntuneManagementExtension.log`
 - If the registry shows `2` but the display has not changed, restart Windows.
+- To inspect the USB 3.x devices covered by the name filter:
+
+  ```powershell
+  Get-CimInstance Win32_PnPEntity -Filter "PNPClass = 'USB'" |
+      Where-Object Name -match '(?i)\bUSB\s*3(?:\.\d+)+\b' |
+      Select-Object Name, PNPDeviceID, Status
+  ```
+
+- Drivers are not required to expose every possible Power Management checkbox.
+  The installer changes and records only settings Windows actually exposes for
+  each matching device. If no matching USB 3.x power setting is exposed at all,
+  installation fails instead of creating a false-positive detection sentinel.
 - If the display is portrait but upside down, that physical mount needs the
   inverse portrait value (`4`) rather than this package's value (`2`). Create a
   separate app/version for that hardware group; do not mix both orientations in
@@ -189,6 +208,16 @@ Dry-run uninstall:
 - The scripts contain no credentials and run non-interactively as SYSTEM.
 - All registry access uses the 64-bit view, including when the host process is
   accidentally 32-bit.
+- USB settings are correlated by Plug and Play device instance ID rather than
+  friendly name alone, preventing identically named USB controllers from
+  overwriting one another's saved state.
+- Disabling USB controller power saving can increase idle power use slightly,
+  but it reduces the chance that an attached microfilm device is suspended or
+  disconnected. The uninstall restores each original checkbox state.
+- If a matching controller exposes an enabled wake option, that option is also
+  unchecked as requested. Depending on the hardware path, patrons may then need
+  the workstation's power button instead of a USB peripheral to wake it. Include
+  sleep/wake behavior in the pilot test.
 - CrowdStrike or Rapid7 may record `reg.exe export` and writes below
   `GraphicsDrivers` as administrative configuration activity. The behavior is
   expected, narrowly scoped, and logged; pilot before broad deployment.
