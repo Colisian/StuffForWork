@@ -4,9 +4,9 @@
 
 .DESCRIPTION
     Locates the Pharos uninstaller, requests silent removal of the Remote
-    component, and removes only the UMD Intune detection sentinel. Shared Pharos
-    Database Server settings are preserved because other Pharos components may
-    use them.
+    component, removes the Public Desktop shortcut created by this package, and
+    removes only the UMD Intune detection sentinel. Shared Pharos Database Server
+    settings are preserved because other Pharos components may use them.
 
 .PARAMETER ComponentName
     Component token passed to the Pharos uninstaller.
@@ -14,7 +14,7 @@
 .NOTES
     Author: Oji / University of Maryland Libraries
     Date: 2026-08-26
-    Version: 1.0.0
+    Version: 1.1.0
     Validate the vendor component token on a pilot device before production use.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -28,6 +28,7 @@ begin {
     $ErrorActionPreference = 'Stop'
     $logDirectory = Join-Path -Path $env:ProgramData -ChildPath 'PharosRemote'
     $logPath = Join-Path -Path $logDirectory -ChildPath 'UninstallPharosRemote.log'
+    $publicDesktopShortcut = Join-Path -Path (Join-Path -Path $env:PUBLIC -ChildPath 'Desktop') -ChildPath 'Pharos Remote.lnk'
     $transcriptStarted = $false
     $finalExitCode = 0
 }
@@ -82,6 +83,10 @@ process {
             Write-Warning 'Pharos program files were not found; treating the application as already removed.'
         }
 
+        if (Test-Path -LiteralPath $publicDesktopShortcut -PathType Leaf) {
+            Remove-Item -LiteralPath $publicDesktopShortcut -Force
+        }
+
         $sentinelPaths = @('HKLM:\SOFTWARE\UMD Libraries\Intune\Pharos Remote')
         if ([Environment]::Is64BitOperatingSystem -and [Environment]::Is64BitProcess) {
             $sentinelPaths += 'HKLM:\SOFTWARE\WOW6432Node\UMD Libraries\Intune\Pharos Remote'
@@ -93,7 +98,7 @@ process {
             }
         }
 
-        Write-Output 'Pharos Remote uninstall command completed. Shared Pharos configuration was preserved.'
+        Write-Output 'Pharos Remote uninstall command completed. The managed Public Desktop shortcut was removed and shared Pharos configuration was preserved.'
     }
     catch {
         Write-Error -Message "Pharos Remote uninstallation failed: $($_.Exception.Message)" -ErrorAction Continue

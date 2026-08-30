@@ -2,7 +2,7 @@
 
 ## Summary
 
-This package silently installs Pharos Remote `9.2.10000.194` and configures it to connect to the Pharos Database Service at `LIBRDB407DV.ad.umd.edu:2355` with a 120-second timeout.
+This package silently installs Pharos Remote `9.2.10000.194`, configures it to connect to the Pharos Database Service at `LIBRDB407DV.ad.umd.edu:2355` with a 120-second timeout, and copies `Pharos Remote.lnk` from the all-users Start Menu to the Public Desktop.
 
 The package uses the registry-seeding behavior described in the referenced 2012 Uniprint 8.2 article, corroborated by the registry state captured after the local manual installation. The local installer is Uniprint 9.2, so validate install, launch, database login, and uninstall on a pilot device before broad assignment.
 
@@ -100,6 +100,7 @@ Detection requires all of the following:
 1. UMD post-install sentinel for package version and installer hash.
 2. Correct 32-bit Pharos Database Server values.
 3. `AdminLauncher.exe` and `Uninst.exe` in the recorded Pharos `Bin` directory.
+4. `C:\Users\Public\Desktop\Pharos Remote.lnk`.
 
 This avoids a false positive if registry settings are written but the vendor installer fails.
 
@@ -123,6 +124,8 @@ Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\WOW6432Node\Pharos\Database Server
 $LASTEXITCODE
 
 Get-Content -LiteralPath 'C:\ProgramData\PharosRemote\InstallPharosRemote.log' -Tail 100
+
+Test-Path -LiteralPath 'C:\Users\Public\Desktop\Pharos Remote.lnk'
 ```
 
 Expected detection exit code: `0`.
