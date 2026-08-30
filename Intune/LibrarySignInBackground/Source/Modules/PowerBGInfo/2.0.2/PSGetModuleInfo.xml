@@ -1,0 +1,159 @@
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">
+  <Obj RefId="0">
+    <TN RefId="0">
+      <T>Microsoft.PowerShell.Commands.PSRepositoryItemInfo</T>
+      <T>System.Management.Automation.PSCustomObject</T>
+      <T>System.Object</T>
+    </TN>
+    <MS>
+      <S N="Name">PowerBGInfo</S>
+      <S N="Version">2.0.2</S>
+      <S N="Type">Module</S>
+      <S N="Description">PowerBGInfo is a module that allows you to create background images with information about your environment.</S>
+      <S N="Author">Przemyslaw Klys</S>
+      <S N="CompanyName">Przemyslaw.Klys</S>
+      <S N="Copyright">(c) 2011 - 2026 Przemyslaw Klys @ Evotec. All rights reserved.</S>
+      <DT N="PublishedDate">2026-08-29T10:13:34-04:00</DT>
+      <Nil N="InstalledDate" />
+      <Nil N="UpdatedDate" />
+      <URI N="LicenseUri">https://github.com/EvotecIT/PowerBGInfo/blob/master/License</URI>
+      <URI N="ProjectUri">https://github.com/EvotecIT/PowerBGInfo</URI>
+      <URI N="IconUri">https://evotec.xyz/wp-content/uploads/2022/12/PowerBGInfo.png</URI>
+      <Obj N="Tags" RefId="1">
+        <TN RefId="1">
+          <T>System.Object[]</T>
+          <T>System.Array</T>
+          <T>System.Object</T>
+        </TN>
+        <LST>
+          <S>windows</S>
+          <S>image</S>
+          <S>monitor</S>
+          <S>bginfo</S>
+          <S>charts</S>
+          <S>topology</S>
+          <S>diagrams</S>
+          <S>PSModule</S>
+          <S>PSEdition_Desktop</S>
+          <S>PSEdition_Core</S>
+        </LST>
+      </Obj>
+      <Obj N="Includes" RefId="2">
+        <TN RefId="2">
+          <T>System.Collections.Hashtable</T>
+          <T>System.Object</T>
+        </TN>
+        <DCT>
+          <En>
+            <S N="Key">Workflow</S>
+            <Obj N="Value" RefId="3">
+              <TNRef RefId="1" />
+              <LST />
+            </Obj>
+          </En>
+          <En>
+            <S N="Key">Command</S>
+            <Obj N="Value" RefId="4">
+              <TNRef RefId="1" />
+              <LST>
+                <S>Export-BGInfoConfiguration</S>
+                <S>Invoke-BGInfo</S>
+                <S>New-BGInfo</S>
+                <S>New-BGInfoChart</S>
+                <S>New-BGInfoConfiguration</S>
+                <S>New-BGInfoImage</S>
+                <S>New-BGInfoLabel</S>
+                <S>New-BGInfoTopology</S>
+                <S>New-BGInfoTopologyEdge</S>
+                <S>New-BGInfoTopologyGroup</S>
+                <S>New-BGInfoTopologyNode</S>
+                <S>New-BGInfoValue</S>
+                <S>New-BGInfoVariable</S>
+                <S>New-BGInfoVisualCanvas</S>
+                <S>New-BGInfoVisualCanvasFeature</S>
+                <S>New-BGInfoVisualCanvasTile</S>
+              </LST>
+            </Obj>
+          </En>
+          <En>
+            <S N="Key">DscResource</S>
+            <Ref N="Value" RefId="3" />
+          </En>
+          <En>
+            <S N="Key">Cmdlet</S>
+            <Obj N="Value" RefId="5">
+              <TNRef RefId="1" />
+              <LST>
+                <S>Export-BGInfoConfiguration</S>
+                <S>Invoke-BGInfo</S>
+                <S>New-BGInfo</S>
+                <S>New-BGInfoChart</S>
+                <S>New-BGInfoConfiguration</S>
+                <S>New-BGInfoImage</S>
+                <S>New-BGInfoLabel</S>
+                <S>New-BGInfoTopology</S>
+                <S>New-BGInfoTopologyEdge</S>
+                <S>New-BGInfoTopologyGroup</S>
+                <S>New-BGInfoTopologyNode</S>
+                <S>New-BGInfoValue</S>
+                <S>New-BGInfoVariable</S>
+                <S>New-BGInfoVisualCanvas</S>
+                <S>New-BGInfoVisualCanvasFeature</S>
+                <S>New-BGInfoVisualCanvasTile</S>
+              </LST>
+            </Obj>
+          </En>
+          <En>
+            <S N="Key">RoleCapability</S>
+            <Ref N="Value" RefId="3" />
+          </En>
+          <En>
+            <S N="Key">Function</S>
+            <Ref N="Value" RefId="3" />
+          </En>
+        </DCT>
+      </Obj>
+      <Nil N="PowerShellGetFormatVersion" />
+      <Nil N="ReleaseNotes" />
+      <Obj N="Dependencies" RefId="6">
+        <TNRef RefId="1" />
+        <LST />
+      </Obj>
+      <S N="RepositorySourceLocation">https://www.powershellgallery.com/api/v2</S>
+      <S N="Repository">PSGallery</S>
+      <S N="PackageManagementProvider">NuGet</S>
+      <Obj N="AdditionalMetadata" RefId="7">
+        <TN RefId="3">
+          <T>System.Management.Automation.PSCustomObject</T>
+          <T>System.Object</T>
+        </TN>
+        <MS>
+          <S N="copyright">(c) 2011 - 2026 Przemyslaw Klys @ Evotec. All rights reserved.</S>
+          <S N="description">PowerBGInfo is a module that allows you to create background images with information about your environment.</S>
+          <S N="requireLicenseAcceptance">False</S>
+          <S N="isLatestVersion">True</S>
+          <S N="isAbsoluteLatestVersion">True</S>
+          <S N="versionDownloadCount">114</S>
+          <S N="downloadCount">612914</S>
+          <S N="packageSize">3999923</S>
+          <S N="published">8/29/2026 10:13:34 AM -04:00</S>
+          <S N="created">8/29/2026 10:13:34 AM -04:00</S>
+          <S N="lastUpdated">8/30/2026 12:40:01 AM -04:00</S>
+          <S N="tags">windows image monitor bginfo charts topology diagrams PSModule PSEdition_Desktop PSEdition_Core PSCmdlet_Export-BGInfoConfiguration PSCommand_Export-BGInfoConfiguration PSCmdlet_Invoke-BGInfo PSCommand_Invoke-BGInfo PSCmdlet_New-BGInfo PSCommand_New-BGInfo PSCmdlet_New-BGInfoChart PSCommand_New-BGInfoChart PSCmdlet_New-BGInfoConfiguration PSCommand_New-BGInfoConfiguration PSCmdlet_New-BGInfoImage PSCommand_New-BGInfoImage PSCmdlet_New-BGInfoLabel PSCommand_New-BGInfoLabel PSCmdlet_New-BGInfoTopology PSCommand_New-BGInfoTopology PSCmdlet_New-BGInfoTopologyEdge PSCommand_New-BGInfoTopologyEdge PSCmdlet_New-BGInfoTopologyGroup PSCommand_New-BGInfoTopologyGroup PSCmdlet_New-BGInfoTopologyNode PSCommand_New-BGInfoTopologyNode PSCmdlet_New-BGInfoValue PSCommand_New-BGInfoValue PSCmdlet_New-BGInfoVariable PSCommand_New-BGInfoVariable PSCmdlet_New-BGInfoVisualCanvas PSCommand_New-BGInfoVisualCanvas PSCmdlet_New-BGInfoVisualCanvasFeature PSCommand_New-BGInfoVisualCanvasFeature PSCmdlet_New-BGInfoVisualCanvasTile PSCommand_New-BGInfoVisualCanvasTile PSIncludes_Cmdlet</S>
+          <S N="developmentDependency">False</S>
+          <S N="updated">2026-08-30T00:40:01Z</S>
+          <S N="NormalizedVersion">2.0.2</S>
+          <S N="Authors">Przemyslaw Klys</S>
+          <S N="IsPrerelease">false</S>
+          <S N="ItemType">Module</S>
+          <S N="FileList">PowerBGInfo.nuspec|en-US\PowerBGInfo-help.xml|Lib\Core\ChartForgeX.dll|Lib\Core\DesktopManager.dll|Lib\Core\en-US\PowerBGInfo.PowerShell.dll-Help.xml|Lib\Core\Microsoft.Win32.SystemEvents.dll|Lib\Core\PowerBGInfo.dll|Lib\Core\PowerBGInfo.ModuleLoadContext.dll|Lib\Core\PowerBGInfo.PowerShell.dll|Lib\Core\PowerBGInfo.PowerShell.xml|Lib\Core\PowerForge.TargetFramework.txt|Lib\Core\runtimes\unix\lib\net6.0\System.Drawing.Common.dll|Lib\Core\runtimes\win\lib\net6.0\Microsoft.Win32.SystemEvents.dll|Lib\Core\runtimes\win\lib\net6.0\System.Drawing.Common.dll|Lib\Core\runtimes\win\lib\net8.0\System.Management.dll|Lib\Core\System.CodeDom.dll|Lib\Core\System.Drawing.Common.dll|Lib\Default\ChartForgeX.dll|Lib\Default\DesktopManager.dll|Lib\Default\Microsoft.Bcl.AsyncInterfaces.dll|Lib\Default\Microsoft.Win32.Registry.dll|Lib\Default\Microsoft.Win32.SystemEvents.dll|Lib\Default\PowerBGInfo.dll|Lib\Default\PowerBGInfo.ModuleLoadContext.dll|Lib\Default\PowerBGInfo.PowerShell.dll|Lib\Default\PowerBGInfo.PowerShell.xml|Lib\Default\PowerForge.TargetFramework.txt|Lib\Default\System.Buffers.dll|Lib\Default\System.Drawing.Common.dll|Lib\Default\System.Memory.dll|Lib\Default\System.Numerics.Vectors.dll|Lib\Default\System.Runtime.CompilerServices.Unsafe.dll|Lib\Default\System.Security.AccessControl.dll|Lib\Default\System.Security.Principal.Windows.dll|Lib\Default\System.Text.Encodings.Web.dll|Lib\Default\System.Text.Json.dll|Lib\Default\System.Threading.Tasks.Extensions.dll|Lib\Default\System.ValueTuple.dll|License|PowerBGInfo.Libraries.ps1|PowerBGInfo.psd1|PowerBGInfo.psm1</S>
+          <S N="GUID">91b9c52d-6a39-4a65-a276-409b9390ee04</S>
+          <S N="PowerShellVersion">5.1</S>
+          <S N="DotNetFrameworkVersion">4.7.2</S>
+          <S N="CompanyName">Evotec</S>
+        </MS>
+      </Obj>
+      <S N="InstalledLocation">/Users/cmcleod1/Documents/GitHub/StuffForWork/Intune/LibrarySignInBackground/Source/Modules/PowerBGInfo/2.0.2</S>
+    </MS>
+  </Obj>
+</Objs>
