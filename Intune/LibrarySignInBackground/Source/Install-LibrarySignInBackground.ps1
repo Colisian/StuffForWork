@@ -11,7 +11,7 @@
 .NOTES
     Author  : Oji McLeod, UMD Libraries
     Date    : 2026-08-29
-    Version : 1.0.1
+    Version : 1.0.2
     Context : SYSTEM, 64-bit Windows PowerShell 5.1 or later
 #>
 #Requires -Version 5.1
@@ -20,7 +20,7 @@
 param(
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string]$Version = '1.0.1'
+    [string]$Version = '1.0.2'
 )
 
 begin {
@@ -32,7 +32,9 @@ begin {
     $statePath = Join-Path $stateRoot 'rollback.json'
     $finalImage = Join-Path $componentRoot 'Library-SignIn-Background.jpg'
     $intermediateImage = Join-Path $stateRoot 'SignIn-Text.jpg'
-    $modulePackage = Join-Path $ScriptDir 'PowerBGInfo.2.0.2.nupkg'
+    # PowerShell 5.1 Expand-Archive accepts ZIP files only; this is the
+    # unmodified PowerShell Gallery NUPKG payload renamed with a .zip extension.
+    $modulePackage = Join-Path $ScriptDir 'PowerBGInfo.2.0.2.zip'
     $moduleRoot = Join-Path $componentRoot 'Modules\PowerBGInfo\2.0.2'
     $moduleManifest = Join-Path $moduleRoot 'PowerBGInfo.psd1'
     $requiredModuleFile = Join-Path $moduleRoot 'Lib\Default\ChartForgeX.dll'
@@ -46,7 +48,7 @@ begin {
         .SYNOPSIS
             Writes a timestamped message to the deployment log and pipeline.
         .NOTES
-            Author: Oji McLeod | Date: 2026-08-29 | Version: 1.0.1
+            Author: Oji McLeod | Date: 2026-08-29 | Version: 1.0.2
         #>
         [CmdletBinding()]
         param([Parameter(Mandatory)][string]$Message)
