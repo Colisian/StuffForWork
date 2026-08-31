@@ -11,7 +11,7 @@
 .NOTES
     Author  : Oji McLeod, UMD Libraries
     Date    : 2026-08-29
-    Version : 1.0.2
+    Version : 1.0.3
     Context : SYSTEM, 64-bit Windows PowerShell 5.1 or later
 #>
 #Requires -Version 5.1
@@ -20,7 +20,7 @@
 param(
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string]$Version = '1.0.2'
+    [string]$Version = '1.0.3'
 )
 
 begin {
@@ -48,7 +48,7 @@ begin {
         .SYNOPSIS
             Writes a timestamped message to the deployment log and pipeline.
         .NOTES
-            Author: Oji McLeod | Date: 2026-08-29 | Version: 1.0.2
+            Author: Oji McLeod | Date: 2026-08-29 | Version: 1.0.3
         #>
         [CmdletBinding()]
         param([Parameter(Mandatory)][string]$Message)
@@ -110,7 +110,10 @@ process {
 
         if (-not $PSCmdlet.ShouldProcess($finalImage, 'Create and apply Library sign-in background')) { return }
 
-        New-BGInfo -Target File -OutputFileName 'SignIn-Text.jpg' -ConfigurationDirectory $stateRoot `
+        # A nonexistent input path tells PowerBGInfo to create a new canvas.
+        # Without it, PowerBGInfo automatically uses the current wallpaper.
+        $blankCanvas = Join-Path $stateRoot ("Blank-{0}.jpg" -f [guid]::NewGuid().ToString('N'))
+        New-BGInfo -Target File -FilePath $blankCanvas -OutputFileName 'SignIn-Text.jpg' -ConfigurationDirectory $stateRoot `
             -BackgroundColor '#0078D7' -TextPosition TopLeft -SpaceX 105 -SpaceY 160 `
             -FontFamilyName 'Segoe UI' -FontSize 24 -FontWeight 600 -Color White `
             -SpaceBetweenLines 28 -DisableWallpaperSlideshow {

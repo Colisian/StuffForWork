@@ -10,11 +10,11 @@
 .NOTES
     Author  : Oji McLeod, UMD Libraries
     Date    : 2026-08-29
-    Version : 1.0.2
+    Version : 1.0.3
 #>
 #Requires -Version 5.1
 [CmdletBinding()]
-param([string]$ExpectedVersion = '1.0.2')
+param([string]$ExpectedVersion = '1.0.3')
 
 begin {
     $ErrorActionPreference = 'Stop'

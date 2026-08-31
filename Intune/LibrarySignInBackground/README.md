@@ -25,7 +25,7 @@ Visitors: Check at the desk to obtain a temporary Guest Account
 Computer Name: <device hostname>
 ```
 
-The generated 16:9 image has a Windows-blue background, left-aligned guidance, and a bottom-centred computer name. The device hostname is rendered locally during installation, so no shared static image or external web host is required.
+The generated image has a Windows-blue background, left-aligned guidance, and a bottom-centred computer name. The installer explicitly starts with a blank canvas so PowerBGInfo cannot inherit the existing desktop wallpaper. The device hostname is rendered locally during installation, so no shared static image or external web host is required.
 
 The package pins PowerBGInfo **2.0.2** as `Source\PowerBGInfo.2.0.2.zip`. It is the unmodified PowerShell Gallery package, renamed because Windows PowerShell 5.1 only accepts `.zip` with `Expand-Archive`. The installer validates its SHA-256 hash and expands it under `C:\ProgramData\UMDLibraries\LibrarySignInBackground\Modules` before importing it. Bundling the module as one archive prevents partial module payloads. Endpoints do not use `Install-Module` or download code during installation.
 
@@ -87,7 +87,7 @@ Create a **Windows app (Win32)** and upload the generated package.
 |---|---|
 | Name | `UMD Libraries - Sign-In Background` |
 | Install behavior | `System` |
-| App version | `1.0.2` |
+| App version | `1.0.3` |
 | Restart behavior | `No specific action` |
 | Install command | `Install-LibrarySignInBackground.cmd` |
 | Uninstall command | `Uninstall-LibrarySignInBackground.cmd` |
@@ -121,7 +121,7 @@ Get-Content 'C:\ProgramData\UMDLibraries\LibrarySignInBackground\Install-Library
 Expected detection output:
 
 ```text
-UMD Libraries sign-in background 1.0.2 detected
+UMD Libraries sign-in background 1.0.3 detected
 0
 ```
 

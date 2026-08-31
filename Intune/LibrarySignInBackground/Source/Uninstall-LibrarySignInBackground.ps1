@@ -9,7 +9,7 @@
 .NOTES
     Author  : Oji McLeod, UMD Libraries
     Date    : 2026-08-29
-    Version : 1.0.2
+    Version : 1.0.3
 #>
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
@@ -29,7 +29,7 @@ begin {
         .SYNOPSIS
             Writes a timestamped message to the uninstall log and pipeline.
         .NOTES
-            Author: Oji McLeod | Date: 2026-08-29 | Version: 1.0.2
+            Author: Oji McLeod | Date: 2026-08-29 | Version: 1.0.3
         #>
         [CmdletBinding()]
         param([Parameter(Mandatory)][string]$Message)
