@@ -27,7 +27,7 @@ Computer Name: <device hostname>
 
 The generated 16:9 image has a Windows-blue background, left-aligned guidance, and a bottom-centred computer name. The device hostname is rendered locally during installation, so no shared static image or external web host is required.
 
-The package pins PowerBGInfo **2.0.2** under `Source\Modules`; endpoints do not use `Install-Module` or download code during installation. The script applies the image with PowerBGInfo and writes the local `LockScreenImage` policy to make the device setting explicit.
+The package pins PowerBGInfo **2.0.2** as `Source\PowerBGInfo.2.0.2.nupkg`. The installer validates its SHA-256 hash and expands it under `C:\ProgramData\UMDLibraries\LibrarySignInBackground\Modules` before importing it. Bundling the module as one archive prevents partial module payloads. Endpoints do not use `Install-Module` or download code during installation.
 
 ---
 
@@ -40,10 +40,10 @@ LibrarySignInBackground/
 ├── Intune/
 │   └── Detect-LibrarySignInBackground.ps1
 ├── Source/
-│   ├── Modules/PowerBGInfo/2.0.2/     # Pinned MIT-licensed dependency
 │   ├── Install-LibrarySignInBackground.cmd
 │   ├── Install-LibrarySignInBackground.ps1
 │   ├── Package.placeholder
+│   ├── PowerBGInfo.2.0.2.nupkg        # Pinned MIT-licensed dependency
 │   ├── Uninstall-LibrarySignInBackground.cmd
 │   └── Uninstall-LibrarySignInBackground.ps1
 └── README.md
@@ -87,14 +87,13 @@ Create a **Windows app (Win32)** and upload the generated package.
 |---|---|
 | Name | `UMD Libraries - Sign-In Background` |
 | Install behavior | `System` |
-| App version | `1.0.0` |
+| App version | `1.0.1` |
 | Restart behavior | `No specific action` |
 | Install command | `Install-LibrarySignInBackground.cmd` |
 | Uninstall command | `Uninstall-LibrarySignInBackground.cmd` |
-| 32-bit script on 64-bit devices | `No` |
 | Detection | Custom script: `Intune\Detect-LibrarySignInBackground.ps1` |
 
-The same package supports Intune's native **PowerShell script installer**: upload `Source\Install-LibrarySignInBackground.ps1`, set it to run as **System** and 64-bit, and retain all files in the package. The script uses `$PSScriptRoot` when available and otherwise uses its current directory, so both deployment paths work without editing it.
+Use the command-line installer above (**Method A**) for the pilot. The CMD wrapper deliberately starts 64-bit Windows PowerShell and the installer expands the pinned module archive locally. Intune also supports the native PowerShell script-installer workflow, but use it only after this package succeeds with the command-line method in your tenant.
 
 Assign it to a small **device** pilot group first. Do not assign a Settings Catalog or custom OMA-URI lock-screen-image policy to the same devices; multiple policy owners can overwrite each other.
 
@@ -122,7 +121,7 @@ Get-Content 'C:\ProgramData\UMDLibraries\LibrarySignInBackground\Install-Library
 Expected detection output:
 
 ```text
-UMD Libraries sign-in background 1.0.0 detected
+UMD Libraries sign-in background 1.0.1 detected
 0
 ```
 

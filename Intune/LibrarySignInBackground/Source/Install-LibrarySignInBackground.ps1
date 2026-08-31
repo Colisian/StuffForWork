@@ -11,7 +11,7 @@
 .NOTES
     Author  : Oji McLeod, UMD Libraries
     Date    : 2026-08-29
-    Version : 1.0.0
+    Version : 1.0.1
     Context : SYSTEM, 64-bit Windows PowerShell 5.1 or later
 #>
 #Requires -Version 5.1
@@ -20,7 +20,7 @@
 param(
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string]$Version = '1.0.0'
+    [string]$Version = '1.0.1'
 )
 
 begin {
@@ -32,7 +32,11 @@ begin {
     $statePath = Join-Path $stateRoot 'rollback.json'
     $finalImage = Join-Path $componentRoot 'Library-SignIn-Background.jpg'
     $intermediateImage = Join-Path $stateRoot 'SignIn-Text.jpg'
-    $moduleManifest = Join-Path $ScriptDir 'Modules\PowerBGInfo\2.0.2\PowerBGInfo.psd1'
+    $modulePackage = Join-Path $ScriptDir 'PowerBGInfo.2.0.2.nupkg'
+    $moduleRoot = Join-Path $componentRoot 'Modules\PowerBGInfo\2.0.2'
+    $moduleManifest = Join-Path $moduleRoot 'PowerBGInfo.psd1'
+    $requiredModuleFile = Join-Path $moduleRoot 'Lib\Default\ChartForgeX.dll'
+    $expectedModuleHash = '036BAD03155983832EFC02C1E8B25798E89C7978CF50BB6B320393FB82DE75F0'
     $personalizationPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
     $systemPolicyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System'
     $sentinelPath = 'HKLM:\SOFTWARE\UMDLibraries\Intune\LibrarySignInBackground'
@@ -42,7 +46,7 @@ begin {
         .SYNOPSIS
             Writes a timestamped message to the deployment log and pipeline.
         .NOTES
-            Author: Oji McLeod | Date: 2026-08-29 | Version: 1.0.0
+            Author: Oji McLeod | Date: 2026-08-29 | Version: 1.0.1
         #>
         [CmdletBinding()]
         param([Parameter(Mandatory)][string]$Message)
@@ -64,8 +68,21 @@ process {
         }
         Write-Log "Starting Library Sign-In Background v$Version as $([Security.Principal.WindowsIdentity]::GetCurrent().Name)."
 
-        if (-not (Test-Path -LiteralPath $moduleManifest -PathType Leaf)) {
-            throw "Bundled PowerBGInfo module was not found: $moduleManifest"
+        if (-not (Test-Path -LiteralPath $modulePackage -PathType Leaf)) {
+            throw "Bundled PowerBGInfo package was not found: $modulePackage"
+        }
+        if ((Get-FileHash -LiteralPath $modulePackage -Algorithm SHA256).Hash -ne $expectedModuleHash) {
+            throw "Bundled PowerBGInfo package failed SHA-256 validation: $modulePackage"
+        }
+        if (-not (Test-Path -LiteralPath $moduleManifest -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $requiredModuleFile -PathType Leaf)) {
+            if (Test-Path -LiteralPath $moduleRoot) { Remove-Item -LiteralPath $moduleRoot -Recurse -Force }
+            New-Item -Path $moduleRoot -ItemType Directory -Force | Out-Null
+            Expand-Archive -LiteralPath $modulePackage -DestinationPath $moduleRoot -Force
+        }
+        if (-not (Test-Path -LiteralPath $moduleManifest -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $requiredModuleFile -PathType Leaf)) {
+            throw "PowerBGInfo expansion is incomplete. Check endpoint-security events for '$requiredModuleFile'."
         }
         Import-Module -Name $moduleManifest -Force -ErrorAction Stop
 
