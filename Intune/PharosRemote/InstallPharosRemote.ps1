@@ -5,7 +5,8 @@
 .DESCRIPTION
     Validates the bundled Pharos Remote installer, configures the 32-bit Pharos
     Database Server registry values, runs the installer silently, validates the
-    installed files, and writes an Intune detection sentinel only after success.
+    installed files, copies the Pharos Remote shortcut to the Public Desktop,
+    and writes an Intune detection sentinel only after success.
 
 .PARAMETER DatabaseServer
     FQDN of the server running the Pharos Database Service (not the SQL server).
@@ -19,7 +20,7 @@
 .NOTES
     Author: Oji / University of Maryland Libraries
     Date: 2026-08-26
-    Version: 1.0.0
+    Version: 1.1.0
     Runs non-interactively as SYSTEM under the Intune Management Extension.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -45,6 +46,10 @@ begin {
     $packageVersion = '9.2.10000.194'
     $logDirectory = Join-Path -Path $env:ProgramData -ChildPath 'PharosRemote'
     $logPath = Join-Path -Path $logDirectory -ChildPath 'InstallPharosRemote.log'
+    $commonStartMenu = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonStartMenu)
+    $startMenuShortcut = Join-Path -Path $commonStartMenu -ChildPath 'Programs\Pharos\Pharos Remote.lnk'
+    $publicDesktopDirectory = Join-Path -Path $env:PUBLIC -ChildPath 'Desktop'
+    $publicDesktopShortcut = Join-Path -Path $publicDesktopDirectory -ChildPath 'Pharos Remote.lnk'
     $transcriptStarted = $false
     $finalExitCode = 0
 }
@@ -138,6 +143,17 @@ process {
             throw 'The installer returned success, but AdminLauncher.exe and Uninst.exe were not found in a default Pharos\Bin directory.'
         }
 
+        if (-not (Test-Path -LiteralPath $startMenuShortcut -PathType Leaf)) {
+            throw "The installer returned success, but the expected Start Menu shortcut was not found: $startMenuShortcut"
+        }
+        if (-not (Test-Path -LiteralPath $publicDesktopDirectory)) {
+            New-Item -Path $publicDesktopDirectory -ItemType Directory -Force | Out-Null
+        }
+        Copy-Item -LiteralPath $startMenuShortcut -Destination $publicDesktopShortcut -Force
+        if (-not (Test-Path -LiteralPath $publicDesktopShortcut -PathType Leaf)) {
+            throw "Failed to create the Public Desktop shortcut: $publicDesktopShortcut"
+        }
+
         $sentinelRegPath = 'HKLM:\SOFTWARE\UMD Libraries\Intune\Pharos Remote'
         if (-not (Test-Path -LiteralPath $sentinelRegPath)) {
             New-Item -Path $sentinelRegPath -Force | Out-Null
@@ -149,8 +165,9 @@ process {
         Set-ItemProperty -LiteralPath $sentinelRegPath -Name 'Timeout' -Value $TimeoutSeconds -Type DWord -Force
         Set-ItemProperty -LiteralPath $sentinelRegPath -Name 'InstallDateUtc' -Value ([DateTime]::UtcNow.ToString('o')) -Type String -Force
         Set-ItemProperty -LiteralPath $sentinelRegPath -Name 'InstallPath' -Value $installedBinPath -Type String -Force
+        Set-ItemProperty -LiteralPath $sentinelRegPath -Name 'DesktopShortcutPath' -Value $publicDesktopShortcut -Type String -Force
 
-        Write-Output "Pharos Remote $packageVersion installed successfully to $installedBinPath."
+        Write-Output "Pharos Remote $packageVersion installed successfully to $installedBinPath with Public Desktop shortcut $publicDesktopShortcut."
         $finalExitCode = $installerExitCode
     }
     catch {

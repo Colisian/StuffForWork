@@ -4,12 +4,13 @@
 
 .DESCRIPTION
     Confirms the post-install sentinel, expected Database Service settings, and
-    core Pharos Remote files. Exits 0 when compliant and 1 when not detected.
+    core Pharos Remote files, and the Public Desktop shortcut. Exits 0 when
+    compliant and 1 when not detected.
 
 .NOTES
     Author: Oji / University of Maryland Libraries
     Date: 2026-08-26
-    Version: 1.0.0
+    Version: 1.1.0
     Intune detection output is intentionally kept under 2,048 characters.
 #>
 [CmdletBinding()]
@@ -22,6 +23,7 @@ begin {
     $expectedDatabaseServer = 'LIBRDB407DV.ad.umd.edu'
     $expectedPort = '2355'
     $expectedTimeout = 120
+    $publicDesktopShortcut = Join-Path -Path (Join-Path -Path $env:PUBLIC -ChildPath 'Desktop') -ChildPath 'Pharos Remote.lnk'
 }
 
 process {
@@ -87,8 +89,11 @@ process {
         if (-not (Test-Path -LiteralPath (Join-Path -Path $installPath -ChildPath 'Uninst.exe') -PathType Leaf)) {
             throw 'Uninst.exe is missing.'
         }
+        if (-not (Test-Path -LiteralPath $publicDesktopShortcut -PathType Leaf)) {
+            throw 'The Public Desktop Pharos Remote shortcut is missing.'
+        }
 
-        Write-Output "Pharos Remote $expectedPackageVersion detected and configured."
+        Write-Output "Pharos Remote $expectedPackageVersion detected with Public Desktop shortcut."
         exit 0
     }
     catch {
