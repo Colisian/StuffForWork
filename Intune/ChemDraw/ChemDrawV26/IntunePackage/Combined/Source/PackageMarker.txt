@@ -1,2 +1,3 @@
 ChemDraw 26 combined Intune payload
 Version=26.0.0
+WrapperVersion=2.0.1

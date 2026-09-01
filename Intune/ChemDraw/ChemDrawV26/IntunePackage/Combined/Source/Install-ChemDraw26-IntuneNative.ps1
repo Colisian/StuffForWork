@@ -17,7 +17,7 @@ Forces the x86 Applications MSI for ChemFinder or 32-bit Office integration.
 .NOTES
 Author: Oji / University of Maryland Libraries
 Date: 2026-09-01
-Version: 2.0.0
+Version: 2.0.1
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -80,6 +80,25 @@ begin {
         param([Parameter(Mandatory)][string]$ProductCode)
         return (Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$ProductCode") -or
                (Test-Path -LiteralPath "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$ProductCode")
+    }
+
+    function Get-WebView2RuntimeVersion {
+        <# .SYNOPSIS Returns the installed per-machine WebView2 Runtime version. .NOTES Author: Oji; Date: 2026-09-01; Version: 2.0.1 #>
+        [CmdletBinding()]
+        param()
+        $clientId = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+        $registryPaths = @(
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$clientId",
+            "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$clientId"
+        )
+        foreach ($registryPath in $registryPaths) {
+            $versionText = (Get-ItemProperty -LiteralPath $registryPath -Name 'pv' -ErrorAction SilentlyContinue).pv
+            $parsedVersion = $null
+            if ($versionText -and [version]::TryParse($versionText, [ref]$parsedVersion) -and $parsedVersion -gt [version]'0.0.0.0') {
+                return $versionText
+            }
+        }
+        return $null
     }
 
     function Get-IncompatibleChemDraw {
@@ -145,7 +164,23 @@ process {
         else { Write-DeploymentLog ".NET Framework 4.8 or later is already present (Release $dotNetRelease)." }
         Invoke-DeploymentProcess -FilePath $vc86 -ArgumentList @('/q','/norestart') -SuccessCodes @(0,1638,1641,3010) | Out-Null
         Invoke-DeploymentProcess -FilePath $vc64 -ArgumentList @('/q','/norestart') -SuccessCodes @(0,1638,1641,3010) | Out-Null
-        Invoke-DeploymentProcess -FilePath $webView -ArgumentList @('/silent','/install') -SuccessCodes @(0,1641,3010) | Out-Null
+        $webViewVersion = Get-WebView2RuntimeVersion
+        if ($webViewVersion) {
+            Write-DeploymentLog "Microsoft Edge WebView2 Runtime $webViewVersion is already installed; skipping the bundled installer."
+        }
+        else {
+            try {
+                Invoke-DeploymentProcess -FilePath $webView -ArgumentList @('/silent','/install') -SuccessCodes @(0,1641,3010) | Out-Null
+            }
+            catch {
+                # Some Evergreen installers return a nonzero result when Edge Update completes or already owns the runtime.
+                $webViewVersion = Get-WebView2RuntimeVersion
+                if (-not $webViewVersion) { throw }
+                Write-DeploymentLog "WebView2 installer returned a nonzero result, but runtime $webViewVersion is registered; continuing."
+            }
+            if (-not $webViewVersion) { $webViewVersion = Get-WebView2RuntimeVersion }
+            if (-not $webViewVersion) { throw 'WebView2 installation completed without registering a valid per-machine runtime.' }
+        }
 
         if (-not (Test-MsiProduct $coreCode)) {
             $log = Join-Path $logRoot 'Revvity_ChemDraw_26.0.0_x64.msi.log'

@@ -4,8 +4,9 @@ Hash algorithm: SHA-256
 
 Package:
   Combined\Output\ChemDraw26-Combined.intunewin
-  Size: 962101507 bytes (917.5 MiB)
-  SHA-256: 5E7866BD3EDD0AB106875C6D81B2211CFEEC48D7A5D5B7FC244715A118B88CE0
+  Wrapper revision: 2.0.1
+  Size: 962102067 bytes (917.5 MiB)
+  SHA-256: 0688994EE77583288D584E85E463BF1DF3FF6EF2864A68AD83BEBEC43E2ABF14
 
 Intune setup placeholder:
   PackageMarker.txt
@@ -23,5 +24,7 @@ MSI product codes:
   ChemDraw Applications 26 x86: {6857F9E2-AC06-471D-9777-3AB416E468CE}
 
 Notes:
+  Revision 2.0.1 detects an existing WebView2 Evergreen Runtime before invoking the bundled installer.
+  A nonzero WebView2 installer result is tolerated only when a valid per-machine runtime is registered afterward.
   The activation ID is intentionally excluded from this manifest.
   Restrict access to the source folder because Activate.ini contains licensing data.

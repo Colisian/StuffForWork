@@ -31,6 +31,8 @@ Final Intune detection sentinel
 
 The package uses Intune's native PowerShell installer fields for both installation and uninstallation. No PowerShell command line is required in the Intune Program settings.
 
+Current wrapper revision: `2.0.1`. This revision detects an installed WebView2 Evergreen Runtime before attempting prerequisite installation.
+
 ---
 
 ## Combined Package Layout
@@ -133,7 +135,7 @@ The combined installer performs these actions:
 2. Removes incompatible ChemDraw versions 22 through 25.
 3. Installs .NET Framework 4.8 when required.
 4. Installs the x86 and x64 Visual C++ redistributables.
-5. Installs WebView2.
+5. Detects WebView2 from Microsoft's per-machine runtime registry entry and installs it only when missing.
 6. Installs `Revvity_ChemDraw_26.0.0_x64.msi`.
 7. Installs `Revvity_ChemDraw_Applications_26.0.0_x64.msi`.
 8. Installs the x86 Applications MSI when 32-bit Office is detected.
@@ -202,6 +204,7 @@ Detection output remains below the Intune 2048-character limit.
 - The activation ID is not printed in scripts, logs, documentation, or the package manifest.
 - Activation requires outbound TCP 443 access to `revvitysignals.compliance.flexnetoperations.com`.
 - Logs and MSI verbose logs remain under `C:\ProgramData\UMDLibraries\ChemDraw\Logs`.
+- WebView2 installer failures are accepted only when the wrapper confirms that a valid per-machine Evergreen Runtime is registered after the attempt.
 - Do not create broad CrowdStrike exclusions. The vendor MSI and activation files have valid Revvity signatures.
 - If deactivation fails, obsolete the endpoint in the Revvity Download Center to recover the license seat.
 - The previous two-app and incomplete builds are retained under `Superseded` for audit purposes and must not be deployed.
