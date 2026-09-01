@@ -22,6 +22,8 @@
 *.cab
 *.pdf
 *.intunewin
+*.intunewin.*
+**/Activate.ini
 *.DS_Store
 /Fonts_Rick/*
 !/Fonts_Rick/

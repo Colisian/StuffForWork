@@ -1,0 +1,14 @@
+ChemDraw 26 Two-App Intune Package Manifest
+Generated: 2026-09-01
+Hash algorithm: SHA-256
+
+8748C2B6E3F997B34C301541821FB934CF73E4F2D437B905075254B1CCB74160  Core\Output\Install-ChemDraw26.intunewin  400984173 bytes
+7B7B3287B61ECFDABE7CE3DD01B0404517514991AEB3D357B2ED3FCA00ECB317  Applications\Output\Install-ChemDraw26Applications.intunewin  745828821 bytes
+
+Main ChemDraw MSI product code: {C5C974CB-1827-47CC-9116-0B0C2B6903A2}
+Applications x64 MSI product code: {39787D88-4566-4929-9C81-A086DAEB1B21}
+Applications x86 MSI product code: {6857F9E2-AC06-471D-9777-3AB416E468CE}
+
+Deployment order: Main ChemDraw first, ChemDraw Applications second.
+Bulk activation is performed only by the second package.
+The institutional activation ID is intentionally excluded from this manifest.

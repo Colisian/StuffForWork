@@ -1,0 +1,27 @@
+ChemDraw 26 Combined Intune Package Manifest
+Generated: 2026-09-01
+Hash algorithm: SHA-256
+
+Package:
+  Combined\Output\ChemDraw26-Combined.intunewin
+  Size: 962101507 bytes (917.5 MiB)
+  SHA-256: 5E7866BD3EDD0AB106875C6D81B2211CFEEC48D7A5D5B7FC244715A118B88CE0
+
+Intune setup placeholder:
+  PackageMarker.txt
+
+Deployment sequence:
+  1. Install ChemDraw 26 core (x64)
+  2. Install ChemDraw Applications 26 (x64)
+  3. Install ChemDraw Applications 26 (x86) only when 32-bit Office is detected
+  4. Perform silent bulk activation
+  5. Write the Intune detection sentinel
+
+MSI product codes:
+  ChemDraw 26 core x64: {C5C974CB-1827-47CC-9116-0B0C2B6903A2}
+  ChemDraw Applications 26 x64: {39787D88-4566-4929-9C81-A086DAEB1B21}
+  ChemDraw Applications 26 x86: {6857F9E2-AC06-471D-9777-3AB416E468CE}
+
+Notes:
+  The activation ID is intentionally excluded from this manifest.
+  Restrict access to the source folder because Activate.ini contains licensing data.
