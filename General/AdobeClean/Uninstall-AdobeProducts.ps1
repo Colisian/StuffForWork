@@ -93,10 +93,30 @@
 .NOTES
     Author  : Oji (cmcleod1)
     Date    : 2026-09-01
-    Version : 1.3.0
+    Version : 1.3.4
     Run As  : SYSTEM (Intune) or local Administrator
 
     CHANGELOG
+      1.3.4 - Sweep now distinguishes 135 (wrong baseVersion) from any other
+              non-zero code (baseVersion recognised, uninstall itself failed)
+              and reports the recognised values plus where Adobe logs them.
+      1.3.3 - baseVersion sweep now walks MAJOR versions down as well as
+              minors. Bridge/Lightroom sit on a rolling train and keep an old
+              base version (Adobe documents Bridge as 12.0.0) while shipping
+              16.x/9.x, so the correct value was unreachable. Capped at 48
+              candidates (~48 s worst case).
+            - Program Files\Adobe\Common protected from -RemoveLeftoverFolders.
+      1.3.2 - application.json lookup no longer depends on InstallLocation
+              (empty for most HD apps): also searches Program Files\Adobe
+              folders matching the product name and per-sapCode HD staging
+              paths, and only trusts a file that names the sapCode.
+      1.3.1 - baseVersion now read from the app's own application.json when
+              present (authoritative); candidate list extended with 3-part
+              forms (16.0.0) and a descending-minor sweep. Bridge/Lightroom
+              failed at 135 because only 2-part forms were tried.
+            - Products removed as a side effect of another app's uninstall
+              (shared components like UXP WebView Support) are now counted
+              and logged instead of silently skipped.
       1.3.0 - FIX: --baseVersion must be the ORIGINAL install version (27.0),
               not the current updated version the registry reports (27.10).
               Only never-updated apps worked. Now tries major.0 -> exact ->
@@ -153,7 +173,7 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $ScriptVersion = '1.3.0'
+    $ScriptVersion = '1.3.4'
 
     # Works when run as a file (PSScriptRoot set) AND when pasted into Intune (CWD = unpacked package)
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
@@ -167,7 +187,8 @@ begin {
         'Creative Cloud Experience',
         'Adobe Sync',
         'Adobe Desktop Common',
-        'AdobeGCClient'
+        'AdobeGCClient',
+        '\\Adobe\\Common$'     # Program Files\Adobe\Common - shared runtime, not a product folder
     )
     $Timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $LogFile = Join-Path $LogPath "AdobeUninstall-$Timestamp.log"
@@ -301,18 +322,86 @@ begin {
         return @($cl, '')
     }
 
+    function Get-BaseVersionFromJson {
+        <# Authoritative local source: every HD app ships an application.json carrying its
+           real BaseVersion (Adobe's own docs point admins at Build\HD\<sap>\Application.json).
+           Search is bounded to 3 levels under the install folder to stay fast. #>
+        param([string]$InstallLocation, [string]$SapCode, [string]$ProductName)
+
+        # Candidate roots: the registered InstallLocation (often EMPTY for HD apps), then
+        # Program Files\Adobe folders whose name matches the product, then the HD product
+        # staging area which keeps a per-sapCode application.json.
+        $roots = [System.Collections.Generic.List[string]]::new()
+        if ($InstallLocation -and (Test-Path -LiteralPath $InstallLocation)) { $roots.Add($InstallLocation) }
+
+        if ($ProductName) {
+            # "Adobe Bridge 2026" -> match folders starting "Adobe Bridge"
+            $stem = ($ProductName -replace '\s+\d{4}$', '').Trim()
+            foreach ($base in @("$env:ProgramFiles\Adobe", "${env:ProgramFiles(x86)}\Adobe")) {
+                if (-not (Test-Path -LiteralPath $base)) { continue }
+                Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "$stem*" } |
+                    ForEach-Object { $roots.Add($_.FullName) }
+            }
+        }
+        if ($SapCode) {
+            foreach ($hd in @(
+                "${env:ProgramFiles(x86)}\Common Files\Adobe\Installers\$SapCode",
+                "$env:ProgramData\Adobe\HDBox\$SapCode",
+                "${env:ProgramFiles(x86)}\Common Files\Adobe\caps\$SapCode"
+            )) { if (Test-Path -LiteralPath $hd) { $roots.Add($hd) } }
+        }
+
+        foreach ($root in ($roots | Select-Object -Unique)) {
+            try {
+                foreach ($json in (Get-ChildItem -LiteralPath $root -Filter 'application.json' -Recurse -Depth 3 -File -ErrorAction SilentlyContinue)) {
+                    $raw = Get-Content -LiteralPath $json.FullName -Raw -ErrorAction SilentlyContinue
+                    if (-not $raw) { continue }
+                    # Only trust a file that also names this sapCode, when we know it
+                    if ($SapCode -and $raw -notmatch [regex]::Escape($SapCode)) { continue }
+                    # Property casing varies across builds (BaseVersion / baseVersion)
+                    if ($raw -match '"[Bb]ase[Vv]ersion"\s*:\s*"([^"]+)"') {
+                        Write-Log "  baseVersion $($Matches[1]) from $($json.FullName)"
+                        return $Matches[1]
+                    }
+                }
+            }
+            catch { }
+        }
+        return $null
+    }
+
     function Get-BaseVersionCandidate {
         <# HD's --baseVersion is the version of the ORIGINAL install, not the current
            (updated) version the registry reports. Photoshop 27.10 -> base 27.0.
            Most apps use major.0; a few (Lightroom, Rush, UXP) may use major.minor.
            Wrong guesses are declined by the engine in ~1 s with exit 135, so try a few. #>
-        param([string]$Version)
+        param([string]$Version, [string]$Known, [int]$MaxCandidates = 48)
         $parts = $Version.Split('.')
+        $maj = $parts[0]
+        $majVal = 0; $majOk = [int]::TryParse($maj, [ref]$majVal)
+        $minVal = 0; $minOk = ($parts.Count -ge 2) -and [int]::TryParse($parts[1], [ref]$minVal)
+
         $c = [System.Collections.Generic.List[string]]::new()
-        if ($parts.Count -ge 1) { $c.Add("$($parts[0]).0") }           # 27.0   (most likely)
-        $c.Add($Version)                                                # 27.10  (exact, works when never updated)
-        if ($parts.Count -ge 2) { $c.Add("$($parts[0]).$($parts[1])") } # 27.10  (major.minor of a 3-part version)
-        return @($c | Select-Object -Unique)
+        if ($Known) { $c.Add($Known) }                                   # application.json - authoritative
+        $c.Add("$maj.0")                                                 # 27.0    most common form
+        $c.Add("$maj.0.0")                                               # 16.0.0  Adobe also publishes 3-part bases
+        $c.Add($Version)                                                 # 27.10   exact (never-updated apps)
+        if ($parts.Count -ge 2) {
+            $c.Add("$maj.$($parts[1])")                                  # 9.5
+            $c.Add("$maj.$($parts[1]).0")                                # 9.5.0
+        }
+        # Walk minors down inside the installed major
+        if ($minOk) { for ($m = $minVal - 1; $m -ge 0; $m--) { $c.Add("$maj.$m") } }
+
+        # Walk MAJORS down. Apps on a rolling release train (Bridge, Lightroom) keep the
+        # base version of their original release for years while shipping much later
+        # product versions - Adobe documents Bridge as base 12.0.0. Without this the
+        # correct base is unreachable. Each miss costs ~1 s and exit 135.
+        if ($majOk) {
+            for ($M = $majVal - 1; $M -ge 1; $M--) { $c.Add("$M.0"); $c.Add("$M.0.0") }
+        }
+        return @($c | Where-Object { $_ } | Select-Object -Unique | Select-Object -First $MaxCandidates)
     }
 
     function Register-Result {
@@ -469,18 +558,39 @@ process {
         $prefValue = if ($RemoveUserPreferences) { 'true' } else { 'false' }
 
         foreach ($p in $hdAll) {
-            if (-not (Test-Path $p.Key)) { continue }                                  # already gone
             if ($p.Name -in $script:removed) { continue }
+            if (-not (Test-Path $p.Key)) {
+                # Shared components (e.g. UXP WebView Support) go with the last app that needed them
+                Write-Log "Removed: $($p.Name) (went with an earlier uninstall)" -Level SUCCESS
+                $script:removed.Add($p.Name)
+                continue
+            }
 
             if ($hdSetup -and $p.SapCode -and $p.BaseVersion) {
                 # Try each baseVersion candidate until the Uninstall key disappears
                 if ($PSCmdlet.ShouldProcess($p.Name, 'Uninstall (HDBox engine)')) {
+                    $known = Get-BaseVersionFromJson -InstallLocation $p.InstallLocation -SapCode $p.SapCode -ProductName $p.Name
                     $code = -1
-                    foreach ($bv in (Get-BaseVersionCandidate -Version $p.BaseVersion)) {
+                    $recognized = [System.Collections.Generic.List[string]]::new()
+                    foreach ($bv in (Get-BaseVersionCandidate -Version $p.BaseVersion -Known $known)) {
                         $uArgs = "--uninstall=1 --sapCode=$($p.SapCode) --baseVersion=$bv --platform=$($p.Platform) --deleteUserPreferences=$prefValue"
                         $code = Invoke-Uninstaller -FilePath $hdSetup -ArgumentList $uArgs -Label $p.Name
-                        if (-not (Test-Path $p.Key)) { break }
-                        Write-Log "  baseVersion $bv declined (exit $code) - trying next candidate" -Level WARN
+                        if (-not (Test-Path $p.Key)) {
+                            Write-Log "  baseVersion $bv accepted"
+                            break
+                        }
+                        if ($code -eq 135) {
+                            Write-Log "  baseVersion $bv declined (135 = not installed) - trying next candidate" -Level WARN
+                        }
+                        else {
+                            # Not 135: the engine recognised this baseVersion and then failed.
+                            # That is the value to investigate in Adobe's installer logs.
+                            Write-Log "  baseVersion $bv RECOGNISED but uninstall failed (exit $code) - continuing sweep" -Level ERROR
+                            $recognized.Add("$bv (exit $code)")
+                        }
+                    }
+                    if ((Test-Path $p.Key) -and $recognized.Count -gt 0) {
+                        Write-Log "  $($p.SapCode): engine accepted baseVersion(s) $($recognized -join ', ') but could not complete. Check Adobe installer logs under '${env:ProgramFiles(x86)}\Common Files\Adobe\Installers' and %TEMP%." -Level ERROR
                     }
                     Register-Result -Name $p.Name -Key $p.Key -Code $code -NotInstalledCodes @(135)
                 }
