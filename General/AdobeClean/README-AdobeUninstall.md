@@ -65,7 +65,7 @@ Add `-RemoveLeftoverFolders` / `-KeepPattern ...` to the install command as need
 
 ## Intune app — Method B (PowerShell script installer, paste)
 
-Set **Installer type = PowerShell script** and paste `Uninstall-AdobeProducts.ps1` (30 KB, under the 50 KB paste limit). The script locates `AdobeUninstaller.exe` via the current directory when `$PSScriptRoot` is empty, so bundling it in the `.intunewin` still works. Hot-fixes made in the portal must be synced back to this repo.
+Set **Installer type = PowerShell script** and paste `Uninstall-AdobeProducts.ps1` (34 KB, under the 50 KB paste limit). The script locates `AdobeUninstaller.exe` via the current directory when `$PSScriptRoot` is empty, so bundling it in the `.intunewin` still works. Hot-fixes made in the portal must be synced back to this repo.
 
 ## Lessons from the first live run (2026-09-01, v1.1.0, `LIBRWKSPC010189`)
 
@@ -82,9 +82,13 @@ That is the **Programs and Features launcher**, not an uninstaller. It hands the
 
 Before re-running on that device, dismiss any Creative Cloud sign-in / uninstall dialogs the v1.1.0 run left open, otherwise the HD engine may report another instance is running.
 
+**Second live run (v1.2.2)** used the right engine and removed exactly one app: Character Animator 26.0, in 154 s. The other 15 were declined in ~1 s each. The difference: Character Animator had never been updated, so its current version *was* its base version. `--baseVersion` means the version of the **original install** (Photoshop 27.0), not the current patched version the registry reports (27.10). v1.3.0 tries `major.0` → exact → `major.minor` per app and stops when the Uninstall key disappears; a wrong candidate costs one second and exit 135. If every candidate fails for an app, `AdobeUninstaller.exe --list` (Admin Console tool) prints the authoritative sapCode#baseVersion pairs.
+
+Also fixed in v1.3.0: exit codes were logging blank (and being treated as 0) because `Start-Process -PassThru` returns a null `ExitCode` after `WaitForExit(timeout)` unless the process handle is touched first. Real codes are now logged.
+
 ## Runtime — read before assigning
 
-Creative Cloud apps are uninstalled **sequentially**, and each HDBox uninstall realistically takes 2–8 minutes. A fully loaded device (18 targets measured on `LIBRWKSPC010189`) can therefore run **30–130 minutes**. Two consequences:
+Creative Cloud apps are uninstalled **sequentially**, and each HDBox uninstall takes roughly 2–8 minutes (Character Animator measured at 154 s on `LIBRWKSPC010189`). A fully loaded device (18 targets measured on `LIBRWKSPC010189`) can therefore run **30–130 minutes**. Two consequences:
 
 1. **Raise Intune's "Maximum allowed install time" to 240 minutes.** At the 60-minute default Intune reports the app as failed while the uninstall is still running, and may retry it on top of itself.
 2. **Bundle `AdobeUninstaller.exe`.** It removes all CC apps in a single pass and is dramatically faster than the per-app fallback. Without it the script logs `AdobeUninstaller.exe not found at <dir> - using per-app HDBox uninstaller` and takes the slow path.
@@ -120,7 +124,7 @@ powershell -File .\Detect-AdobeUninstall.ps1; $LASTEXITCODE
 - User data in `AppData\*\Adobe` is **not** touched (the CC desktop app shares those folders). Use `Clean-Adobe.ps1` only when CC is also being removed.
 - CrowdStrike/Rapid7: mass process kills + `msiexec /x` from SYSTEM are normal Intune behavior and match the existing cleanup app's footprint; no new detections expected.
 - `UXP WebView Support` is an HD shared runtime used by CC apps (not by the CC desktop app itself) and is removed with them; CC reinstalls it on demand.
-- Verified on `LIBRWKSPC010189` (2026-09-01, `-WhatIf`, v1.1.1): 18 targets (16 HD apps + 2 MSIs), 3 package wrappers skipped, CC desktop app + Adobe Genuine Service kept, CoreSync protected, no processes killed. The v1.1.0 live run then exposed the launcher problem above; v1.2.0 is the first version expected to actually remove CC apps and has **not yet been confirmed live**.
+- Verified on `LIBRWKSPC010189` (2026-09-01, `-WhatIf`, v1.1.1): 18 targets (16 HD apps + 2 MSIs), 3 package wrappers skipped, CC desktop app + Adobe Genuine Service kept, CoreSync protected, no processes killed. The v1.1.0 live run then exposed the launcher problem above; v1.2.2 confirmed the engine and command shape live (1 app removed); v1.3.0 adds the baseVersion candidates needed for updated apps and is **not yet confirmed live**.
 - Acrobat was **not** registered on that device — it had been uninstalled manually beforehand — yet the `LIBR-AcrobatDC` package wrapper survived that removal. Expect the same on any device where Acrobat was removed by any route: **removing the product does not remove the Admin Console package wrapper**, so Programs and Features keeps showing an Acrobat entry. It is cosmetic, and the script leaves it alone by default.
 - To clear a wrapper whose products are already gone, uninstall that one wrapper by hand (`msiexec /x {ProductCode} /qn`) rather than using `-RemovePackageWrappers`, which is all-or-nothing and would also hit `AdobeCC_SelfService`.
 - Reference: Adobe, "Uninstall Creative Cloud products" (`helpx.adobe.com/enterprise/using/uninstall-creative-cloud-products.html`) for `AdobeUninstaller.exe` options and SAP codes.

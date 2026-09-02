@@ -93,10 +93,16 @@
 .NOTES
     Author  : Oji (cmcleod1)
     Date    : 2026-09-01
-    Version : 1.2.2
+    Version : 1.3.0
     Run As  : SYSTEM (Intune) or local Administrator
 
     CHANGELOG
+      1.3.0 - FIX: --baseVersion must be the ORIGINAL install version (27.0),
+              not the current updated version the registry reports (27.10).
+              Only never-updated apps worked. Now tries major.0 -> exact ->
+              major.minor until the Uninstall key disappears.
+            - FIX: exit codes were always $null (Start-Process handle quirk),
+              coerced to 0 in logs. Handle is now cached; real codes logged.
       1.2.2 - HD engine probe now prefers HDBox\Setup.exe (the engine) over
               Set-up.exe (the CC installer bootstrapper) - both exist on
               current builds and the wrong one was being picked first.
@@ -147,7 +153,7 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $ScriptVersion = '1.2.2'
+    $ScriptVersion = '1.3.0'
 
     # Works when run as a file (PSScriptRoot set) AND when pasted into Intune (CWD = unpacked package)
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
@@ -270,13 +276,15 @@ begin {
             if ($ArgumentList) { $psi.ArgumentList = $ArgumentList }
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             $proc = Start-Process @psi
+            $null = $proc.Handle   # cache the handle, otherwise ExitCode is $null after WaitForExit(timeout)
             if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
                 Write-Log "TIMEOUT after $TimeoutMinutes min - killing $Label (PID $($proc.Id))" -Level ERROR
                 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
                 return -1
             }
-            Write-Log ("  exit {0} after {1:n0} s" -f $proc.ExitCode, $sw.Elapsed.TotalSeconds)
-            return $proc.ExitCode
+            $exit = if ($null -ne $proc.ExitCode) { [int]$proc.ExitCode } else { -1 }
+            Write-Log ("  exit {0} after {1:n0} s" -f $exit, $sw.Elapsed.TotalSeconds)
+            return $exit
         }
         catch {
             Write-Log "Failed to launch uninstaller for ${Label}: $_" -Level ERROR
@@ -293,6 +301,20 @@ begin {
         return @($cl, '')
     }
 
+    function Get-BaseVersionCandidate {
+        <# HD's --baseVersion is the version of the ORIGINAL install, not the current
+           (updated) version the registry reports. Photoshop 27.10 -> base 27.0.
+           Most apps use major.0; a few (Lightroom, Rush, UXP) may use major.minor.
+           Wrong guesses are declined by the engine in ~1 s with exit 135, so try a few. #>
+        param([string]$Version)
+        $parts = $Version.Split('.')
+        $c = [System.Collections.Generic.List[string]]::new()
+        if ($parts.Count -ge 1) { $c.Add("$($parts[0]).0") }           # 27.0   (most likely)
+        $c.Add($Version)                                                # 27.10  (exact, works when never updated)
+        if ($parts.Count -ge 2) { $c.Add("$($parts[0]).$($parts[1])") } # 27.10  (major.minor of a 3-part version)
+        return @($c | Select-Object -Unique)
+    }
+
     function Register-Result {
         <# Credits a removal ONLY if the product's Uninstall registry key is gone.
            Adobe launchers (HDBox\Uninstaller.exe --mode=2) exit 0 without doing anything. #>
@@ -300,8 +322,13 @@ begin {
         $stillRegistered = if ($Key) { Test-Path $Key } else { $false }
 
         if ($stillRegistered) {
-            $why = if ($Code -eq 0) { 'exit 0 but Uninstall key still present - uninstaller was a launcher/handoff or silently declined' }
-                   else { "exit $Code and Uninstall key still present" }
+            $why = switch ($Code) {
+                0       { 'exit 0 but Uninstall key still present - uninstaller was a launcher/handoff or silently declined' }
+                135     { 'exit 135 (HD engine: product/baseVersion not installed) - no baseVersion candidate matched' }
+                105     { 'exit 105 (HD engine: insufficient privileges)' }
+                -1      { 'launch failed, timed out, or exit code unavailable' }
+                default { "exit $Code and Uninstall key still present" }
+            }
             Write-Log "FAILED: $Name - $why" -Level ERROR
             $script:failed.Add("$Name (exit $Code)")
             return
@@ -446,8 +473,18 @@ process {
             if ($p.Name -in $script:removed) { continue }
 
             if ($hdSetup -and $p.SapCode -and $p.BaseVersion) {
-                $uExe  = $hdSetup
-                $uArgs = "--uninstall=1 --sapCode=$($p.SapCode) --baseVersion=$($p.BaseVersion) --platform=$($p.Platform) --deleteUserPreferences=$prefValue"
+                # Try each baseVersion candidate until the Uninstall key disappears
+                if ($PSCmdlet.ShouldProcess($p.Name, 'Uninstall (HDBox engine)')) {
+                    $code = -1
+                    foreach ($bv in (Get-BaseVersionCandidate -Version $p.BaseVersion)) {
+                        $uArgs = "--uninstall=1 --sapCode=$($p.SapCode) --baseVersion=$bv --platform=$($p.Platform) --deleteUserPreferences=$prefValue"
+                        $code = Invoke-Uninstaller -FilePath $hdSetup -ArgumentList $uArgs -Label $p.Name
+                        if (-not (Test-Path $p.Key)) { break }
+                        Write-Log "  baseVersion $bv declined (exit $code) - trying next candidate" -Level WARN
+                    }
+                    Register-Result -Name $p.Name -Key $p.Key -Code $code -NotInstalledCodes @(135)
+                }
+                continue
             }
             elseif ($p.UninstallString) {
                 Write-Log "$($p.Name): using registry UninstallString as last resort" -Level WARN
