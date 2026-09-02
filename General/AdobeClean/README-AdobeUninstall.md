@@ -14,7 +14,7 @@ Removes every Adobe product from a device **except the Adobe Creative Cloud desk
 
 | Installer type | How it is identified | Command used |
 | --- | --- | --- |
-| Creative Cloud / HyperDrive apps (Photoshop, Illustrator, InDesign, Premiere, After Effects, Lightroom, Bridge, Substance…) | `UninstallString` contains `--sapCode=` / `HDBox\` | 1. `AdobeUninstaller.exe --products=PHSP#25.0,ILST#28.0 --skipNotInstalled` if bundled. 2. Otherwise the registry `Set-up.exe --uninstall=1 --sapCode=… --baseVersion=… --platform=win64` with `--deleteUserPreferences=false` forced onto the line (without it the uninstaller shows a dialog and hangs as SYSTEM) |
+| Creative Cloud / HyperDrive apps (Photoshop, Illustrator, InDesign, Premiere, After Effects, Lightroom, Bridge, Substance…) | `UninstallString` contains `--sapCode=` / `HDBox\` | 1. `AdobeUninstaller.exe --products=PHSP#25.0,ILST#28.0 --skipNotInstalled` if bundled. 2. Otherwise Adobe's silent engine `HDBox\Setup.exe --uninstall=1 --sapCode=… --baseVersion=… --platform=win64 --deleteUserPreferences=false`, with sapCode/version parsed from the registry string. **The registry `UninstallString` itself is never run** (see *Lessons from the first live run*) |
 | MSI (Acrobat, Reader, Refresh Manager, AIR…) | `WindowsInstaller=1` or `msiexec` in `UninstallString` | `msiexec /x {ProductCode} /qn /norestart REBOOT=ReallySuppress` |
 | Other EXE (Digital Editions, etc.) | everything else | `QuietUninstallString` if present, else `UninstallString /S` (best effort) |
 | **Admin Console package wrappers** (`AdobeCC_SelfService`, `Adobe.CC.201902`, `LIBR-AcrobatDC`…) | MSI with `DisplayVersion = 1.0.0000` | **Skipped by default** and ignored by detection. These are package registrations, not apps; uninstalling one removes every product in that package, and a self-service package's only product is the CC desktop app. `-RemovePackageWrappers` includes them |
@@ -65,7 +65,22 @@ Add `-RemoveLeftoverFolders` / `-KeepPattern ...` to the install command as need
 
 ## Intune app — Method B (PowerShell script installer, paste)
 
-Set **Installer type = PowerShell script** and paste `Uninstall-AdobeProducts.ps1` (26 KB, under the 50 KB paste limit). The script locates `AdobeUninstaller.exe` via the current directory when `$PSScriptRoot` is empty, so bundling it in the `.intunewin` still works. Hot-fixes made in the portal must be synced back to this repo.
+Set **Installer type = PowerShell script** and paste `Uninstall-AdobeProducts.ps1` (30 KB, under the 50 KB paste limit). The script locates `AdobeUninstaller.exe` via the current directory when `$PSScriptRoot` is empty, so bundling it in the `.intunewin` still works. Hot-fixes made in the portal must be synced back to this repo.
+
+## Lessons from the first live run (2026-09-01, v1.1.0, `LIBRWKSPC010189`)
+
+The first real run reported 16 removals in 32 seconds and removed nothing. Every app's registry `UninstallString` on current CC builds looks like:
+
+```
+"…\HDBox\Uninstaller.exe" --uninstall=1 --sapCode=PHSP --productVersion=27.10 --productPlatform=win64 --productAdobeCode={…} --productName="Photoshop" --mode=2
+```
+
+That is the **Programs and Features launcher**, not an uninstaller. It hands the job to the Creative Cloud desktop app (hence the sign-in window that popped for every app), then exits 0 after ~2 seconds. Under SYSTEM there is no desktop to hand off to, so it silently does nothing. v1.2.0 therefore:
+
+- Ignores the registry command and builds Adobe's documented silent command against `HDBox\Setup.exe`. Note that HDBox contains **both** `Setup.exe` (~850 KB, the HyperDrive engine, macOS twin is `HDBox/Setup`) and `Set-up.exe` (~14 MB, the Creative Cloud installer bootstrapper). The script prefers `Setup.exe` and logs which one it used.
+- **Credits a removal only when the product's Uninstall key has disappeared.** Exit codes from Adobe launchers are not trusted. Each uninstall also logs its duration; ~2 s means nothing happened.
+
+Before re-running on that device, dismiss any Creative Cloud sign-in / uninstall dialogs the v1.1.0 run left open, otherwise the HD engine may report another instance is running.
 
 ## Runtime — read before assigning
 
@@ -105,6 +120,7 @@ powershell -File .\Detect-AdobeUninstall.ps1; $LASTEXITCODE
 - User data in `AppData\*\Adobe` is **not** touched (the CC desktop app shares those folders). Use `Clean-Adobe.ps1` only when CC is also being removed.
 - CrowdStrike/Rapid7: mass process kills + `msiexec /x` from SYSTEM are normal Intune behavior and match the existing cleanup app's footprint; no new detections expected.
 - `UXP WebView Support` is an HD shared runtime used by CC apps (not by the CC desktop app itself) and is removed with them; CC reinstalls it on demand.
-- Verified on `LIBRWKSPC010189` (2026-09-01, `-WhatIf`, v1.1.1): 18 targets (16 HD apps + 2 MSIs), 3 package wrappers skipped, CC desktop app + Adobe Genuine Service kept, CoreSync protected, no processes killed.
-- Acrobat was **not** registered on that device — only the `LIBR-AcrobatDC` package wrapper remained, most likely left behind when `LIB-AdobeInstallerCleanup.ps1` removed Acrobat by product code. A stale wrapper is cosmetic, but it means Programs and Features still lists an Acrobat entry.
+- Verified on `LIBRWKSPC010189` (2026-09-01, `-WhatIf`, v1.1.1): 18 targets (16 HD apps + 2 MSIs), 3 package wrappers skipped, CC desktop app + Adobe Genuine Service kept, CoreSync protected, no processes killed. The v1.1.0 live run then exposed the launcher problem above; v1.2.0 is the first version expected to actually remove CC apps and has **not yet been confirmed live**.
+- Acrobat was **not** registered on that device — it had been uninstalled manually beforehand — yet the `LIBR-AcrobatDC` package wrapper survived that removal. Expect the same on any device where Acrobat was removed by any route: **removing the product does not remove the Admin Console package wrapper**, so Programs and Features keeps showing an Acrobat entry. It is cosmetic, and the script leaves it alone by default.
+- To clear a wrapper whose products are already gone, uninstall that one wrapper by hand (`msiexec /x {ProductCode} /qn`) rather than using `-RemovePackageWrappers`, which is all-or-nothing and would also hit `AdobeCC_SelfService`.
 - Reference: Adobe, "Uninstall Creative Cloud products" (`helpx.adobe.com/enterprise/using/uninstall-creative-cloud-products.html`) for `AdobeUninstaller.exe` options and SAP codes.

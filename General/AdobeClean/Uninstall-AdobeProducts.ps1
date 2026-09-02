@@ -15,12 +15,22 @@
            a. If AdobeUninstaller.exe (Admin Console > Packages > Tools) is
               found next to the script, it is used first in one call:
                 AdobeUninstaller.exe --products=PHSP#25.0,ILST#28.0,...
-           b. Anything still present is removed per-app with the HDBox
-              uninstaller command stored in the registry UninstallString:
-                Set-up.exe --uninstall=1 --sapCode=X --baseVersion=Y
-                           --platform=win64 --deleteUserPreferences=false
-              (--deleteUserPreferences is forced on the line; without it the
-              uninstaller shows a dialog and hangs under SYSTEM.)
+           b. Anything still present is removed per-app with Adobe's silent
+              HDBox setup engine, using sapCode/version parsed from the
+              registry UninstallString:
+                HDBox\Setup.exe --uninstall=1 --sapCode=X --baseVersion=Y
+                                --platform=win64 --deleteUserPreferences=false
+              (Setup.exe ~850 KB is the HD engine; the 14 MB Set-up.exe next
+              to it is the CC installer bootstrapper and is not used unless
+              Setup.exe is absent.)
+              The registry UninstallString itself is NOT run: on current CC
+              builds it points at HDBox\Uninstaller.exe --mode=2, which is
+              the Programs-and-Features launcher. That hands off to the
+              Creative Cloud desktop app (sign-in prompt), exits 0 after ~2 s,
+              and removes nothing under SYSTEM. It is used only as a last
+              resort when Set-up.exe cannot be found.
+           c. A removal is credited ONLY when the product's registry key is
+              gone afterwards - exit codes from Adobe launchers are not trusted.
       2. MSI products (Acrobat, Reader, Refresh Manager, AIR, etc.)
            msiexec /x {ProductCode} /qn /norestart REBOOT=ReallySuppress
          Admin Console PACKAGE WRAPPER MSIs (DisplayVersion 1.0.0000, e.g.
@@ -83,10 +93,23 @@
 .NOTES
     Author  : Oji (cmcleod1)
     Date    : 2026-09-01
-    Version : 1.1.1
+    Version : 1.2.2
     Run As  : SYSTEM (Intune) or local Administrator
 
     CHANGELOG
+      1.2.2 - HD engine probe now prefers HDBox\Setup.exe (the engine) over
+              Set-up.exe (the CC installer bootstrapper) - both exist on
+              current builds and the wrong one was being picked first.
+      1.2.1 - Abort when run from a 32-bit host on 64-bit Windows (registry
+              redirection hides 64-bit products); log host bitness in header.
+      1.2.0 - FIX: per-app CC uninstall ran the registry UninstallString
+              (HDBox\Uninstaller.exe --mode=2), which is a GUI launcher that
+              delegates to the CC desktop app (sign-in popup) and exits 0
+              without removing anything. Now builds the documented silent
+              command against HDBox\Set-up.exe / Setup.exe from sapCode +
+              version parsed out of the registry string.
+            - FIX: success is verified by the product's Uninstall key
+              disappearing, not by exit code. Per-uninstall duration logged.
       1.1.1 - Inventory tag now shows SKIP (not REMOVE) for untargeted package
               wrappers; type column widened for 'Package'.
             - Options line records -RemovePackageWrappers and the timeout;
@@ -124,7 +147,7 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $ScriptVersion = '1.1.1'
+    $ScriptVersion = '1.2.2'
 
     # Works when run as a file (PSScriptRoot set) AND when pasted into Intune (CWD = unpacked package)
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
@@ -205,10 +228,11 @@ begin {
                     elseif ($_.WindowsInstaller -eq 1 -or $us -match '^\s*msiexec') { 'MSI' }
                     else { 'EXE' }
 
-                $sap = $null; $base = $null
+                $sap = $null; $base = $null; $plat = 'win64'
                 if ($type -eq 'HD') {
                     if ($us -match '--sapCode=(\S+)') { $sap = $Matches[1] }
                     if ($us -match '--(?:baseVersion|productVersion)=(\S+)') { $base = $Matches[1] }
+                    if ($us -match '--(?:platform|productPlatform)=(\S+)') { $plat = $Matches[1] }
                 }
 
                 [pscustomobject]@{
@@ -223,6 +247,7 @@ begin {
                     InstallLocation = $_.InstallLocation
                     SapCode         = $sap
                     BaseVersion     = $base
+                    Platform        = $plat
                     Keep            = (Test-Keep -Name $_.DisplayName)
                 }
             } | Sort-Object Name -Unique
@@ -243,12 +268,14 @@ begin {
         try {
             $psi = @{ FilePath = $FilePath; PassThru = $true; NoNewWindow = $true }
             if ($ArgumentList) { $psi.ArgumentList = $ArgumentList }
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
             $proc = Start-Process @psi
             if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
                 Write-Log "TIMEOUT after $TimeoutMinutes min - killing $Label (PID $($proc.Id))" -Level ERROR
                 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
                 return -1
             }
+            Write-Log ("  exit {0} after {1:n0} s" -f $proc.ExitCode, $sw.Elapsed.TotalSeconds)
             return $proc.ExitCode
         }
         catch {
@@ -267,21 +294,32 @@ begin {
     }
 
     function Register-Result {
-        param([string]$Name, [int]$Code, [int[]]$OkCodes = @(0), [int[]]$NotInstalledCodes = @())
-        if ($Code -in $OkCodes) {
-            Write-Log "Removed: $Name" -Level SUCCESS; $script:removed.Add($Name)
+        <# Credits a removal ONLY if the product's Uninstall registry key is gone.
+           Adobe launchers (HDBox\Uninstaller.exe --mode=2) exit 0 without doing anything. #>
+        param([string]$Name, [string]$Key, [int]$Code, [int[]]$NotInstalledCodes = @())
+        $stillRegistered = if ($Key) { Test-Path $Key } else { $false }
+
+        if ($stillRegistered) {
+            $why = if ($Code -eq 0) { 'exit 0 but Uninstall key still present - uninstaller was a launcher/handoff or silently declined' }
+                   else { "exit $Code and Uninstall key still present" }
+            Write-Log "FAILED: $Name - $why" -Level ERROR
+            $script:failed.Add("$Name (exit $Code)")
+            return
         }
-        elseif ($Code -eq 3010 -or $Code -eq 1641) {
+        if ($Code -eq 3010 -or $Code -eq 1641) {
             Write-Log "Removed: $Name (reboot required)" -Level WARN
             $script:removed.Add($Name); $script:rebootRequired = $true
         }
         elseif ($Code -in $NotInstalledCodes) {
-            Write-Log "$Name reported not installed (exit $Code) - treating as removed" -Level WARN
+            Write-Log "Removed: $Name (uninstaller reported not installed, exit $Code)" -Level WARN
             $script:removed.Add($Name)
         }
+        elseif ($Code -eq 0) {
+            Write-Log "Removed: $Name" -Level SUCCESS; $script:removed.Add($Name)
+        }
         else {
-            Write-Log "$Name uninstall returned exit code $Code" -Level ERROR
-            $script:failed.Add("$Name (exit $Code)")
+            Write-Log "Removed: $Name (registry entry gone, but exit code was $Code)" -Level WARN
+            $script:removed.Add($Name)
         }
     }
 }
@@ -289,7 +327,7 @@ begin {
 process {
     Write-Log '=============================================='
     Write-Log "LIBR Adobe Product Uninstall v$ScriptVersion"
-    Write-Log "Computer : $env:COMPUTERNAME   User: $env:USERNAME"
+    Write-Log "Computer : $env:COMPUTERNAME   User: $env:USERNAME   Host: $(if ([Environment]::Is64BitProcess) { '64-bit' } else { '32-bit' }) PS $($PSVersionTable.PSVersion)"
     Write-Log "Keep     : $($KeepPattern -join ' | ')"
     Write-Log "Options  : RemoveUserPreferences=$RemoveUserPreferences RemovePackageWrappers=$RemovePackageWrappers RemoveLeftoverFolders=$RemoveLeftoverFolders WhatIf=$WhatIfPreference"
     Write-Log "Timeout  : $TimeoutMinutes min per uninstaller"
@@ -299,6 +337,13 @@ process {
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) { Write-Log 'Must run as Administrator or SYSTEM. Exiting.' -Level ERROR; exit 1 }
+
+    # A 32-bit host on a 64-bit OS is redirected to the WOW6432Node hive and cannot see
+    # 64-bit-only products - they would be silently skipped and never counted as remaining.
+    if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+        Write-Log 'Running in a 32-bit PowerShell host on 64-bit Windows: 64-bit Adobe products would be invisible. Relaunch via %windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe (Intune: Run as 32-bit = No). Exiting.' -Level ERROR
+        exit 1
+    }
 
     # ---------------------------------------------------------------- Inventory
     Write-Log '--- STEP 1: Inventory ---'
@@ -376,23 +421,49 @@ process {
         }
 
         # ------------------------------------------------------------ 3b. Creative Cloud apps (per-app)
+        # Adobe's silent HD engine. The registry UninstallString is deliberately NOT used
+        # (it is the GUI launcher - see header).
+        # HDBox ships BOTH Setup.exe (~850 KB, the HyperDrive engine Adobe documents for
+        # --uninstall; macOS equivalent is HDBox/Setup) and Set-up.exe (~14 MB, the Creative
+        # Cloud installer bootstrapper). Setup.exe is the one we want; Set-up.exe is only a
+        # last-resort probe for builds that lack Setup.exe.
+        $hdSetup = @(
+            "${env:ProgramFiles(x86)}\Common Files\Adobe\Adobe Desktop Common\HDBox\Setup.exe",
+            "$env:ProgramFiles\Common Files\Adobe\Adobe Desktop Common\HDBox\Setup.exe",
+            "${env:ProgramFiles(x86)}\Common Files\Adobe\Adobe Desktop Common\HDBox\Set-up.exe",
+            "$env:ProgramFiles\Common Files\Adobe\Adobe Desktop Common\HDBox\Set-up.exe"
+        ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+
         $hdAll = @($targets | Where-Object { $_.Type -eq 'HD' })
+        if ($hdAll.Count -gt 0) {
+            if ($hdSetup) { Write-Log "HD silent engine: $hdSetup" }
+            else { Write-Log 'HDBox Set-up.exe/Setup.exe NOT found - will fall back to registry UninstallString (likely a GUI launcher; expect failures)' -Level WARN }
+        }
+        $prefValue = if ($RemoveUserPreferences) { 'true' } else { 'false' }
+
         foreach ($p in $hdAll) {
             if (-not (Test-Path $p.Key)) { continue }                                  # already gone
             if ($p.Name -in $script:removed) { continue }
-            if (-not $p.UninstallString) { Write-Log "$($p.Name): no UninstallString" -Level ERROR; $script:failed.Add($p.Name); continue }
 
-            $uExe, $uArgs = Split-CommandLine $p.UninstallString
-            $prefValue = if ($RemoveUserPreferences) { 'true' } else { 'false' }
-            if ($uArgs -match '--deleteUserPreferences=') {
-                $uArgs = $uArgs -replace '--deleteUserPreferences=\S+', "--deleteUserPreferences=$prefValue"
-            } else {
-                $uArgs = "$uArgs --deleteUserPreferences=$prefValue".Trim()
+            if ($hdSetup -and $p.SapCode -and $p.BaseVersion) {
+                $uExe  = $hdSetup
+                $uArgs = "--uninstall=1 --sapCode=$($p.SapCode) --baseVersion=$($p.BaseVersion) --platform=$($p.Platform) --deleteUserPreferences=$prefValue"
             }
+            elseif ($p.UninstallString) {
+                Write-Log "$($p.Name): using registry UninstallString as last resort" -Level WARN
+                $uExe, $uArgs = Split-CommandLine $p.UninstallString
+                if ($uArgs -match '--deleteUserPreferences=') {
+                    $uArgs = $uArgs -replace '--deleteUserPreferences=\S+', "--deleteUserPreferences=$prefValue"
+                } else {
+                    $uArgs = "$uArgs --deleteUserPreferences=$prefValue".Trim()
+                }
+            }
+            else { Write-Log "$($p.Name): no UninstallString and no HD engine" -Level ERROR; $script:failed.Add($p.Name); continue }
+
             if ($PSCmdlet.ShouldProcess($p.Name, 'Uninstall (HDBox)')) {
                 $code = Invoke-Uninstaller -FilePath $uExe -ArgumentList $uArgs -Label $p.Name
                 # 135 = not installed; 105 = insufficient privileges
-                Register-Result -Name $p.Name -Code $code -NotInstalledCodes @(135)
+                Register-Result -Name $p.Name -Key $p.Key -Code $code -NotInstalledCodes @(135)
             }
         }
 
@@ -404,7 +475,7 @@ process {
                 $code = Invoke-Uninstaller -FilePath "$env:SystemRoot\System32\msiexec.exe" `
                     -ArgumentList "/x `"$($p.ProductCode)`" /qn /norestart REBOOT=ReallySuppress" -Label $p.Name
                 # 1605 = product not installed
-                Register-Result -Name $p.Name -Code $code -NotInstalledCodes @(1605)
+                Register-Result -Name $p.Name -Key $p.Key -Code $code -NotInstalledCodes @(1605)
             }
         }
 
@@ -421,7 +492,7 @@ process {
             }
             if ($PSCmdlet.ShouldProcess($p.Name, 'Uninstall (EXE)')) {
                 $code = Invoke-Uninstaller -FilePath $uExe -ArgumentList $uArgs -Label $p.Name
-                Register-Result -Name $p.Name -Code $code
+                Register-Result -Name $p.Name -Key $p.Key -Code $code
             }
         }
 
