@@ -93,10 +93,17 @@
 .NOTES
     Author  : Oji (cmcleod1)
     Date    : 2026-09-01
-    Version : 1.3.4
+    Version : 1.4.0
     Run As  : SYSTEM (Intune) or local Administrator
 
     CHANGELOG
+      1.4.0 - VALIDATED END TO END on LIBRWKSPC010189 (2026-09-01): all 15
+              CC apps removed, CC desktop app + Adobe Genuine Service kept,
+              sentinel Completed=1.
+            - Added $KnownBaseVersion table seeded with LRCC=1.0 (Lightroom
+              ships 9.x on a base of 1.0; the blind sweep needed 22 attempts).
+              Bridge needed no entry - its base is major.0.0 (16.0.0), which
+              is already the second candidate.
       1.3.4 - Sweep now distinguishes 135 (wrong baseVersion) from any other
               non-zero code (baseVersion recognised, uninstall itself failed)
               and reports the recognised values plus where Adobe logs them.
@@ -173,12 +180,19 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $ScriptVersion = '1.3.4'
+    $ScriptVersion = '1.4.0'
 
     # Works when run as a file (PSScriptRoot set) AND when pasted into Intune (CWD = unpacked package)
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
     $SentinelKey = 'HKLM:\SOFTWARE\LIBR\AdobeUninstall'
+
+    # Base versions confirmed on real devices, tried before any guessing. Apps on a rolling
+    # release train keep their original base version for years, so it is not derivable from
+    # the installed version and the blind sweep is slow (Lightroom needed 22 attempts).
+    $KnownBaseVersion = @{
+        'LRCC' = '1.0'      # Lightroom - ships 9.x, base 1.0. Confirmed 2026-09-01, LIBRWKSPC010189
+    }
 
     # Creative Cloud runtime that lives under Program Files\Adobe and must never be
     # killed or deleted while CC is kept (CoreSync = CC file sync, CCX = CC Experience).
@@ -570,6 +584,10 @@ process {
                 # Try each baseVersion candidate until the Uninstall key disappears
                 if ($PSCmdlet.ShouldProcess($p.Name, 'Uninstall (HDBox engine)')) {
                     $known = Get-BaseVersionFromJson -InstallLocation $p.InstallLocation -SapCode $p.SapCode -ProductName $p.Name
+                    if (-not $known -and $KnownBaseVersion.ContainsKey($p.SapCode)) {
+                        $known = $KnownBaseVersion[$p.SapCode]
+                        Write-Log "  baseVersion $known from known-product table ($($p.SapCode))"
+                    }
                     $code = -1
                     $recognized = [System.Collections.Generic.List[string]]::new()
                     foreach ($bv in (Get-BaseVersionCandidate -Version $p.BaseVersion -Known $known)) {
