@@ -8,6 +8,7 @@ Removes every Adobe product from a device **except the Adobe Creative Cloud desk
 | --- | --- |
 | `Uninstall-AdobeProducts.ps1` | Enumerates Adobe entries in both Uninstall hives, keeps anything matching `-KeepPattern`, silently removes the rest with the right mechanism per installer type |
 | `Detect-AdobeUninstall.ps1` | Custom detection: sentinel `Completed=1` **and** a live re-check that no non-kept Adobe product exists |
+| `Uninstall-AdobeCleanupApp.ps1` | Uninstall action for the Win32 app. Clears the detection sentinel only — adds and removes no Adobe product. See *Company Portal* below for why this is not the removal script |
 | `AdobeUninstaller.exe` *(optional, not in repo)* | Adobe's supported bulk uninstaller. Download from **Admin Console → Packages → Tools → Adobe Uninstaller**. Drop it next to the script before packaging and it is used first for CC apps |
 
 ## How products are removed
@@ -50,12 +51,16 @@ Processes are stopped by **path**: anything running from `Program Files\Adobe\*`
 IntuneWinAppUtil.exe -c "<repo>\General\AdobeClean" -s Uninstall-AdobeProducts.ps1 -o "<output-folder>"
 ```
 
+`-c` bundles the folder **recursively**, so the legacy scripts in `Old\` end up inside the `.intunewin` too. Harmless but untidy — point `-c` at a staging copy holding only the three current scripts (plus `AdobeUninstaller.exe`) if you want a clean package.
+
+With the PowerShell script installer, both scripts are stored as app **metadata** — they can be edited in the portal without repackaging. Sync any portal hot-fix back to this repo.
+
 ## Intune app — Method A (command line, preferred: script is versioned inside the package)
 
 | Setting | Value |
 | --- | --- |
 | Install command | `%windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File Uninstall-AdobeProducts.ps1` |
-| Uninstall command | `cmd /c exit 0` *(nothing to reverse — reinstall apps via CC / Patch My PC)* |
+| Uninstall command | `%windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File Uninstall-AdobeCleanupApp.ps1` *(clears the sentinel; see Company Portal below for why this must not be the removal script)* |
 | Install behavior | **System** |
 | **Maximum allowed install time** | **240 minutes** (default is 60 — see *Runtime* below; the app is marked failed at the limit even while it is still working) |
 | Device restart behavior | Determine behavior based on return codes |
@@ -63,6 +68,39 @@ IntuneWinAppUtil.exe -c "<repo>\General\AdobeClean" -s Uninstall-AdobeProducts.p
 | Detection | Custom script → `Detect-AdobeUninstall.ps1` (Run as 32-bit: No) — or a registry rule: `HKLM\SOFTWARE\LIBR\AdobeUninstall`, value `Completed`, Integer equals `1` |
 
 Add `-RemoveLeftoverFolders` / `-KeepPattern ...` to the install command as needed. If both variants of the app exist, give them distinct sentinel keys by editing `$SentinelKey` (and the detection script).
+
+## Company Portal (self-service) — assigning this as **Available**
+
+Users can run this themselves from Company Portal. It works well, with one trap and three hazards.
+
+**The trap: do not use the removal script as the Uninstall action.** Intune verifies an uninstall by re-running the detection rule and expecting **not-detected**. The removal script rewrites the sentinel and leaves the machine clean, so detection stays true and the uninstall is reported as **failed** every time — and the app sticks at "Installed". Point Uninstall at `Uninstall-AdobeCleanupApp.ps1`, which deletes `HKLM\SOFTWARE\LIBR\AdobeUninstall` and nothing else. Detection then goes false and the uninstall succeeds.
+
+That also gives users a **re-run path**. Once the removal succeeds, detection blocks the Install button; Uninstall → Install lets them run it again (e.g. apps were reinstalled and left a partial state). Removing the sentinel never puts an Adobe app back.
+
+| Setting | Value |
+| --- | --- |
+| Installer type | **PowerShell script** |
+| Install script | `Uninstall-AdobeProducts.ps1` |
+| Uninstall script | **`Uninstall-AdobeCleanupApp.ps1`** (not the removal script) |
+| Run script as 32-bit | **No** (the removal script aborts in a 32-bit host) |
+| Install behavior | **System** |
+| Max allowed install time | **240** minutes |
+| Device restart behavior | Determine behavior based on return codes |
+| Return codes | `0` Success · `3010` Soft reboot · `1` Failed |
+| Detection | Custom script → `Detect-AdobeUninstall.ps1` (Run as 32-bit: **No**) |
+| Assignment | **Available for enrolled devices** → user group |
+
+**Name and description matter — Company Portal gives no confirmation prompt.** Name it for what it does, e.g. *Remove Adobe Creative Cloud Apps (keeps Creative Cloud)*. Put this in the description, because it is the only warning a user sees:
+
+> Removes Photoshop, Illustrator, InDesign, Premiere Pro and all other Adobe apps from this computer. The Creative Cloud desktop app stays, so you can reinstall any app you still need. **Close all Adobe apps and save your work before starting — anything still open will be closed without warning.** Takes about 15 minutes.
+
+Three hazards to weigh before opening it to self-service:
+
+1. **Unsaved work is destroyed.** Step 2 force-kills everything running from the Adobe program folders. Running as SYSTEM there is no prompt and no way to cancel. The description above is the only mitigation.
+2. **~15 minutes of "Installing".** Company Portal shows no progress detail for that whole time.
+3. **A partial failure surfaces as "Failed"** with no user-facing explanation. The reason is in `C:\ProgramData\LIBR\Logs\AdobeUninstall-*.log`.
+
+State on a machine that never had Adobe apps: detection is false (no sentinel), so the app still offers Install; running it removes nothing, writes the sentinel and reports success. Harmless.
 
 ## Intune app — Method B (PowerShell script installer, paste)
 
