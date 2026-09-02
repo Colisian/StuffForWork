@@ -84,7 +84,7 @@ New-Item -Path $outputRoot -ItemType Directory -Force | Out-Null
 Create a **Windows app (Win32)** and upload the generated package.
 
 | Setting | Value |
-|---|---|
+| --- | --- |
 | Name | `UMD Libraries - Sign-In Background` |
 | Install behavior | `System` |
 | App version | `1.0.3` |
