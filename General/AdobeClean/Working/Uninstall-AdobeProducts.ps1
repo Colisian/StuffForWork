@@ -1,55 +1,29 @@
 <#
 .SYNOPSIS
     Uninstall-AdobeProducts.ps1
-    Silently removes every installed Adobe product on a Windows device EXCEPT
-    the Adobe Creative Cloud desktop app (and the services it depends on).
+    Silently removes every installed Adobe product on a Windows device. The
+    Creative Cloud desktop app (and the services it depends on) is kept by
+    default; -RemoveCreativeCloud removes it too, and -CleanProgramData clears
+    C:\ProgramData\Adobe.
 
 .DESCRIPTION
-    Enumerates the Uninstall registry hives (64-bit + WOW6432Node), selects
-    entries published by Adobe, drops anything matching -KeepPattern, then
-    removes the rest using the correct mechanism per installer type:
+    Enumerates both Uninstall hives, drops anything matching -KeepPattern,
+    removes the rest per installer type (table in README). Four behaviours
+    are load-bearing - do not "simplify" them; each is explained at its site:
 
-      1. Creative Cloud / HyperDrive apps (Photoshop, Illustrator, InDesign,
-         Premiere Pro, After Effects, Lightroom, Bridge, Media Encoder,
-         Substance, etc.)
-           a. If AdobeUninstaller.exe (Admin Console > Packages > Tools) is
-              found next to the script, it is used first in one call:
-                AdobeUninstaller.exe --products=PHSP#25.0,ILST#28.0,...
-           b. Anything still present is removed per-app with Adobe's silent
-              HDBox setup engine, using sapCode/version parsed from the
-              registry UninstallString:
-                HDBox\Setup.exe --uninstall=1 --sapCode=X --baseVersion=Y
-                                --platform=win64 --deleteUserPreferences=false
-              (Setup.exe ~850 KB is the HD engine; the 14 MB Set-up.exe next
-              to it is the CC installer bootstrapper and is not used unless
-              Setup.exe is absent.)
-              The registry UninstallString itself is NOT run: on current CC
-              builds it points at HDBox\Uninstaller.exe --mode=2, which is
-              the Programs-and-Features launcher. That hands off to the
-              Creative Cloud desktop app (sign-in prompt), exits 0 after ~2 s,
-              and removes nothing under SYSTEM. It is used only as a last
-              resort when Set-up.exe cannot be found.
-           c. A removal is credited ONLY when the product's registry key is
-              gone afterwards - exit codes from Adobe launchers are not trusted.
-      2. MSI products (Acrobat, Reader, Refresh Manager, AIR, etc.)
-           msiexec /x {ProductCode} /qn /norestart REBOOT=ReallySuppress
-         Admin Console PACKAGE WRAPPER MSIs (DisplayVersion 1.0.0000, e.g.
-         "AdobeCC_SelfService", "LIBR-AcrobatDC") are NOT products - they are
-         the deployment package registrations. Uninstalling one removes every
-         product in that package, and a self-service package's only product
-         is the Creative Cloud desktop app itself. They are therefore skipped
-         (and ignored by detection) unless -RemovePackageWrappers is given.
-      3. Other EXE uninstallers - QuietUninstallString if present, otherwise
-         UninstallString with /S appended (NSIS-style), always under a timeout.
-      4. Legacy CS5/CS6/early-CC apps (PDApp.exe based) cannot be silenced;
-         they are logged as WARN and left for the Creative Cloud Cleaner Tool.
+      1. The registry UninstallString is NOT run for HD apps (it is a GUI
+         launcher that exits 0 without removing anything under SYSTEM).
+      2. A removal is credited ONLY when the product's Uninstall registry key
+         has disappeared. Adobe exit codes are not trusted.
+      3. --baseVersion is the ORIGINAL install version, not the patched
+         version the registry reports (Photoshop 27.10 -> base 27.0).
+      4. Creative Cloud Uninstaller.exe and AdobeCleanUpUtility.exe return 0
+         in ~2 s and finish in a background child; the key is polled after.
 
-    Every uninstaller runs under a hard timeout so a stray dialog can never
-    hang an Intune install. Progress is logged to C:\ProgramData\LIBR\Logs and
-    a registry sentinel is written for Intune detection.
-
-    Works both as a file (-File .\Uninstall-AdobeProducts.ps1) and pasted into
-    the Intune Win32 "PowerShell script installer" box.
+    Runs as a file (-File .\Uninstall-AdobeProducts.ps1) and pasted into the
+    Intune "PowerShell script installer" box. A pasted script gets NO command
+    line - see $ForceFullRemoval in begin{} to select the mode. That box has a
+    50 KB limit; check this file's size before adding prose here.
 
 .PARAMETER LogPath
     Log directory. Default: C:\ProgramData\LIBR\Logs
@@ -58,104 +32,53 @@
     Regex patterns matched (case-insensitive) against DisplayName. Matching
     products are never touched. Default keeps the Creative Cloud desktop app
     and Adobe Genuine Service (CC re-installs AGS if it is removed).
+    -RemoveCreativeCloud clears this default (nothing is kept) unless you pass
+    -KeepPattern explicitly.
 
 .PARAMETER RemoveUserPreferences
-    Pass --deleteUserPreferences=true to the Creative Cloud app uninstaller so
-    per-user app settings are wiped too. Default: preferences are retained.
+    Pass --deleteUserPreferences=true so per-user app settings are wiped too.
 
 .PARAMETER RemovePackageWrappers
-    Also run msiexec /x on Admin Console package wrapper MSIs (DisplayVersion
-    1.0.0000). WARNING: a self-service package wrapper will remove the Creative
-    Cloud desktop app. Off by default.
+    Also msiexec /x the Admin Console package wrapper MSIs (DisplayVersion
+    1.0.0000). WARNING: a self-service wrapper removes the CC desktop app.
+
+.PARAMETER RemoveCreativeCloud
+    Also remove the Creative Cloud desktop app, last (Adobe's uninstaller
+    declines while any CC app remains). Implies -KeepPattern @() and
+    -CleanProgramData unless passed explicitly. Deactivates device licensing.
+
+.PARAMETER CleanProgramData
+    Clear C:\ProgramData\Adobe (takeown + icacls, then delete). Implied by
+    -RemoveCreativeCloud (-CleanProgramData:$false suppresses). Licensing
+    folders are preserved while a CC desktop app is still installed.
 
 .PARAMETER RemoveLeftoverFolders
-    After uninstalling, delete orphaned product folders under
-    "Program Files\Adobe" and "Program Files (x86)\Adobe" that no remaining
-    product owns and that do not match -KeepPattern. Never touches
+    Delete orphaned folders under "Program Files\Adobe" and "(x86)\Adobe" that
+    no remaining product owns and that do not match -KeepPattern. Never touches
     Common Files\Adobe (shared Creative Cloud runtime).
 
 .PARAMETER AdobeUninstallerPath
-    Explicit path to AdobeUninstaller.exe. Default: <script folder>\AdobeUninstaller.exe
-    if present; otherwise the per-app HDBox method is used.
+    Path to AdobeUninstaller.exe. Default: <script folder>\AdobeUninstaller.exe
+    if present, otherwise the per-app HDBox method is used.
 
 .PARAMETER TimeoutMinutes
-    Maximum minutes to wait for any single uninstaller before it is killed.
-    Default: 30
+    Minutes to wait for any single uninstaller before killing it. Default: 30
 
 .EXAMPLE
     .\Uninstall-AdobeProducts.ps1 -WhatIf
     Lists what would be removed / kept without changing anything.
 
 .EXAMPLE
-    .\Uninstall-AdobeProducts.ps1 -KeepPattern 'Adobe Creative Cloud','Adobe Genuine Service','Adobe Acrobat'
-    Removes everything Adobe except Creative Cloud, AGS and Acrobat.
+    .\Uninstall-AdobeProducts.ps1 -RemoveCreativeCloud -RemoveLeftoverFolders
+    Full removal: every CC app, then the Creative Cloud desktop app, then
+    C:\ProgramData\Adobe and any orphaned Program Files\Adobe folders.
 
 .NOTES
     Author  : Oji (cmcleod1)
-    Date    : 2026-09-01
-    Version : 1.4.0
+    Date    : 2026-09-03
+    Version : 1.5.1
     Run As  : SYSTEM (Intune) or local Administrator
-
-    CHANGELOG
-      1.4.0 - VALIDATED END TO END on LIBRWKSPC010189 (2026-09-01): all 15
-              CC apps removed, CC desktop app + Adobe Genuine Service kept,
-              sentinel Completed=1.
-            - Added $KnownBaseVersion table seeded with LRCC=1.0 (Lightroom
-              ships 9.x on a base of 1.0; the blind sweep needed 22 attempts).
-              Bridge needed no entry - its base is major.0.0 (16.0.0), which
-              is already the second candidate.
-      1.3.4 - Sweep now distinguishes 135 (wrong baseVersion) from any other
-              non-zero code (baseVersion recognised, uninstall itself failed)
-              and reports the recognised values plus where Adobe logs them.
-      1.3.3 - baseVersion sweep now walks MAJOR versions down as well as
-              minors. Bridge/Lightroom sit on a rolling train and keep an old
-              base version (Adobe documents Bridge as 12.0.0) while shipping
-              16.x/9.x, so the correct value was unreachable. Capped at 48
-              candidates (~48 s worst case).
-            - Program Files\Adobe\Common protected from -RemoveLeftoverFolders.
-      1.3.2 - application.json lookup no longer depends on InstallLocation
-              (empty for most HD apps): also searches Program Files\Adobe
-              folders matching the product name and per-sapCode HD staging
-              paths, and only trusts a file that names the sapCode.
-      1.3.1 - baseVersion now read from the app's own application.json when
-              present (authoritative); candidate list extended with 3-part
-              forms (16.0.0) and a descending-minor sweep. Bridge/Lightroom
-              failed at 135 because only 2-part forms were tried.
-            - Products removed as a side effect of another app's uninstall
-              (shared components like UXP WebView Support) are now counted
-              and logged instead of silently skipped.
-      1.3.0 - FIX: --baseVersion must be the ORIGINAL install version (27.0),
-              not the current updated version the registry reports (27.10).
-              Only never-updated apps worked. Now tries major.0 -> exact ->
-              major.minor until the Uninstall key disappears.
-            - FIX: exit codes were always $null (Start-Process handle quirk),
-              coerced to 0 in logs. Handle is now cached; real codes logged.
-      1.2.2 - HD engine probe now prefers HDBox\Setup.exe (the engine) over
-              Set-up.exe (the CC installer bootstrapper) - both exist on
-              current builds and the wrong one was being picked first.
-      1.2.1 - Abort when run from a 32-bit host on 64-bit Windows (registry
-              redirection hides 64-bit products); log host bitness in header.
-      1.2.0 - FIX: per-app CC uninstall ran the registry UninstallString
-              (HDBox\Uninstaller.exe --mode=2), which is a GUI launcher that
-              delegates to the CC desktop app (sign-in popup) and exits 0
-              without removing anything. Now builds the documented silent
-              command against HDBox\Set-up.exe / Setup.exe from sapCode +
-              version parsed out of the registry string.
-            - FIX: success is verified by the product's Uninstall key
-              disappearing, not by exit code. Per-uninstall duration logged.
-      1.1.1 - Inventory tag now shows SKIP (not REMOVE) for untargeted package
-              wrappers; type column widened for 'Package'.
-            - Options line records -RemovePackageWrappers and the timeout;
-              summary reports elapsed minutes (watch Intune's install timeout).
-      1.1.0 - Logging no longer suppressed by -WhatIf (Add-Content -WhatIf:$false).
-            - Creative Cloud runtime processes/folders (CoreSync under
-              "Adobe Sync", "Adobe Creative Cloud Experience", HDBox) are
-              protected by $ProtectedPathPattern regardless of -KeepPattern.
-            - Admin Console package wrapper MSIs classified as 'Package' and
-              skipped by default (-RemovePackageWrappers to include).
-            - WhatIf summary wording ("Would remove" instead of "Still installed").
-      1.0.0 - Initial release.
-    PS      : 5.1+ (7.x compatible)
+    PS      : 5.1+ (7.x compatible). Changelog: README-AdobeUninstall.md
 
     Exit codes:
       0    - All targeted products removed
@@ -174,22 +97,50 @@ param(
     [switch]$RemoveUserPreferences,
     [switch]$RemovePackageWrappers,
     [switch]$RemoveLeftoverFolders,
+    [switch]$RemoveCreativeCloud,
+    [switch]$CleanProgramData,
     [string]$AdobeUninstallerPath,
     [int]$TimeoutMinutes = 30
 )
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $ScriptVersion = '1.4.0'
+    $ScriptVersion = '1.5.1'
 
     # Works when run as a file (PSScriptRoot set) AND when pasted into Intune (CWD = unpacked package)
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
     $SentinelKey = 'HKLM:\SOFTWARE\LIBR\AdobeUninstall'
 
-    # Base versions confirmed on real devices, tried before any guessing. Apps on a rolling
-    # release train keep their original base version for years, so it is not derivable from
-    # the installed version and the blind sweep is slow (Lightroom needed 22 attempts).
+    # PASTE DEPLOYMENTS: $true = full wipe (CC desktop app + ProgramData). Intune's
+    # PowerShell script installer runs this with no command line, so it is the only way
+    # to reach -RemoveCreativeCloud there. $false = remove the apps, keep Creative Cloud.
+    $ForceFullRemoval = $false
+
+    if ($ForceFullRemoval) { $RemoveCreativeCloud = [switch]$true }
+
+    # -RemoveCreativeCloud is a full wipe: nothing is kept and ProgramData is cleared,
+    # unless the caller was explicit about either.
+    if ($RemoveCreativeCloud) {
+        if (-not $PSBoundParameters.ContainsKey('KeepPattern'))     { $KeepPattern = @() }
+        if (-not $PSBoundParameters.ContainsKey('CleanProgramData')) { $CleanProgramData = $true }
+    }
+
+    # Registry entries belonging to the CC desktop app itself. Handled in their own step
+    # (after every CC app) rather than by the generic MSI/EXE steps.
+    $CreativeCloudPattern = '^Adobe Creative Cloud'
+
+    # Children of C:\ProgramData\Adobe holding licensing/activation state. Deleting these
+    # deactivates a Creative Cloud install, so they survive -CleanProgramData whenever the
+    # desktop app is being kept.
+    $ProgramDataLicensingChild = @(
+        'SLStore', 'SLCache', 'Adobe PCD', 'UPI',               # named-user activation
+        'OperatingConfigs', 'LicensingToolkit',                 # Shared Device / Feature Restricted Licensing
+        'AAMUpdater', 'OOBE', 'caps', 'Adobe Desktop Common', 'ARM', 'Adobe Notification Client'
+    )
+
+    # Base versions confirmed on real devices, tried first. Rolling-train apps keep their
+    # original base for years, so it is not derivable (Lightroom needed 22 sweep attempts).
     $KnownBaseVersion = @{
         'LRCC' = '1.0'      # Lightroom - ships 9.x, base 1.0. Confirmed 2026-09-01, LIBRWKSPC010189
     }
@@ -210,6 +161,8 @@ begin {
 
     $script:startTime = Get-Date
     $script:rebootRequired = $false
+    $script:protectCcPaths = $true    # released once the CC desktop app is confirmed gone
+    $script:ccRemoved = $false
     $script:removed = [System.Collections.Generic.List[string]]::new()
     $script:failed = [System.Collections.Generic.List[string]]::new()
     $script:skippedLegacy = [System.Collections.Generic.List[string]]::new()
@@ -242,6 +195,7 @@ begin {
         # Keep patterns + built-in CC runtime folders; used for processes and leftover folders
         param([string]$Path)
         if (Test-Keep -Name $Path) { return $true }
+        if (-not $script:protectCcPaths) { return $false }
         foreach ($p in $ProtectedPathPattern) { if ($Path -match $p) { return $true } }
         return $false
     }
@@ -337,14 +291,12 @@ begin {
     }
 
     function Get-BaseVersionFromJson {
-        <# Authoritative local source: every HD app ships an application.json carrying its
-           real BaseVersion (Adobe's own docs point admins at Build\HD\<sap>\Application.json).
-           Search is bounded to 3 levels under the install folder to stay fast. #>
+        <# application.json carries the real BaseVersion (Adobe points admins at
+           Build\HD\<sap>\Application.json). Search bounded to 3 levels to stay fast. #>
         param([string]$InstallLocation, [string]$SapCode, [string]$ProductName)
 
-        # Candidate roots: the registered InstallLocation (often EMPTY for HD apps), then
-        # Program Files\Adobe folders whose name matches the product, then the HD product
-        # staging area which keeps a per-sapCode application.json.
+        # Roots: InstallLocation (often EMPTY for HD apps), Program Files\Adobe folders
+        # matching the product name, then the per-sapCode HD staging areas.
         $roots = [System.Collections.Generic.List[string]]::new()
         if ($InstallLocation -and (Test-Path -LiteralPath $InstallLocation)) { $roots.Add($InstallLocation) }
 
@@ -408,10 +360,8 @@ begin {
         # Walk minors down inside the installed major
         if ($minOk) { for ($m = $minVal - 1; $m -ge 0; $m--) { $c.Add("$maj.$m") } }
 
-        # Walk MAJORS down. Apps on a rolling release train (Bridge, Lightroom) keep the
-        # base version of their original release for years while shipping much later
-        # product versions - Adobe documents Bridge as base 12.0.0. Without this the
-        # correct base is unreachable. Each miss costs ~1 s and exit 135.
+        # Walk MAJORS down: rolling-train apps (Bridge, Lightroom) keep the base of their
+        # original release for years (Adobe documents Bridge as 12.0.0). ~1 s per miss.
         if ($majOk) {
             for ($M = $majVal - 1; $M -ge 1; $M--) { $c.Add("$M.0"); $c.Add("$M.0.0") }
         }
@@ -419,10 +369,23 @@ begin {
     }
 
     function Register-Result {
-        <# Credits a removal ONLY if the product's Uninstall registry key is gone.
-           Adobe launchers (HDBox\Uninstaller.exe --mode=2) exit 0 without doing anything. #>
-        param([string]$Name, [string]$Key, [int]$Code, [int[]]$NotInstalledCodes = @())
+        <# Credits a removal ONLY if the Uninstall key is gone - Adobe launchers exit 0 doing
+           nothing. Creative Cloud Uninstaller.exe -u and AdobeCleanUpUtility.exe return 0 in
+           ~2 s and finish in a background child, so -GraceSeconds polls the key first and
+           -WaitProcess waits for that child. #>
+        param([string]$Name, [string]$Key, [int]$Code, [int[]]$NotInstalledCodes = @(),
+              [int]$GraceSeconds = 0, [string]$WaitProcess)
         $stillRegistered = if ($Key) { Test-Path $Key } else { $false }
+        if ($stillRegistered -and $GraceSeconds -gt 0) {
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            while ($sw.Elapsed.TotalSeconds -lt $GraceSeconds) {
+                Start-Sleep -Seconds 3
+                $busy = $WaitProcess -and (Get-Process -Name $WaitProcess -ErrorAction SilentlyContinue)
+                if (-not (Test-Path $Key)) { $stillRegistered = $false; break }
+                if (-not $busy -and $sw.Elapsed.TotalSeconds -ge 15) { break }   # child gone, key still there: it declined
+            }
+            Write-Log ("  waited {0:n0} s for background uninstall - key {1}" -f $sw.Elapsed.TotalSeconds, $(if ($stillRegistered) { 'still present' } else { 'gone' }))
+        }
 
         if ($stillRegistered) {
             $why = switch ($Code) {
@@ -458,8 +421,9 @@ process {
     Write-Log '=============================================='
     Write-Log "LIBR Adobe Product Uninstall v$ScriptVersion"
     Write-Log "Computer : $env:COMPUTERNAME   User: $env:USERNAME   Host: $(if ([Environment]::Is64BitProcess) { '64-bit' } else { '32-bit' }) PS $($PSVersionTable.PSVersion)"
-    Write-Log "Keep     : $($KeepPattern -join ' | ')"
+    Write-Log "Keep     : $(if ($KeepPattern.Count) { $KeepPattern -join ' | ' } else { '(nothing - full Adobe removal)' })"
     Write-Log "Options  : RemoveUserPreferences=$RemoveUserPreferences RemovePackageWrappers=$RemovePackageWrappers RemoveLeftoverFolders=$RemoveLeftoverFolders WhatIf=$WhatIfPreference"
+    Write-Log "Full wipe: RemoveCreativeCloud=$RemoveCreativeCloud CleanProgramData=$CleanProgramData" -Level $(if ($RemoveCreativeCloud) { 'WARN' } else { 'INFO' })
     Write-Log "Timeout  : $TimeoutMinutes min per uninstaller"
     Write-Log '=============================================='
 
@@ -502,7 +466,8 @@ process {
         # ------------------------------------------------------------ Stop processes
         # Kill anything running from Program Files\Adobe\* that is not Creative Cloud.
         # Creative Cloud runtime lives in Common Files\Adobe and Program Files\Adobe\Adobe Creative Cloud*,
-        # so it is left running by design (the HD uninstaller does not need it stopped).
+        # so it is left running by design (the HD uninstaller does not need it stopped) - even
+        # under -RemoveCreativeCloud, where STEP 6 stops it once the apps are gone.
         Write-Log '--- STEP 2: Stopping Adobe application processes ---'
         $adobeRoots = @("$env:ProgramFiles\Adobe\", "${env:ProgramFiles(x86)}\Adobe\")
         $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object {
@@ -514,7 +479,10 @@ process {
         foreach ($proc in $procs) {
             if ($PSCmdlet.ShouldProcess("$($proc.ProcessName) (PID $($proc.Id))", 'Stop process')) {
                 try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop; Write-Log "Stopped: $($proc.ProcessName) (PID $($proc.Id))" }
-                catch { Write-Log "Could not stop $($proc.ProcessName): $_" -Level WARN }
+                catch {
+                    if (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue) { Write-Log "Could not stop $($proc.ProcessName): $_" -Level WARN }
+                    else { Write-Log "  $($proc.ProcessName) (PID $($proc.Id)) already exited" }
+                }
             }
         }
         if (-not $procs) { Write-Log 'No Adobe application processes running.' }
@@ -551,12 +519,11 @@ process {
         }
 
         # ------------------------------------------------------------ 3b. Creative Cloud apps (per-app)
-        # Adobe's silent HD engine. The registry UninstallString is deliberately NOT used
-        # (it is the GUI launcher - see header).
-        # HDBox ships BOTH Setup.exe (~850 KB, the HyperDrive engine Adobe documents for
-        # --uninstall; macOS equivalent is HDBox/Setup) and Set-up.exe (~14 MB, the Creative
-        # Cloud installer bootstrapper). Setup.exe is the one we want; Set-up.exe is only a
-        # last-resort probe for builds that lack Setup.exe.
+        # The registry UninstallString is deliberately NOT used: on current builds it is
+        # HDBox\Uninstaller.exe --mode=2, a launcher that hands off to the CC desktop app
+        # (sign-in prompt), exits 0 after ~2 s and removes nothing under SYSTEM.
+        # HDBox ships BOTH Setup.exe (~850 KB, the HD engine) and Set-up.exe (~14 MB, the CC
+        # installer bootstrapper); Setup.exe is the one we want, Set-up.exe a last resort.
         $hdSetup = @(
             "${env:ProgramFiles(x86)}\Common Files\Adobe\Adobe Desktop Common\HDBox\Setup.exe",
             "$env:ProgramFiles\Common Files\Adobe\Adobe Desktop Common\HDBox\Setup.exe",
@@ -634,7 +601,7 @@ process {
 
         # ------------------------------------------------------------ 4. MSI products
         Write-Log '--- STEP 4: MSI products (Acrobat, Reader, etc.) ---'
-        foreach ($p in @($targets | Where-Object { $_.Type -eq 'MSI' -or $_.Type -eq 'Package' })) {
+        foreach ($p in @($targets | Where-Object { ($_.Type -eq 'MSI' -or $_.Type -eq 'Package') -and $_.Name -notmatch $CreativeCloudPattern })) {
             if (-not (Test-Path $p.Key)) { Write-Log "$($p.Name) already removed by a prior step"; continue }
             if ($PSCmdlet.ShouldProcess($p.Name, 'Uninstall (msiexec)')) {
                 $code = Invoke-Uninstaller -FilePath "$env:SystemRoot\System32\msiexec.exe" `
@@ -646,7 +613,7 @@ process {
 
         # ------------------------------------------------------------ 5. Other EXE uninstallers
         Write-Log '--- STEP 5: Other EXE uninstallers ---'
-        foreach ($p in @($targets | Where-Object Type -eq 'EXE')) {
+        foreach ($p in @($targets | Where-Object { $_.Type -eq 'EXE' -and $_.Name -notmatch $CreativeCloudPattern })) {
             if (-not (Test-Path $p.Key)) { Write-Log "$($p.Name) already removed by a prior step"; continue }
             $cmd = if ($p.QuietUninstall) { $p.QuietUninstall } else { $p.UninstallString }
             if (-not $cmd) { Write-Log "$($p.Name): no UninstallString" -Level ERROR; $script:failed.Add($p.Name); continue }
@@ -657,18 +624,105 @@ process {
             }
             if ($PSCmdlet.ShouldProcess($p.Name, 'Uninstall (EXE)')) {
                 $code = Invoke-Uninstaller -FilePath $uExe -ArgumentList $uArgs -Label $p.Name
-                Register-Result -Name $p.Name -Key $p.Key -Code $code
+                Register-Result -Name $p.Name -Key $p.Key -Code $code -GraceSeconds 60
             }
         }
 
-        # ------------------------------------------------------------ 6. Legacy (cannot be silenced)
+        # ------------------------------------------------------------ Legacy (cannot be silenced)
         foreach ($p in @($targets | Where-Object Type -eq 'Legacy')) {
             Write-Log "SKIPPED legacy PDApp-based product (no silent uninstall): $($p.Name) - remove with Creative Cloud Cleaner Tool" -Level WARN
             $script:skippedLegacy.Add($p.Name)
         }
 
+        # ------------------------------------------------------------ 6. Creative Cloud desktop app
+        # Deliberately last: "Creative Cloud Uninstaller.exe" refuses to run while any CC
+        # application is still installed, so this only works once STEP 3 has emptied the device.
+        # Also entered when CC ended up in $targets some other way (an explicit
+        # -KeepPattern that no longer covers it) - steps 4/5 skip it, so this step owns it.
+        $ccTargeted = @($targets | Where-Object { $_.Name -match $CreativeCloudPattern }).Count -gt 0
+        if ($RemoveCreativeCloud -or $ccTargeted) {
+            Write-Log '--- STEP 6: Adobe Creative Cloud desktop app ---'
+            $ccEntries = @(Get-AdobeProduct | Where-Object { $_.Name -match $CreativeCloudPattern })
+            $ccBlockers = @(Get-AdobeProduct | Where-Object { $_.Type -eq 'HD' -and $_.Name -notmatch $CreativeCloudPattern })
+
+            if ($ccBlockers.Count -gt 0 -and $WhatIfPreference) {
+                # Nothing was actually uninstalled in a dry run, so every app still looks like a blocker.
+                Write-Log "What if: would uninstall the Creative Cloud desktop app here, once STEP 3 has removed $($ccBlockers.Count) CC app(s)."
+            }
+            elseif ($ccBlockers.Count -gt 0) {
+                Write-Log "Not removing Creative Cloud: $($ccBlockers.Count) CC app(s) still installed - $($ccBlockers.Name -join '; '). Adobe's uninstaller would decline. Fix those first, then re-run." -Level ERROR
+                foreach ($cc in $ccEntries) { $script:failed.Add("$($cc.Name) (blocked by remaining CC apps)") }
+            }
+            elseif ($ccEntries.Count -eq 0) {
+                Write-Log 'Creative Cloud desktop app is not installed.'
+                $script:ccRemoved = $true
+                $script:protectCcPaths = $false
+            }
+            else {
+                # Nothing is left that needs the CC runtime, so stop all of it now.
+                foreach ($svcName in @('AdobeUpdateService', 'AGSService', 'AGMService', 'AdobeARMservice')) {
+                    $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+                    if ($svc -and $svc.Status -eq 'Running' -and $PSCmdlet.ShouldProcess($svcName, 'Stop service')) {
+                        try { Stop-Service -Name $svcName -Force -ErrorAction Stop; Write-Log "Stopped service: $svcName" }
+                        catch { Write-Log "Could not stop ${svcName}: $_" -Level WARN }
+                    }
+                }
+                $ccProcs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                    $_.ProcessName -match 'Adobe|Creative ?Cloud|CCXProcess|CCLibrary|CoreSync|AdobeIPCBroker|AdobeNotificationClient|node'
+                } | Where-Object {
+                    # 'node' only when it is Adobe's own copy - never a developer's Node.js
+                    $_.ProcessName -ne 'node' -or ($_.Path -and $_.Path -match '\\Adobe\\')
+                })
+                foreach ($proc in $ccProcs) {
+                    if ($PSCmdlet.ShouldProcess("$($proc.ProcessName) (PID $($proc.Id))", 'Stop Creative Cloud process')) {
+                        try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop; Write-Log "Stopped: $($proc.ProcessName) (PID $($proc.Id))" }
+                        catch {
+                            if (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue) { Write-Log "Could not stop $($proc.ProcessName): $_" -Level WARN }
+                            else { Write-Log "  $($proc.ProcessName) (PID $($proc.Id)) already exited" }
+                        }
+                    }
+                }
+                Start-Sleep -Seconds 3
+
+                # -u is the silent switch. Fall back to the registry UninstallString, which
+                # points at the same binary, if the well-known paths have moved.
+                $ccUninstaller = @(
+                    "${env:ProgramFiles(x86)}\Adobe\Adobe Creative Cloud\Utils\Creative Cloud Uninstaller.exe",
+                    "$env:ProgramFiles\Adobe\Adobe Creative Cloud\Utils\Creative Cloud Uninstaller.exe",
+                    "${env:ProgramFiles(x86)}\Common Files\Adobe\Adobe Desktop Common\HDBox\Creative Cloud Uninstaller.exe"
+                ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+
+                $ccArgs = '-u'
+                if (-not $ccUninstaller) {
+                    $ccMain = $ccEntries | Where-Object { $_.UninstallString } | Select-Object -First 1
+                    if ($ccMain) {
+                        $ccUninstaller, $ccArgs = Split-CommandLine $ccMain.UninstallString
+                        if (-not $ccArgs) { $ccArgs = '-u' }
+                        Write-Log "Creative Cloud Uninstaller.exe not at a known path - using registry UninstallString: $ccUninstaller $ccArgs" -Level WARN
+                    }
+                }
+
+                if (-not $ccUninstaller) {
+                    Write-Log 'Creative Cloud Uninstaller.exe not found and no usable UninstallString.' -Level ERROR
+                    foreach ($cc in $ccEntries) { $script:failed.Add("$($cc.Name) (no uninstaller)") }
+                }
+                elseif ($PSCmdlet.ShouldProcess('Adobe Creative Cloud desktop app', 'Uninstall (Creative Cloud Uninstaller.exe)')) {
+                    $code = Invoke-Uninstaller -FilePath $ccUninstaller -ArgumentList $ccArgs -Label 'Adobe Creative Cloud'
+                    foreach ($cc in $ccEntries) {
+                        Register-Result -Name $cc.Name -Key $cc.Key -Code $code -GraceSeconds 180 -WaitProcess 'Creative Cloud Uninstaller'
+                    }
+                    $script:ccRemoved = -not (@(Get-AdobeProduct | Where-Object { $_.Name -match $CreativeCloudPattern }).Count)
+                    if ($script:ccRemoved) {
+                        # Safe now to treat the CC runtime folders as leftovers.
+                        $script:protectCcPaths = $false
+                        Write-Log 'Creative Cloud runtime paths released for cleanup.'
+                    }
+                }
+            }
+        }
+
         # ------------------------------------------------------------ 7. Leftovers
-        Write-Log '--- STEP 6: Leftovers ---'
+        Write-Log '--- STEP 7: Leftovers ---'
         foreach ($t in (Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -match 'Adobe Acrobat Update' })) {
             if ($PSCmdlet.ShouldProcess($t.TaskName, 'Unregister scheduled task')) {
                 try { Unregister-ScheduledTask -TaskName $t.TaskName -Confirm:$false -ErrorAction Stop; Write-Log "Removed task: $($t.TaskName)" }
@@ -690,6 +744,70 @@ process {
         }
     }
 
+    # ---------------------------------------------------------------- 8. ProgramData\Adobe
+    # Outside the targets block on purpose: worth running even when there was nothing left
+    # to uninstall (this folder survives every Adobe uninstaller).
+    if ($CleanProgramData) {
+        Write-Log '--- STEP 8: Clearing ProgramData\Adobe ---'
+        $adobeProgramData = Join-Path $env:ProgramData 'Adobe'
+
+        if (-not (Test-Path -LiteralPath $adobeProgramData)) {
+            Write-Log "Not present: $adobeProgramData"
+        }
+        else {
+            # Decided from what is actually installed, not from the switches: if a Creative
+            # Cloud desktop app survived (kept by design, or its removal failed), wiping
+            # SLStore/caps deactivates it and forces a re-sign-in.
+            $ccStillInstalled = @(Get-AdobeProduct | Where-Object { $_.Name -match $CreativeCloudPattern }).Count -gt 0
+            $keepChild = if ($ccStillInstalled) { $ProgramDataLicensingChild } else { @() }
+            if ($keepChild.Count) {
+                Write-Log "Creative Cloud still installed - preserving licensing state: $($keepChild -join ', ')" -Level WARN
+            }
+
+            $pdItems = @(Get-ChildItem -LiteralPath $adobeProgramData -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -notin $keepChild })
+
+            if ($pdItems.Count -eq 0) {
+                Write-Log "Nothing to remove under $adobeProgramData"
+            }
+            foreach ($item in $pdItems) {
+                if (-not $PSCmdlet.ShouldProcess($item.FullName, 'Take ownership and delete')) { continue }
+                # SLStore and friends are SYSTEM-owned with ACLs that deny delete even to
+                # Administrators, so ownership has to be taken before Remove-Item succeeds.
+                # Both tools write to stderr on files they cannot touch; with
+                # $ErrorActionPreference = 'Stop' that becomes a terminating NativeCommandError,
+                # so it is relaxed for the two calls and their output is discarded.
+                $prevEap = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
+                try {
+                    if ($item.PSIsContainer) {
+                        & takeown.exe /F $item.FullName /A /R /D Y  *>&1 | Out-Null
+                        & icacls.exe  $item.FullName /grant '*S-1-5-32-544:(OI)(CI)F' /T /C /Q  *>&1 | Out-Null
+                    }
+                    else {
+                        & takeown.exe /F $item.FullName /A  *>&1 | Out-Null
+                        & icacls.exe  $item.FullName /grant '*S-1-5-32-544:F' /C /Q  *>&1 | Out-Null
+                    }
+                }
+                catch { Write-Log "takeown/icacls failed on $($item.FullName): $_" -Level WARN }
+                finally { $ErrorActionPreference = $prevEap }
+
+                try {
+                    Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
+                    Write-Log "Removed: $($item.FullName)"
+                }
+                catch { Write-Log "Could not remove $($item.FullName): $_" -Level WARN }
+            }
+
+            if (-not $WhatIfPreference) {
+                $pdLeft = @(Get-ChildItem -LiteralPath $adobeProgramData -Force -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -notin $keepChild })
+                if ($pdLeft.Count -eq 0) { Write-Log "Cleared: $adobeProgramData" -Level SUCCESS }
+                else { Write-Log "$($pdLeft.Count) item(s) could not be removed from ${adobeProgramData}: $($pdLeft.Name -join '; ')" -Level WARN }
+            }
+        }
+    }
+
     # ---------------------------------------------------------------- Summary + sentinel
     $finalInventory = @(Get-AdobeProduct)
     $remaining = @($finalInventory | Where-Object { -not $_.Keep -and ($_.Type -ne 'Package' -or $RemovePackageWrappers) })
@@ -706,6 +824,10 @@ process {
         Write-Log "Package wrappers: $($wrappers.Count) left registered (ignored by detection) - $($wrappers.Name -join '; ')"
     }
     Write-Log "Kept (by design): $($kept.Count)  $(if ($kept.Count) { '- ' + ($kept.Name -join '; ') })"
+    if ($RemoveCreativeCloud -or $CleanProgramData) {
+        $ccState = if (@($finalInventory | Where-Object { $_.Name -match $CreativeCloudPattern }).Count) { 'STILL INSTALLED' } else { 'removed / absent' }
+        Write-Log "Creative Cloud  : $ccState   ProgramData cleaned: $CleanProgramData"
+    }
     Write-Log "Reboot required : $($script:rebootRequired)"
     Write-Log "Elapsed         : $([math]::Round(((Get-Date) - $script:startTime).TotalMinutes, 1)) min"
     Write-Log '=============================================='
@@ -719,6 +841,7 @@ process {
             Set-ItemProperty -Path $SentinelKey -Name 'ScriptVersion' -Value $ScriptVersion -Type String -Force
             Set-ItemProperty -Path $SentinelKey -Name 'LastRun'       -Value (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -Type String -Force
             Set-ItemProperty -Path $SentinelKey -Name 'LastLog'       -Value $LogFile -Type String -Force
+            Set-ItemProperty -Path $SentinelKey -Name 'FullRemoval'   -Value ([int][bool]$RemoveCreativeCloud) -Type DWord -Force
             Write-Log "Sentinel written: $SentinelKey Completed=$completed" -Level SUCCESS
         }
         catch { Write-Log "Failed to write sentinel: $_" -Level ERROR }
