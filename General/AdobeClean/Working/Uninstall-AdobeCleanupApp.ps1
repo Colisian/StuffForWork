@@ -39,7 +39,7 @@
 .NOTES
     Author  : Oji (cmcleod1)
     Date    : 2026-09-01
-    Version : 1.0.0
+    Version : 1.0.1
     Run As  : SYSTEM (Intune) or local Administrator
     PS      : 5.1+ (7.x compatible)
 
@@ -55,7 +55,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ScriptVersion = '1.0.0'
+$ScriptVersion = '1.0.1'
 $LogFile = Join-Path $LogPath "AdobeCleanupApp-Uninstall-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
 if (-not (Test-Path $LogPath)) { New-Item -Path $LogPath -ItemType Directory -Force -WhatIf:$false | Out-Null }
@@ -95,7 +95,7 @@ if (-not (Test-Path $SentinelKey)) {
 # Record what was there, so the log still shows the last removal run after the key is gone
 try {
     $props = Get-ItemProperty -Path $SentinelKey -ErrorAction Stop
-    Write-Log "Existing sentinel: Completed=$($props.Completed) Remaining=$($props.Remaining) ScriptVersion=$($props.ScriptVersion) LastRun=$($props.LastRun)"
+    Write-Log "Existing sentinel: Completed=$($props.Completed) Remaining=$($props.Remaining) FullRemoval=$($props.FullRemoval) ScriptVersion=$($props.ScriptVersion) LastRun=$($props.LastRun)"
 }
 catch { Write-Log "Could not read sentinel values: $_" -Level WARN }
 

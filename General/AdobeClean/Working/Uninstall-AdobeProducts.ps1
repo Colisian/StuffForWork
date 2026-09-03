@@ -1,69 +1,37 @@
 <#
 .SYNOPSIS
     Uninstall-AdobeProducts.ps1
-    Silently removes every installed Adobe product on a Windows device. By
-    default the Adobe Creative Cloud desktop app (and the services it depends
-    on) is kept; -RemoveCreativeCloud removes that too, and -CleanProgramData
-    clears C:\ProgramData\Adobe afterwards.
+    Silently removes every installed Adobe product on a Windows device. The
+    Creative Cloud desktop app (and the services it depends on) is kept by
+    default; -RemoveCreativeCloud removes it too, and -CleanProgramData clears
+    C:\ProgramData\Adobe.
 
 .DESCRIPTION
-    Enumerates the Uninstall registry hives (64-bit + WOW6432Node), selects
-    entries published by Adobe, drops anything matching -KeepPattern, then
-    removes the rest using the correct mechanism per installer type:
+    Enumerates both Uninstall registry hives (64-bit + WOW6432Node), selects
+    Adobe entries, drops anything matching -KeepPattern, removes the rest per
+    installer type: HD/CC apps via AdobeUninstaller.exe or HDBox\Setup.exe,
+    MSI via msiexec /x, EXE via QuietUninstallString. Package wrappers and
+    legacy PDApp.exe apps are skipped. The CC desktop app (step 6) and
+    C:\ProgramData\Adobe (step 8) are opt-in. Full table in the README.
 
-      1. Creative Cloud / HyperDrive apps (Photoshop, Illustrator, InDesign,
-         Premiere Pro, After Effects, Lightroom, Bridge, Media Encoder,
-         Substance, etc.)
-           a. If AdobeUninstaller.exe (Admin Console > Packages > Tools) is
-              found next to the script, it is used first in one call:
-                AdobeUninstaller.exe --products=PHSP#25.0,ILST#28.0,...
-           b. Anything still present is removed per-app with Adobe's silent
-              HDBox setup engine, using sapCode/version parsed from the
-              registry UninstallString:
-                HDBox\Setup.exe --uninstall=1 --sapCode=X --baseVersion=Y
-                                --platform=win64 --deleteUserPreferences=false
-              (Setup.exe ~850 KB is the HD engine; the 14 MB Set-up.exe next
-              to it is the CC installer bootstrapper and is not used unless
-              Setup.exe is absent.)
-              The registry UninstallString itself is NOT run: on current CC
-              builds it points at HDBox\Uninstaller.exe --mode=2, which is
-              the Programs-and-Features launcher. That hands off to the
-              Creative Cloud desktop app (sign-in prompt), exits 0 after ~2 s,
-              and removes nothing under SYSTEM. It is used only as a last
-              resort when Set-up.exe cannot be found.
-           c. A removal is credited ONLY when the product's registry key is
-              gone afterwards - exit codes from Adobe launchers are not trusted.
-      2. MSI products (Acrobat, Reader, Refresh Manager, AIR, etc.)
-           msiexec /x {ProductCode} /qn /norestart REBOOT=ReallySuppress
-         Admin Console PACKAGE WRAPPER MSIs (DisplayVersion 1.0.0000, e.g.
-         "AdobeCC_SelfService", "LIBR-AcrobatDC") are NOT products - they are
-         the deployment package registrations. Uninstalling one removes every
-         product in that package, and a self-service package's only product
-         is the Creative Cloud desktop app itself. They are therefore skipped
-         (and ignored by detection) unless -RemovePackageWrappers is given.
-      3. Other EXE uninstallers - QuietUninstallString if present, otherwise
-         UninstallString with /S appended (NSIS-style), always under a timeout.
-      4. Legacy CS5/CS6/early-CC apps (PDApp.exe based) cannot be silenced;
-         they are logged as WARN and left for the Creative Cloud Cleaner Tool.
-      5. The Creative Cloud desktop app itself (-RemoveCreativeCloud only),
-         removed LAST because Adobe's uninstaller refuses to run while any CC
-         app is still installed:
-           "Adobe Creative Cloud\Utils\Creative Cloud Uninstaller.exe" -u
-         The CC runtime (CoreSync, CCXProcess, AdobeGCClient, Adobe Desktop
-         Common) is protected until that point so it cannot be killed out from
-         under the app uninstalls, then released for folder cleanup.
-      6. C:\ProgramData\Adobe (-CleanProgramData only), after ownership is
-         taken - SLStore and friends are SYSTEM-owned and deny delete. If the
-         CC desktop app is being KEPT, the licensing/activation children
-         (SLStore, SLCache, AAMUpdater, OOBE, caps, ...) are preserved so the
-         retained install is not deactivated.
+    Three behaviours are load-bearing - do not "simplify" them. Each is
+    explained at its code site and in the README:
 
-    Every uninstaller runs under a hard timeout so a stray dialog can never
-    hang an Intune install. Progress is logged to C:\ProgramData\LIBR\Logs and
-    a registry sentinel is written for Intune detection.
+      1. The registry UninstallString is NOT run for HD apps (it is a GUI
+         launcher that exits 0 without removing anything under SYSTEM).
+      2. A removal is credited ONLY when the product's Uninstall registry key
+         has disappeared. Adobe exit codes are not trusted.
+      3. --baseVersion is the ORIGINAL install version, not the patched
+         version the registry reports (Photoshop 27.10 -> base 27.0).
 
-    Works both as a file (-File .\Uninstall-AdobeProducts.ps1) and pasted into
-    the Intune Win32 "PowerShell script installer" box.
+    Every uninstaller runs under a hard timeout, so a stray dialog can never
+    hang an Intune install. Logs to C:\ProgramData\LIBR\Logs; writes a registry
+    sentinel for detection.
+
+    Runs as a file (-File .\Uninstall-AdobeProducts.ps1) and pasted into the
+    Intune "PowerShell script installer" box. A pasted script gets NO command
+    line - see $ForceFullRemoval in begin{} to select the mode. That box has a
+    50 KB limit; check this file's size before adding prose here.
 
 .PARAMETER LogPath
     Log directory. Default: C:\ProgramData\LIBR\Logs
@@ -97,26 +65,24 @@
     CC desktop app is kept, licensing state under that folder is preserved.
 
 .PARAMETER RemoveLeftoverFolders
-    After uninstalling, delete orphaned product folders under
-    "Program Files\Adobe" and "Program Files (x86)\Adobe" that no remaining
-    product owns and that do not match -KeepPattern. Never touches
+    Delete orphaned folders under "Program Files\Adobe" and "(x86)\Adobe" that
+    no remaining product owns and that do not match -KeepPattern. Never touches
     Common Files\Adobe (shared Creative Cloud runtime).
 
 .PARAMETER AdobeUninstallerPath
-    Explicit path to AdobeUninstaller.exe. Default: <script folder>\AdobeUninstaller.exe
-    if present; otherwise the per-app HDBox method is used.
+    Path to AdobeUninstaller.exe. Default: <script folder>\AdobeUninstaller.exe
+    if present, otherwise the per-app HDBox method is used.
 
 .PARAMETER TimeoutMinutes
-    Maximum minutes to wait for any single uninstaller before it is killed.
-    Default: 30
+    Minutes to wait for any single uninstaller before killing it. Default: 30
 
 .EXAMPLE
     .\Uninstall-AdobeProducts.ps1 -WhatIf
     Lists what would be removed / kept without changing anything.
 
 .EXAMPLE
-    .\Uninstall-AdobeProducts.ps1 -KeepPattern 'Adobe Creative Cloud','Adobe Genuine Service','Adobe Acrobat'
-    Removes everything Adobe except Creative Cloud, AGS and Acrobat.
+    .\Uninstall-AdobeProducts.ps1 -KeepPattern 'Adobe Creative Cloud','Adobe Acrobat'
+    Keeps Creative Cloud and Acrobat, removes the rest.
 
 .EXAMPLE
     .\Uninstall-AdobeProducts.ps1 -RemoveCreativeCloud -RemoveLeftoverFolders
@@ -125,80 +91,12 @@
 
 .NOTES
     Author  : Oji (cmcleod1)
-    Date    : 2026-09-01
+    Date    : 2026-09-03
     Version : 1.5.0
     Run As  : SYSTEM (Intune) or local Administrator
-
-    CHANGELOG
-      1.5.0 - Added -RemoveCreativeCloud: removes the CC desktop app itself in
-              a new final product step, after every CC app (Adobe's uninstaller
-              declines otherwise). Implies an empty -KeepPattern and
-              -CleanProgramData. CC runtime path protection is now released
-              only once the desktop app is actually gone.
-            - Added -CleanProgramData: takeown + icacls, then clears
-              C:\ProgramData\Adobe. Preserves the licensing children
-              (SLStore, SLCache, AAMUpdater, OOBE, caps, ...) when the CC
-              desktop app is being kept, so a retained install stays activated.
-            - Steps renumbered; leftovers is now STEP 7, ProgramData STEP 8.
-      1.4.0 - VALIDATED END TO END on LIBRWKSPC010189 (2026-09-01): all 15
-              CC apps removed, CC desktop app + Adobe Genuine Service kept,
-              sentinel Completed=1.
-            - Added $KnownBaseVersion table seeded with LRCC=1.0 (Lightroom
-              ships 9.x on a base of 1.0; the blind sweep needed 22 attempts).
-              Bridge needed no entry - its base is major.0.0 (16.0.0), which
-              is already the second candidate.
-      1.3.4 - Sweep now distinguishes 135 (wrong baseVersion) from any other
-              non-zero code (baseVersion recognised, uninstall itself failed)
-              and reports the recognised values plus where Adobe logs them.
-      1.3.3 - baseVersion sweep now walks MAJOR versions down as well as
-              minors. Bridge/Lightroom sit on a rolling train and keep an old
-              base version (Adobe documents Bridge as 12.0.0) while shipping
-              16.x/9.x, so the correct value was unreachable. Capped at 48
-              candidates (~48 s worst case).
-            - Program Files\Adobe\Common protected from -RemoveLeftoverFolders.
-      1.3.2 - application.json lookup no longer depends on InstallLocation
-              (empty for most HD apps): also searches Program Files\Adobe
-              folders matching the product name and per-sapCode HD staging
-              paths, and only trusts a file that names the sapCode.
-      1.3.1 - baseVersion now read from the app's own application.json when
-              present (authoritative); candidate list extended with 3-part
-              forms (16.0.0) and a descending-minor sweep. Bridge/Lightroom
-              failed at 135 because only 2-part forms were tried.
-            - Products removed as a side effect of another app's uninstall
-              (shared components like UXP WebView Support) are now counted
-              and logged instead of silently skipped.
-      1.3.0 - FIX: --baseVersion must be the ORIGINAL install version (27.0),
-              not the current updated version the registry reports (27.10).
-              Only never-updated apps worked. Now tries major.0 -> exact ->
-              major.minor until the Uninstall key disappears.
-            - FIX: exit codes were always $null (Start-Process handle quirk),
-              coerced to 0 in logs. Handle is now cached; real codes logged.
-      1.2.2 - HD engine probe now prefers HDBox\Setup.exe (the engine) over
-              Set-up.exe (the CC installer bootstrapper) - both exist on
-              current builds and the wrong one was being picked first.
-      1.2.1 - Abort when run from a 32-bit host on 64-bit Windows (registry
-              redirection hides 64-bit products); log host bitness in header.
-      1.2.0 - FIX: per-app CC uninstall ran the registry UninstallString
-              (HDBox\Uninstaller.exe --mode=2), which is a GUI launcher that
-              delegates to the CC desktop app (sign-in popup) and exits 0
-              without removing anything. Now builds the documented silent
-              command against HDBox\Set-up.exe / Setup.exe from sapCode +
-              version parsed out of the registry string.
-            - FIX: success is verified by the product's Uninstall key
-              disappearing, not by exit code. Per-uninstall duration logged.
-      1.1.1 - Inventory tag now shows SKIP (not REMOVE) for untargeted package
-              wrappers; type column widened for 'Package'.
-            - Options line records -RemovePackageWrappers and the timeout;
-              summary reports elapsed minutes (watch Intune's install timeout).
-      1.1.0 - Logging no longer suppressed by -WhatIf (Add-Content -WhatIf:$false).
-            - Creative Cloud runtime processes/folders (CoreSync under
-              "Adobe Sync", "Adobe Creative Cloud Experience", HDBox) are
-              protected by $ProtectedPathPattern regardless of -KeepPattern.
-            - Admin Console package wrapper MSIs classified as 'Package' and
-              skipped by default (-RemovePackageWrappers to include).
-            - WhatIf summary wording ("Would remove" instead of "Still installed").
-      1.0.0 - Initial release.
     PS      : 5.1+ (7.x compatible)
+
+    Changelog and live-run history: README-AdobeUninstall.md
 
     Exit codes:
       0    - All targeted products removed
@@ -231,6 +129,13 @@ begin {
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
     $SentinelKey = 'HKLM:\SOFTWARE\LIBR\AdobeUninstall'
+
+    # PASTE DEPLOYMENTS: $true = full wipe (CC desktop app + ProgramData). Intune's
+    # PowerShell script installer runs this with no command line, so it is the only way
+    # to reach -RemoveCreativeCloud there. $false = remove the apps, keep Creative Cloud.
+    $ForceFullRemoval = $false
+
+    if ($ForceFullRemoval) { $RemoveCreativeCloud = [switch]$true }
 
     # -RemoveCreativeCloud is a full wipe: nothing is kept and ProgramData is cleared,
     # unless the caller was explicit about either.
@@ -620,12 +525,13 @@ process {
         }
 
         # ------------------------------------------------------------ 3b. Creative Cloud apps (per-app)
-        # Adobe's silent HD engine. The registry UninstallString is deliberately NOT used
-        # (it is the GUI launcher - see header).
+        # Adobe's silent HD engine. The registry UninstallString is deliberately NOT used:
+        # on current builds it is HDBox\Uninstaller.exe --mode=2, the Programs-and-Features
+        # launcher, which hands the job to the CC desktop app (sign-in prompt), exits 0 after
+        # ~2 s and removes nothing under SYSTEM.
         # HDBox ships BOTH Setup.exe (~850 KB, the HyperDrive engine Adobe documents for
-        # --uninstall; macOS equivalent is HDBox/Setup) and Set-up.exe (~14 MB, the Creative
-        # Cloud installer bootstrapper). Setup.exe is the one we want; Set-up.exe is only a
-        # last-resort probe for builds that lack Setup.exe.
+        # --uninstall) and Set-up.exe (~14 MB, the CC installer bootstrapper). Setup.exe is
+        # the one we want; Set-up.exe is only a last-resort probe for builds that lack it.
         $hdSetup = @(
             "${env:ProgramFiles(x86)}\Common Files\Adobe\Adobe Desktop Common\HDBox\Setup.exe",
             "$env:ProgramFiles\Common Files\Adobe\Adobe Desktop Common\HDBox\Setup.exe",

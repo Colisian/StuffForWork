@@ -84,13 +84,24 @@ Add `-RemoveLeftoverFolders` / `-KeepPattern ...` to the install command as need
 
 ### Full-wipe variant (removes Creative Cloud too)
 
-Same package, different install command:
+**Method A** — same package, different install command:
 
 ```
 %windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File Uninstall-AdobeProducts.ps1 -RemoveCreativeCloud -RemoveLeftoverFolders
 ```
 
+**Method B (paste)** — there is no command line, so the switch cannot be passed. Edit one line in `begin{}` before pasting:
+
+```powershell
+$ForceFullRemoval = $true    # was $false
+```
+
+That is the *only* edit needed: it sets `-RemoveCreativeCloud`, which in turn implies `-KeepPattern @()` and `-CleanProgramData`. Keep the repo copy at `$false` and flip it in the portal paste for the full-wipe app, so the default app can never be turned into a wipe by accident. Any other switch can be reached the same way by changing its default in the `param()` block.
+
 `-RemoveCreativeCloud` implies `-KeepPattern @()` and `-CleanProgramData`, and stamps `FullRemoval=1` on the sentinel so `Detect-AdobeUninstall.ps1` drops its keep list automatically — no edit to the detection script needed.
+
+> [!caution] Re-install loop
+> Intune reinstalls a Win32 app whenever its detection later goes false. In keep-CC mode that is the desired behaviour (someone reinstalls Acrobat → it gets removed again). With `FullRemoval=1` the keep list is dropped, so **a user who reinstalls Creative Cloud from adobe.com will have it silently wiped again** at the next detection cycle. That is the intended outcome on a locked-down lab machine and a support ticket anywhere else. Scope the assignment accordingly.
 
 **Ship this one as Required to a device group, never as Available in Company Portal.** It deactivates Adobe licensing on the device and leaves the user with no way to reinstall anything; that is a decision for the person assigning the app, not a self-service button. Name it so it cannot be confused with the default app, e.g. *Remove ALL Adobe Software (including Creative Cloud)*.
 
@@ -133,17 +144,14 @@ State on a machine that never had Adobe apps: detection is false (no sentinel), 
 
 ## Intune app — Method B (PowerShell script installer, paste)
 
-> [!warning] Method B no longer fits as of v1.5.0
-> `Uninstall-AdobeProducts.ps1` is now **~55 KB**, over Intune's **50 KB** paste limit for the PowerShell script installer boxes. **Use Method A.** Stripping the comment-based help gets it to ~43 KB, but a portal-only copy that has drifted from this repo is worse than a command line, so that is not the recommended path. If you must:
->
-> ```powershell
-> # Emit a paste-sized copy with the help block removed (regenerate after every edit)
-> $src = Get-Content .\Uninstall-AdobeProducts.ps1 -Raw
-> ($src -replace '(?s)\A<#.*?#>\r?\n', '') | Set-Content .\Uninstall-AdobeProducts.paste.ps1 -Encoding UTF8
-> (Get-Item .\Uninstall-AdobeProducts.paste.ps1).Length / 1KB
-> ```
+**This is the method in use on the LIBR fleet.** Set **Installer type = PowerShell script** and paste `Uninstall-AdobeProducts.ps1` as the install script and `Uninstall-AdobeCleanupApp.ps1` as the uninstall script.
 
-With Method B both scripts are stored as app **metadata** and can be edited in the portal without repackaging. The script locates `AdobeUninstaller.exe` via the current directory when `$PSScriptRoot` is empty, so bundling it in the `.intunewin` still works. Hot-fixes made in the portal must be synced back to this repo.
+Both are stored as app **metadata** and can be edited in the portal without repackaging — sync any portal hot-fix back to this repo. The script locates `AdobeUninstaller.exe` via the current directory when `$PSScriptRoot` is empty, so bundling it in the `.intunewin` still works.
+
+> [!important] Watch the size
+> v1.5.0 briefly reached 55 KB, over the 50 KB paste limit. The comment-based help was condensed and the changelog moved into this file to bring it back under. See *Keeping the script pasteable* below and check the size before every paste.
+
+**A pasted script receives no command line.** Every parameter therefore takes its default. For the default keep-CC behaviour that is exactly right — paste and go. For the full wipe, set `$ForceFullRemoval = $true` in `begin{}` (see *Full-wipe variant* above); do not try to add switches to a command line that does not exist.
 
 ## Lessons from the first live run (2026-09-01, v1.1.0, `LIBRWKSPC010189`)
 
@@ -242,6 +250,47 @@ Get-Process | Where-Object { $_.Path -match '\\Adobe\\' } | Select-Object Proces
 (Get-ItemProperty HKLM:\SOFTWARE\LIBR\AdobeUninstall).FullRemoval   # 1 = full wipe
 ```
 
+## Changelog
+
+Kept here rather than in the script header: the script is pasted into Intune's PowerShell script installer box, which has a **50 KB** limit, and the changelog was 5 KB of it.
+
+**v1.5.0** — Added `-RemoveCreativeCloud`: removes the CC desktop app itself in a new final product step (STEP 6), after every CC app, because Adobe's uninstaller declines otherwise. Implies an empty `-KeepPattern` and `-CleanProgramData`. CC runtime path protection is released only once the desktop app is confirmed gone.
+- Added `-CleanProgramData`: `takeown` + `icacls`, then clears `C:\ProgramData\Adobe` (STEP 8). Preserves the licensing children (`SLStore`, `SLCache`, `AAMUpdater`, `OOBE`, `caps`, …) when the CC desktop app is being kept, so a retained install stays activated.
+- Sentinel gained `FullRemoval`; `Detect-AdobeUninstall.ps1` v1.2.0 reads it so one detection script serves both modes.
+- **Comment-based help condensed and the changelog moved here** to bring the file back under the 50 KB paste limit (it had reached 55 KB). Load-bearing explanations stayed at their code sites.
+
+**v1.4.0** — VALIDATED END TO END on LIBRWKSPC010189 (2026-09-01): all 15 CC apps removed, CC desktop app + Adobe Genuine Service kept, sentinel Completed=1.
+- Added $KnownBaseVersion table seeded with LRCC=1.0 (Lightroom ships 9.x on a base of 1.0; the blind sweep needed 22 attempts). Bridge needed no entry - its base is major.0.0 (16.0.0), which is already the second candidate.
+**v1.3.4** — Sweep now distinguishes 135 (wrong baseVersion) from any other non-zero code (baseVersion recognised, uninstall itself failed) and reports the recognised values plus where Adobe logs them.
+**v1.3.3** — baseVersion sweep now walks MAJOR versions down as well as minors. Bridge/Lightroom sit on a rolling train and keep an old base version (Adobe documents Bridge as 12.0.0) while shipping 16.x/9.x, so the correct value was unreachable. Capped at 48 candidates (~48 s worst case).
+- Program Files\Adobe\Common protected from -RemoveLeftoverFolders.
+**v1.3.2** — application.json lookup no longer depends on InstallLocation (empty for most HD apps): also searches Program Files\Adobe folders matching the product name and per-sapCode HD staging paths, and only trusts a file that names the sapCode.
+**v1.3.1** — baseVersion now read from the app's own application.json when present (authoritative); candidate list extended with 3-part forms (16.0.0) and a descending-minor sweep. Bridge/Lightroom failed at 135 because only 2-part forms were tried.
+- Products removed as a side effect of another app's uninstall (shared components like UXP WebView Support) are now counted and logged instead of silently skipped.
+**v1.3.0** — FIX: --baseVersion must be the ORIGINAL install version (27.0), not the current updated version the registry reports (27.10). Only never-updated apps worked. Now tries major.0 -> exact -> major.minor until the Uninstall key disappears.
+- FIX: exit codes were always $null (Start-Process handle quirk), coerced to 0 in logs. Handle is now cached; real codes logged.
+**v1.2.2** — HD engine probe now prefers HDBox\Setup.exe (the engine) over Set-up.exe (the CC installer bootstrapper) - both exist on current builds and the wrong one was being picked first.
+**v1.2.1** — Abort when run from a 32-bit host on 64-bit Windows (registry redirection hides 64-bit products); log host bitness in header.
+**v1.2.0** — FIX: per-app CC uninstall ran the registry UninstallString (HDBox\Uninstaller.exe --mode=2), which is a GUI launcher that delegates to the CC desktop app (sign-in popup) and exits 0 without removing anything. Now builds the documented silent command against HDBox\Set-up.exe / Setup.exe from sapCode + version parsed out of the registry string.
+- FIX: success is verified by the product's Uninstall key disappearing, not by exit code. Per-uninstall duration logged.
+**v1.1.1** — Inventory tag now shows SKIP (not REMOVE) for untargeted package wrappers; type column widened for 'Package'.
+- Options line records -RemovePackageWrappers and the timeout; summary reports elapsed minutes (watch Intune's install timeout).
+**v1.1.0** — Logging no longer suppressed by -WhatIf (Add-Content -WhatIf:$false).
+- Creative Cloud runtime processes/folders (CoreSync under "Adobe Sync", "Adobe Creative Cloud Experience", HDBox) are protected by $ProtectedPathPattern regardless of -KeepPattern.
+- Admin Console package wrapper MSIs classified as 'Package' and skipped by default (-RemovePackageWrappers to include).
+- WhatIf summary wording ("Would remove" instead of "Still installed").
+**v1.0.0** — Initial release.
+
+## Keeping the script pasteable
+
+The Intune PowerShell script installer box takes **50 KB**. `Uninstall-AdobeProducts.ps1` currently sits at **49,781 bytes (48.6 KB)** — under the limit on either reading of "50 KB" (50,000 or 51,200 bytes), with ~219 bytes of headroom. Check before every paste:
+
+```powershell
+'{0:n0} bytes ({1:n1} KB)' -f (Get-Item .\Uninstall-AdobeProducts.ps1).Length, ((Get-Item .\Uninstall-AdobeProducts.ps1).Length / 1KB)
+```
+
+If an edit pushes it over, take the space out of the comment-based help and move the prose into this file — **not** out of the inline comments at the code sites. Every one of those records a live-run failure and is the reason the next editor won't reintroduce it.
+
 ## Caveats / security notes
 
 - **Acrobat is removed** unless you add `'Adobe Acrobat'` to `-KeepPattern`. On the LIBR fleet Acrobat is owned by DIT via Patch My PC; coordinate before mass-deploying or PMPC will just put it back.
@@ -249,7 +298,8 @@ Get-Process | Where-Object { $_.Path -match '\\Adobe\\' } | Select-Object Proces
 - **`-RemoveCreativeCloud` deactivates the device.** Clearing `C:\ProgramData\Adobe` destroys the local licensing/activation state (`SLStore`, `caps`). Reinstalling requires a network trip and a fresh sign-in. The script preserves those children when a CC install survives, but there is no undo once they are gone.
 - **`takeown` + `icacls` on `C:\ProgramData\Adobe` is a detectable pattern.** CrowdStrike Falcon flags ownership seizure followed by recursive deletion as ransomware-adjacent behaviour. Running it under the Intune Management Extension (`IntuneManagementExtension.exe` → `powershell.exe` as SYSTEM) is the mitigating context; if Falcon raises detections during the pilot, ask the security team to allowlist that parent-process chain for this script rather than turning the step off. Scope is limited to `C:\ProgramData\Adobe` and its children — the script never walks a parent path.
 - **The CC uninstaller cannot be forced.** If any CC app survives STEP 3, STEP 6 logs the blockers and exits 1 rather than running the uninstaller into a guaranteed failure. Fix the app removal (usually a baseVersion) and re-run; there is no `-Force`.
-- **Neither mode has been validated as SYSTEM yet.** All runs to date on `LIBRWKSPC010189` were elevated interactive sessions. The original v1.1.0 bug was precisely a launcher handing off to a desktop that SYSTEM does not have — pilot as **Required** on one device and read the log before assigning more broadly.
+- **Keep-CC mode is validated as SYSTEM** — run successfully from Company Portal as an Available self-service app. That closes the v1.1.0 concern (a launcher handing off to a desktop SYSTEM does not have) for STEPS 1–5.
+- **The full wipe is NOT validated as SYSTEM.** `Creative Cloud Uninstaller.exe` is a different binary from the HD engine and has never run headless here. Pilot `-RemoveCreativeCloud` as **Required** on one device and read the log before assigning it anywhere else. The script judges success by the registry key disappearing, so a silent no-op surfaces as a failure rather than a false success — but it would still be a failure.
 - User data in `AppData\*\Adobe` is **not** touched (the CC desktop app shares those folders). Use `Clean-Adobe.ps1` only when CC is also being removed.
 - CrowdStrike/Rapid7: mass process kills + `msiexec /x` from SYSTEM are normal Intune behavior and match the existing cleanup app's footprint; no new detections expected.
 - `UXP WebView Support` is an HD shared runtime used by CC apps (not by the CC desktop app itself) and is removed with them; CC reinstalls it on demand.
