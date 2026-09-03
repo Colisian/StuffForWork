@@ -42,7 +42,7 @@ Under `-RemoveCreativeCloud` that protection is **still active through STEP 3–
 | --- | --- | --- |
 | `-KeepPattern` | `'Adobe Creative Cloud','Adobe Genuine Service'` | Regex list matched against `DisplayName`. Add `'Adobe Acrobat'` to keep Acrobat, etc. Keep `Detect-AdobeUninstall.ps1` in sync. Cleared to `@()` by `-RemoveCreativeCloud` unless you pass it explicitly |
 | `-RemoveCreativeCloud` | off | Also remove the CC desktop app (STEP 6, last). **Implies an empty `-KeepPattern` and `-CleanProgramData`.** Deactivates licensing — users sign in again after any reinstall. Stamps `FullRemoval=1` on the sentinel |
-| `-CleanProgramData` | off (on when `-RemoveCreativeCloud`) | Clears `C:\ProgramData\Adobe`. Suppress with `-CleanProgramData:$false`. If a CC desktop app is still installed when this runs, the licensing children (`SLStore`, `SLCache`, `AAMUpdater`, `OOBE`, `caps`, `Adobe Desktop Common`, `ARM`, `Adobe Notification Client`) are **preserved** so the retained install is not deactivated |
+| `-CleanProgramData` | off (on when `-RemoveCreativeCloud`) | Clears `C:\ProgramData\Adobe`. Suppress with `-CleanProgramData:$false`. If a CC desktop app is still installed when this runs, the licensing children are **preserved** so the retained install is not deactivated: `SLStore`, `SLCache`, `Adobe PCD`, `UPI` (named-user), `OperatingConfigs`, `LicensingToolkit` (Shared Device / Feature Restricted Licensing — **lab machines**), `AAMUpdater`, `OOBE`, `caps`, `Adobe Desktop Common`, `ARM`, `Adobe Notification Client` |
 | `-RemoveUserPreferences` | off | Passes `--deleteUserPreferences=true` to the CC app uninstaller |
 | `-RemovePackageWrappers` | off | Also `msiexec /x` the Admin Console package wrapper MSIs. **A self-service wrapper removes the CC desktop app** — only use on devices where the wrappers are known to contain apps only |
 | `-RemoveLeftoverFolders` | off | Deletes orphan folders under `Program Files\Adobe` / `(x86)` that no remaining product owns. Never touches `Common Files\Adobe` |
@@ -197,6 +197,8 @@ Adobe records the reason in its installer logs:
 
 Also fixed in v1.3.0: exit codes were logging blank (and being treated as 0) because `Start-Process -PassThru` returns a null `ExitCode` after `WaitForExit(timeout)` unless the process handle is touched first. Real codes are now logged.
 
+**Fourth live run (v1.5.0, 2026-09-03, first full wipe, `-RemoveCreativeCloud`).** Reported *Failed: 2 — Adobe Genuine Service, Adobe Creative Cloud* and exit 1, but the log disproves half of it: AGS was marked FAILED at the 18-second check, yet was absent from *Still installed* 15 seconds later — its key vanished after the uninstaller had already returned. The CC uninstaller showed the same signature (`exit 0 after 2 s`, key still present). That is documented behaviour: [Creative Cloud Uninstaller.exe returns exit 0 almost immediately and continues uninstalling in the background for about a minute](https://discourse.psappdeploytoolkit.com/t/strange-uninstall-behavior-from-adobe-creative-cloud-is-breaking-intune-detection/6537), which the script's instant key check could not see. v1.5.1 gives `Register-Result` a grace window (`-GraceSeconds`, polls the key every 3 s; `-WaitProcess` also waits for the `Creative Cloud Uninstaller` child) — 60 s for EXE uninstallers, 180 s for CC — and logs how long it waited. The run also deleted `C:\ProgramData\Adobe\OperatingConfigs` and `LicensingToolkit` while claiming to preserve licensing: those are the [Shared Device Licensing](https://helpx.adobe.com/enterprise/kb/sdl-toolkit.html) / [Licensing Toolkit](https://helpx.adobe.com/business/enterprise/kb/adobe-licensing-toolkit.html) folders and were missing from the preserve list, along with `Adobe PCD` and `UPI`. Fixed in v1.5.1. Six *Could not stop … Cannot find a process* warnings were children dying with their parents between enumeration and kill; now logged as *already exited*.
+
 ## Runtime — read before assigning
 
 Creative Cloud apps are uninstalled **sequentially**. Measured on `LIBRWKSPC010189`: 18–120 s per app, **14.5 minutes for 14 apps**. Budget more on slower disks, plus ~1 s per wrong baseVersion candidate on apps not in the known-base table. A fully loaded device (18 targets measured on `LIBRWKSPC010189`) can therefore run **30–130 minutes**. Two consequences:
@@ -254,6 +256,11 @@ Get-Process | Where-Object { $_.Path -match '\\Adobe\\' } | Select-Object Proces
 
 Kept here rather than in the script header: the script is pasted into Intune's PowerShell script installer box, which has a **50 KB** limit, and the changelog was 5 KB of it.
 
+**v1.5.1** — `Register-Result` gained `-GraceSeconds` / `-WaitProcess`: Creative Cloud Uninstaller.exe and AdobeCleanUpUtility.exe return 0 in ~2 s and finish in a background child, so the key is polled (EXE 60 s, CC 180 s) before a removal is declared failed. Both were false FAILEDs on the first full-wipe run.
+- Licensing preserve list gained `OperatingConfigs`, `LicensingToolkit` (SDL/FRL), `Adobe PCD`, `UPI` — the first run deleted the SDL folders while claiming to preserve licensing.
+- Process kill: a child that died with its parent is logged as *already exited*, not WARN.
+- Header trimmed further to stay under the paste limit.
+
 **v1.5.0** — Added `-RemoveCreativeCloud`: removes the CC desktop app itself in a new final product step (STEP 6), after every CC app, because Adobe's uninstaller declines otherwise. Implies an empty `-KeepPattern` and `-CleanProgramData`. CC runtime path protection is released only once the desktop app is confirmed gone.
 - Added `-CleanProgramData`: `takeown` + `icacls`, then clears `C:\ProgramData\Adobe` (STEP 8). Preserves the licensing children (`SLStore`, `SLCache`, `AAMUpdater`, `OOBE`, `caps`, …) when the CC desktop app is being kept, so a retained install stays activated.
 - Sentinel gained `FullRemoval`; `Detect-AdobeUninstall.ps1` v1.2.0 reads it so one detection script serves both modes.
@@ -283,7 +290,7 @@ Kept here rather than in the script header: the script is pasted into Intune's P
 
 ## Keeping the script pasteable
 
-The Intune PowerShell script installer box takes **50 KB**. `Uninstall-AdobeProducts.ps1` currently sits at **49,781 bytes (48.6 KB)** — under the limit on either reading of "50 KB" (50,000 or 51,200 bytes), with ~219 bytes of headroom. Check before every paste:
+The Intune PowerShell script installer box takes **50 KB**. `Uninstall-AdobeProducts.ps1` currently sits at **49,957 bytes (48.8 KB)** — under the limit on either reading of "50 KB" (50,000 or 51,200 bytes), with ~43 bytes of headroom. Check before every paste:
 
 ```powershell
 '{0:n0} bytes ({1:n1} KB)' -f (Get-Item .\Uninstall-AdobeProducts.ps1).Length, ((Get-Item .\Uninstall-AdobeProducts.ps1).Length / 1KB)
