@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<Activation>
+  <Request>
+    <FirstName>ITFO</FirstName>
+    <LastName>Administrator</LastName>
+    <Email>cmcleod1@umd.edu</Email>
+    <JobTitle>Lead IT Engineer</JobTitle>
+    <Sector>Education</Sector>
+    <Industry>Higher Education</Industry>
+    <Role>IT</Role>
+    <Department>Digital Services and Technologies</Department>
+    <Organization>University of Maryland Libraries</Organization>
+    <City>College Park</City>
+    <Country>USA</Country>
+    <State>Maryland</State>
+  </Request>
+</Activation>

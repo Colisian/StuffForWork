@@ -4,6 +4,7 @@
 
 - [[#Package Contents]]
 - [[#Intune Configuration]]
+- [[#Silent Activation Companion App]]
 - [[#Detection]]
 - [[#Logging and Verification]]
 - [[#Licensing and Security Notes]]
@@ -63,6 +64,14 @@ Create a **Windows app (Win32)** and upload `Output\Install-NVivo.intunewin`.
 Use the default Intune return codes, including `0` success, `1641` hard reboot, and `3010` soft reboot.
 
 For Method B, paste the matching script into Intune's PowerShell installer field and configure it to run in a 64-bit PowerShell host. The package still must include `NVivo.x64.exe`; both wrappers locate bundled files by using `$PSScriptRoot` or the package working directory.
+
+---
+
+## Silent Activation Companion App
+
+> [[#Table of Contents|↑ Back to TOC]]
+
+The separate activation package is available at `Activation\Output\Activate-NVivo.intunewin`. Configure it as a SYSTEM-context Win32 app with this NVivo installer as an automatically installed dependency. See `Activation\README.md` for commands, detection, security handling, and license deactivation order.
 
 ---
 
