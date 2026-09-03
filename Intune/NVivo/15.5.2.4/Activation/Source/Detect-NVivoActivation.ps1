@@ -4,7 +4,7 @@ param()
 $ErrorActionPreference = 'SilentlyContinue'
 $sentinelPath = 'HKLM:\SOFTWARE\UMDLibraries\Intune\NVivo15Activation'
 $nvivoPath = Join-Path $env:ProgramFiles 'QSR\NVivo 15\NVivo.exe'
-$requiredPackageVersion = '1.0.0'
+$requiredPackageVersion = '1.1.0'
 
 $sentinel = Get-ItemProperty -Path $sentinelPath
 if (-not (Test-Path -LiteralPath $nvivoPath -PathType Leaf)) {

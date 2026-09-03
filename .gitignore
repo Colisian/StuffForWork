@@ -24,6 +24,7 @@
 *.intunewin
 *.intunewin.*
 **/Activate.ini
+NVivoLicense.ps1
 *.DS_Store
 /Fonts_Rick/*
 !/Fonts_Rick/

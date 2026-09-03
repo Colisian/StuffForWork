@@ -3,12 +3,12 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-$keyPath = Join-Path $scriptDir 'NVivoLicense.key'
+$keyConfigPath = Join-Path $scriptDir 'NVivoLicense.ps1'
 $profilePath = Join-Path $scriptDir 'Activation.xml'
 $logRoot = 'C:\ProgramData\UMDLibraries\NVivo'
 $logPath = Join-Path $logRoot 'Activate-NVivo.log'
 $sentinelPath = 'HKLM:\SOFTWARE\UMDLibraries\Intune\NVivo15Activation'
-$packageVersion = '1.0.0'
+$packageVersion = '1.1.0'
 $licenseKey = $null
 
 function Get-NVivoExecutable {
@@ -50,14 +50,20 @@ New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 Add-Content -LiteralPath $logPath -Value "[$([DateTime]::Now.ToString('s'))] Activation started."
 
 try {
-    if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
-        throw 'The transient NVivo license file is missing.'
+    if (-not (Test-Path -LiteralPath $keyConfigPath -PathType Leaf)) {
+        throw 'NVivoLicense.ps1 is missing from the activation package.'
     }
     if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) {
         throw 'Activation.xml is missing.'
     }
 
-    $licenseKey = [IO.File]::ReadAllText($keyPath).Trim()
+    # NVivoLicense.ps1 is excluded by .gitignore and supplies $NVivoProductKey.
+    . $keyConfigPath
+    if (-not $NVivoProductKey) {
+        throw 'NVivoLicense.ps1 does not define $NVivoProductKey.'
+    }
+
+    $licenseKey = $NVivoProductKey.Trim()
     if ($licenseKey -notmatch '^[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}$') {
         throw 'The NVivo license key does not match the expected format.'
     }
@@ -80,13 +86,17 @@ try {
     }
 
     $nvivoPath = Get-NVivoExecutable
+    if (Get-Process -Name 'NVivo' -ErrorAction SilentlyContinue) {
+        throw 'NVivo is currently running. Close NVivo and retry the activation app.'
+    }
     if (-not $PSCmdlet.ShouldProcess($nvivoPath, 'Activate NVivo 15 silently')) {
         exit 0
     }
 
     # The key is required by the vendor CLI. Never log $arguments or the process command line.
     $arguments = @('-i', $licenseKey, '-a', "`"$profilePath`"", '-skr')
-    $process = Start-Process -FilePath $nvivoPath -ArgumentList $arguments -Wait -PassThru
+    $process = Start-Process -FilePath $nvivoPath -ArgumentList $arguments `
+        -WorkingDirectory (Split-Path -Parent $nvivoPath) -Wait -PassThru
     if ($process.ExitCode -ne 0) {
         throw "NVivo activation returned exit code $($process.ExitCode)."
     }
@@ -108,9 +118,5 @@ catch {
 }
 finally {
     $licenseKey = $null
-    if (Test-Path -LiteralPath $keyPath -PathType Leaf) {
-        if ($PSCmdlet.ShouldProcess($keyPath, 'Delete transient license file')) {
-            Remove-Item -LiteralPath $keyPath -Force -ErrorAction SilentlyContinue
-        }
-    }
+    $NVivoProductKey = $null
 }
