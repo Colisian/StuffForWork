@@ -1,13 +1,20 @@
-# Adobe Product Uninstall (keep Creative Cloud) — Intune Win32 App
+# Adobe Product Uninstall — Intune Win32 App
 
-Removes every Adobe product from a device **except the Adobe Creative Cloud desktop app** (and Adobe Genuine Service, which CC depends on and would silently reinstall). Complements `LIB-AdobeInstallerCleanup.ps1`, which targets Acrobat installer-cache growth; this script is the general "wipe Adobe apps, keep the launcher" tool.
+Removes every Adobe product from a device. Two modes:
+
+| Mode | Invocation | Result |
+| --- | --- | --- |
+| **Keep Creative Cloud** *(default, validated)* | `.\Uninstall-AdobeProducts.ps1` | Every Adobe app removed; the Creative Cloud desktop app and Adobe Genuine Service stay (CC would silently reinstall AGS anyway). Users keep the launcher and can reinstall apps themselves |
+| **Full wipe** | `.\Uninstall-AdobeProducts.ps1 -RemoveCreativeCloud` | The above, then the Creative Cloud desktop app itself, then `C:\ProgramData\Adobe`. Nothing Adobe is left registered |
+
+Complements `LIB-AdobeInstallerCleanup.ps1`, which targets Acrobat installer-cache growth; this script is the general "wipe Adobe" tool.
 
 ## Contents
 
 | File | Purpose |
 | --- | --- |
-| `Uninstall-AdobeProducts.ps1` | Enumerates Adobe entries in both Uninstall hives, keeps anything matching `-KeepPattern`, silently removes the rest with the right mechanism per installer type |
-| `Detect-AdobeUninstall.ps1` | Custom detection: sentinel `Completed=1` **and** a live re-check that no non-kept Adobe product exists |
+| `Uninstall-AdobeProducts.ps1` | Enumerates Adobe entries in both Uninstall hives, keeps anything matching `-KeepPattern`, silently removes the rest with the right mechanism per installer type. `-RemoveCreativeCloud` / `-CleanProgramData` turn it into a full wipe |
+| `Detect-AdobeUninstall.ps1` | Custom detection: sentinel `Completed=1` **and** a live re-check that no non-kept Adobe product exists. Reads `FullRemoval` so one detection script serves both modes |
 | `Uninstall-AdobeCleanupApp.ps1` | Uninstall action for the Win32 app. Clears the detection sentinel only — adds and removes no Adobe product. See *Company Portal* below for why this is not the removal script |
 | `AdobeUninstaller.exe` *(optional, not in repo)* | Adobe's supported bulk uninstaller. Download from **Admin Console → Packages → Tools → Adobe Uninstaller**. Drop it next to the script before packaging and it is used first for CC apps |
 
@@ -20,16 +27,22 @@ Removes every Adobe product from a device **except the Adobe Creative Cloud desk
 | Other EXE (Digital Editions, etc.) | everything else | `QuietUninstallString` if present, else `UninstallString /S` (best effort) |
 | **Admin Console package wrappers** (`AdobeCC_SelfService`, `Adobe.CC.201902`, `LIBR-AcrobatDC`…) | MSI with `DisplayVersion = 1.0.0000` | **Skipped by default** and ignored by detection. These are package registrations, not apps; uninstalling one removes every product in that package, and a self-service package's only product is the CC desktop app. `-RemovePackageWrappers` includes them |
 | Legacy CS5/CS6/early-CC (`PDApp.exe`) | `PDApp.exe` in `UninstallString` | **Skipped with WARN** — no silent mode exists; use the Creative Cloud Cleaner Tool |
+| **Creative Cloud desktop app** (`-RemoveCreativeCloud` only) | `DisplayName` matches `^Adobe Creative Cloud` | `"…\Adobe\Adobe Creative Cloud\Utils\Creative Cloud Uninstaller.exe" -u`, run **last** (STEP 6). Adobe's uninstaller declines while any CC app is still installed, so the step aborts with an ERROR listing the blockers rather than pretending to succeed |
+| **`C:\ProgramData\Adobe`** (`-CleanProgramData` only) | — | `takeown /F … /A /R /D Y` + `icacls … /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q`, then `Remove-Item -Recurse -Force` per child (STEP 8). Ownership is required: `SLStore` and friends are SYSTEM-owned and deny delete even to Administrators |
 
 Every uninstaller runs under a hard timeout (`-TimeoutMinutes`, default 30) and is killed if it hangs, so a stray prompt can't wedge the Intune install. `Win32_Product` is never queried (it triggers MSI self-repair on every product on the machine).
 
 Processes are stopped by **path**: anything running from `Program Files\Adobe\*` or `Program Files (x86)\Adobe\*` that does not match a keep pattern or the built-in `$ProtectedPathPattern` (`Adobe Creative Cloud`, `Creative Cloud Experience`, `Adobe Sync` [CoreSync], `Adobe Desktop Common`, `AdobeGCClient`, `Adobe\Common`). Creative Cloud's runtime under `Common Files\Adobe\*` is never in scope. The same protected list guards `-RemoveLeftoverFolders`.
 
+Under `-RemoveCreativeCloud` that protection is **still active through STEP 3–5** — killing CoreSync or `AdobeGCClient` mid-run breaks the app uninstalls. STEP 6 stops the CC services (`AdobeUpdateService`, `AGSService`, `AGMService`, `AdobeARMservice`) and processes itself, runs the uninstaller, and only releases the protected list once the CC registry entry is confirmed gone — so `-RemoveLeftoverFolders` and the `ProgramData` sweep can then take those folders.
+
 ## Parameters
 
 | Parameter | Default | Notes |
 | --- | --- | --- |
-| `-KeepPattern` | `'Adobe Creative Cloud','Adobe Genuine Service'` | Regex list matched against `DisplayName`. Add `'Adobe Acrobat'` to keep Acrobat, etc. Keep `Detect-AdobeUninstall.ps1` in sync |
+| `-KeepPattern` | `'Adobe Creative Cloud','Adobe Genuine Service'` | Regex list matched against `DisplayName`. Add `'Adobe Acrobat'` to keep Acrobat, etc. Keep `Detect-AdobeUninstall.ps1` in sync. Cleared to `@()` by `-RemoveCreativeCloud` unless you pass it explicitly |
+| `-RemoveCreativeCloud` | off | Also remove the CC desktop app (STEP 6, last). **Implies an empty `-KeepPattern` and `-CleanProgramData`.** Deactivates licensing — users sign in again after any reinstall. Stamps `FullRemoval=1` on the sentinel |
+| `-CleanProgramData` | off (on when `-RemoveCreativeCloud`) | Clears `C:\ProgramData\Adobe`. Suppress with `-CleanProgramData:$false`. If a CC desktop app is still installed when this runs, the licensing children (`SLStore`, `SLCache`, `AAMUpdater`, `OOBE`, `caps`, `Adobe Desktop Common`, `ARM`, `Adobe Notification Client`) are **preserved** so the retained install is not deactivated |
 | `-RemoveUserPreferences` | off | Passes `--deleteUserPreferences=true` to the CC app uninstaller |
 | `-RemovePackageWrappers` | off | Also `msiexec /x` the Admin Console package wrapper MSIs. **A self-service wrapper removes the CC desktop app** — only use on devices where the wrappers are known to contain apps only |
 | `-RemoveLeftoverFolders` | off | Deletes orphan folders under `Program Files\Adobe` / `(x86)` that no remaining product owns. Never touches `Common Files\Adobe` |
@@ -41,7 +54,7 @@ Processes are stopped by **path**: anything running from `Program Files\Adobe\*`
 ## Outputs
 
 - Log: `C:\ProgramData\LIBR\Logs\AdobeUninstall-<yyyyMMdd-HHmmss>.log`
-- Sentinel: `HKLM\SOFTWARE\LIBR\AdobeUninstall` → `Completed` (DWORD 1/0), `Remaining`, `ScriptVersion`, `LastRun`, `LastLog`
+- Sentinel: `HKLM\SOFTWARE\LIBR\AdobeUninstall` → `Completed` (DWORD 1/0), `Remaining`, `ScriptVersion`, `LastRun`, `LastLog`, `FullRemoval` (DWORD 1 when run with `-RemoveCreativeCloud`)
 - Exit codes: `0` all removed · `3010` all removed, reboot required · `1` not admin or products remain
 
 ## Package
@@ -69,6 +82,20 @@ With the PowerShell script installer, both scripts are stored as app **metadata*
 
 Add `-RemoveLeftoverFolders` / `-KeepPattern ...` to the install command as needed. If both variants of the app exist, give them distinct sentinel keys by editing `$SentinelKey` (and the detection script).
 
+### Full-wipe variant (removes Creative Cloud too)
+
+Same package, different install command:
+
+```
+%windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File Uninstall-AdobeProducts.ps1 -RemoveCreativeCloud -RemoveLeftoverFolders
+```
+
+`-RemoveCreativeCloud` implies `-KeepPattern @()` and `-CleanProgramData`, and stamps `FullRemoval=1` on the sentinel so `Detect-AdobeUninstall.ps1` drops its keep list automatically — no edit to the detection script needed.
+
+**Ship this one as Required to a device group, never as Available in Company Portal.** It deactivates Adobe licensing on the device and leaves the user with no way to reinstall anything; that is a decision for the person assigning the app, not a self-service button. Name it so it cannot be confused with the default app, e.g. *Remove ALL Adobe Software (including Creative Cloud)*.
+
+If you deploy both variants to the same fleet, give them **different sentinel keys** (edit `$SentinelKey` in both the removal and detection scripts) — otherwise whichever ran last owns the detection state for both apps.
+
 ## Company Portal (self-service) — assigning this as **Available**
 
 Users can run this themselves from Company Portal. It works well, with one trap and three hazards.
@@ -90,6 +117,8 @@ That also gives users a **re-run path**. Once the removal succeeds, detection bl
 | Detection | Custom script → `Detect-AdobeUninstall.ps1` (Run as 32-bit: **No**) |
 | Assignment | **Available for enrolled devices** → user group |
 
+**Self-service is for the keep-CC mode only** — the full wipe belongs in a Required assignment (see *Full-wipe variant* above).
+
 **Name and description matter — Company Portal gives no confirmation prompt.** Name it for what it does, e.g. *Remove Adobe Creative Cloud Apps (keeps Creative Cloud)*. Put this in the description, because it is the only warning a user sees:
 
 > Removes Photoshop, Illustrator, InDesign, Premiere Pro and all other Adobe apps from this computer. The Creative Cloud desktop app stays, so you can reinstall any app you still need. **Close all Adobe apps and save your work before starting — anything still open will be closed without warning.** Takes about 15 minutes.
@@ -104,7 +133,17 @@ State on a machine that never had Adobe apps: detection is false (no sentinel), 
 
 ## Intune app — Method B (PowerShell script installer, paste)
 
-Set **Installer type = PowerShell script** and paste `Uninstall-AdobeProducts.ps1` (34 KB, under the 50 KB paste limit). The script locates `AdobeUninstaller.exe` via the current directory when `$PSScriptRoot` is empty, so bundling it in the `.intunewin` still works. Hot-fixes made in the portal must be synced back to this repo.
+> [!warning] Method B no longer fits as of v1.5.0
+> `Uninstall-AdobeProducts.ps1` is now **~55 KB**, over Intune's **50 KB** paste limit for the PowerShell script installer boxes. **Use Method A.** Stripping the comment-based help gets it to ~43 KB, but a portal-only copy that has drifted from this repo is worse than a command line, so that is not the recommended path. If you must:
+>
+> ```powershell
+> # Emit a paste-sized copy with the help block removed (regenerate after every edit)
+> $src = Get-Content .\Uninstall-AdobeProducts.ps1 -Raw
+> ($src -replace '(?s)\A<#.*?#>\r?\n', '') | Set-Content .\Uninstall-AdobeProducts.paste.ps1 -Encoding UTF8
+> (Get-Item .\Uninstall-AdobeProducts.paste.ps1).Length / 1KB
+> ```
+
+With Method B both scripts are stored as app **metadata** and can be edited in the portal without repackaging. The script locates `AdobeUninstaller.exe` via the current directory when `$PSScriptRoot` is empty, so bundling it in the `.intunewin` still works. Hot-fixes made in the portal must be synced back to this repo.
 
 ## Lessons from the first live run (2026-09-01, v1.1.0, `LIBRWKSPC010189`)
 
@@ -181,10 +220,36 @@ Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
 powershell -File .\Detect-AdobeUninstall.ps1; $LASTEXITCODE
 ```
 
+Full-wipe checks:
+
+```powershell
+# Dry run of the full wipe - CC and ProgramData steps are logged as "What if:"
+.\Uninstall-AdobeProducts.ps1 -RemoveCreativeCloud -WhatIf
+
+# Creative Cloud desktop app gone?
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' |
+  Where-Object DisplayName -match '^Adobe Creative Cloud' |
+  Select-Object DisplayName, DisplayVersion
+
+# ProgramData cleared? (empty = clean; SLStore etc. present = CC was kept)
+Get-ChildItem C:\ProgramData\Adobe -Force -ErrorAction SilentlyContinue | Select-Object Name
+
+# Anything Adobe still running
+Get-Process | Where-Object { $_.Path -match '\\Adobe\\' } | Select-Object ProcessName, Path
+
+# Mode recorded by the last run
+(Get-ItemProperty HKLM:\SOFTWARE\LIBR\AdobeUninstall).FullRemoval   # 1 = full wipe
+```
+
 ## Caveats / security notes
 
 - **Acrobat is removed** unless you add `'Adobe Acrobat'` to `-KeepPattern`. On the LIBR fleet Acrobat is owned by DIT via Patch My PC; coordinate before mass-deploying or PMPC will just put it back.
 - Creative Cloud will show removed apps as "Install" again — expected. Users with a CC entitlement can reinstall; kiosk/lab images should have CC self-service restricted via the Admin Console package options.
+- **`-RemoveCreativeCloud` deactivates the device.** Clearing `C:\ProgramData\Adobe` destroys the local licensing/activation state (`SLStore`, `caps`). Reinstalling requires a network trip and a fresh sign-in. The script preserves those children when a CC install survives, but there is no undo once they are gone.
+- **`takeown` + `icacls` on `C:\ProgramData\Adobe` is a detectable pattern.** CrowdStrike Falcon flags ownership seizure followed by recursive deletion as ransomware-adjacent behaviour. Running it under the Intune Management Extension (`IntuneManagementExtension.exe` → `powershell.exe` as SYSTEM) is the mitigating context; if Falcon raises detections during the pilot, ask the security team to allowlist that parent-process chain for this script rather than turning the step off. Scope is limited to `C:\ProgramData\Adobe` and its children — the script never walks a parent path.
+- **The CC uninstaller cannot be forced.** If any CC app survives STEP 3, STEP 6 logs the blockers and exits 1 rather than running the uninstaller into a guaranteed failure. Fix the app removal (usually a baseVersion) and re-run; there is no `-Force`.
+- **Neither mode has been validated as SYSTEM yet.** All runs to date on `LIBRWKSPC010189` were elevated interactive sessions. The original v1.1.0 bug was precisely a launcher handing off to a desktop that SYSTEM does not have — pilot as **Required** on one device and read the log before assigning more broadly.
 - User data in `AppData\*\Adobe` is **not** touched (the CC desktop app shares those folders). Use `Clean-Adobe.ps1` only when CC is also being removed.
 - CrowdStrike/Rapid7: mass process kills + `msiexec /x` from SYSTEM are normal Intune behavior and match the existing cleanup app's footprint; no new detections expected.
 - `UXP WebView Support` is an HD shared runtime used by CC apps (not by the CC desktop app itself) and is removed with them; CC reinstalls it on demand.
