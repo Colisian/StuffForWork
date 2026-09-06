@@ -11,8 +11,8 @@
 
 .NOTES
     Author:  GIS Lab
-    Date:    2026-07-10
-    Version: 2.0
+    Date:    2026-09-06
+    Version: 2.1
 #>
 [CmdletBinding()]
 param (
@@ -21,6 +21,8 @@ param (
     [string] $ArcGISProPath = 'C:\Program Files\ArcGIS\Pro\bin\ArcGISPro.exe',
     [int]    $StartupDelay = 3              # Seconds to wait for desktop readiness
 )
+
+$ErrorActionPreference = 'Stop'
 
 # ---------------- Ensure STA (WPF requires Single-Threaded Apartment) ----------------
 if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
@@ -38,12 +40,14 @@ if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
 }
 
 # ---------------- Logging ----------------
-# Per-user log file: ProgramData ACLs give other users read-only access to a
-# file the first user created, so a shared log breaks for every user after the first.
+# The installer grants users write access only to this runtime-log directory.
+# A session-specific name prevents concurrent sessions from sharing a file.
 $AppName = 'GIS Lab Check-In'
-$BaseDir = 'C:\ProgramData\GISLab\FormBlocker'
-$LogFile = Join-Path $BaseDir "FormBlocker-$env:USERNAME.log"
-try { New-Item -ItemType Directory -Path $BaseDir -Force | Out-Null } catch {}
+$BaseDir = 'C:\ProgramData\UMDLibraries\GISLabForm'
+$LogDir = Join-Path $BaseDir 'Logs'
+$script:SessionId = (Get-Process -Id $PID).SessionId
+$safeUserName = $env:USERNAME -replace '[^a-zA-Z0-9._-]', '_'
+$LogFile = Join-Path $LogDir "FormBlocker-$safeUserName-$($script:SessionId).log"
 
 function Write-Log {
     param([string]$Msg)
@@ -53,6 +57,14 @@ function Write-Log {
     } catch {}
 }
 Write-Log "===== $AppName starting for user [$env:USERNAME] ====="
+
+# Log unexpected terminating errors from setup or the WPF dispatcher.
+trap {
+    Write-Log "FATAL: $($_.Exception.Message)"
+    try { $mutex.ReleaseMutex() } catch {}
+    try { $mutex.Dispose() } catch {}
+    exit 1
+}
 
 # ---------------- Single-instance guard ----------------
 # Local\ namespace scopes the mutex to this logon session, so two different
@@ -97,11 +109,12 @@ $edgeCandidates = @(
 )
 $EdgeExe = $edgeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $EdgeExe) { $EdgeExe = 'msedge.exe' }  # resolves via App Paths
+$edgeProfileDir = Join-Path $env:LOCALAPPDATA 'UMDLibraries\GISLabForm\EdgeProfile'
+New-Item -ItemType Directory -Path $edgeProfileDir -Force | Out-Null
 
 # Track PIDs we launch; scope any fallback matching to this logon session so we
 # never touch kiosk Edge windows belonging to other sessions.
 $script:EdgePids  = @()
-$script:SessionId = (Get-Process -Id $PID).SessionId
 
 function Start-EdgeKiosk {
     try {
@@ -109,6 +122,7 @@ function Start-EdgeKiosk {
             '--kiosk', $SurveyUrl,
             '--edge-kiosk-type=fullscreen',
             '--no-first-run',
+            "`"--user-data-dir=$edgeProfileDir`"",
             '--disable-features=Translate,msImplicitScroll'
         )
         Write-Log "Launching Edge kiosk: $EdgeExe $($edgeArgs -join ' ')"
@@ -120,22 +134,31 @@ function Start-EdgeKiosk {
 }
 
 function Get-KioskEdgeProcs {
-    $byPid = @()
+    $matched = @()
     foreach ($trackedPid in $script:EdgePids) {
         $proc = Get-Process -Id $trackedPid -ErrorAction SilentlyContinue
-        if ($proc) { $byPid += $proc }
+        if ($proc -and $proc.ProcessName -eq 'msedge' -and $proc.SessionId -eq $script:SessionId) {
+            $matched += $proc
+        }
     }
-    if ($byPid.Count -gt 0) { return $byPid }
+
     # Edge hands off to an existing browser process, so the tracked PID can die
-    # while the kiosk window lives on. Fall back to command-line matching.
+    # while the kiosk window lives on. Always merge exact command-line matches.
     try {
+        $urlPattern = [regex]::Escape($SurveyUrl)
+        $profilePattern = [regex]::Escape("--user-data-dir=$edgeProfileDir")
         $cims = Get-CimInstance Win32_Process -Filter "Name='msedge.exe' AND SessionId=$($script:SessionId)" |
-                Where-Object { $_.CommandLine -match '--kiosk' }
+                Where-Object {
+                    $_.CommandLine -match '(?i)(?:^|\s)--kiosk(?:\s|=)' -and
+                    ($_.CommandLine -match $urlPattern -or $_.CommandLine -match $profilePattern)
+                }
         if ($cims) {
-            return @($cims | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
+            $matched += @($cims | ForEach-Object {
+                Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+            })
         }
     } catch {}
-    return @()
+    return @($matched | Where-Object { $_ } | Sort-Object Id -Unique)
 }
 
 function IsEdgeOpen { return (Get-KioskEdgeProcs).Count -gt 0 }

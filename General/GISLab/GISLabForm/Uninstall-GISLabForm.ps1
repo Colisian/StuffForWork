@@ -3,57 +3,112 @@
     Uninstalls the GIS Lab Check-In Helper.
 
 .DESCRIPTION
-    Stops any running launcher/kiosk instances, removes the scheduled task,
-    and deletes the installation directory. Always exits 0 - a partial
-    uninstall is acceptable and warnings are reported to the transcript.
+    Stops GIS Lab launcher and kiosk processes, removes the scheduled task and
+    application files, and preserves deployment logs for troubleshooting.
 
 .NOTES
     Author:  GIS Lab
-    Date:    2026-07-10
-    Version: 2.0
+    Date:    2026-09-06
+    Version: 2.1
+    Log:     C:\ProgramData\UMDLibraries\GISLabForm\DeploymentLogs\uninstall.log
 #>
 [CmdletBinding()]
 param()
 
-$TaskName = 'GIS Lab Check-In Helper'
-$BaseDir  = 'C:\ProgramData\GISLab\FormBlocker'
-$errors   = @()
+$ErrorActionPreference = 'Stop'
+$taskName = 'GIS Lab Check-In Helper'
+$rootDir = 'C:\ProgramData\UMDLibraries\GISLabForm'
+$appDir = Join-Path $rootDir 'App'
+$deploymentLogDir = Join-Path $rootDir 'DeploymentLogs'
+$launcherPath = Join-Path $appDir 'Launcher-GISLabForm.ps1'
+$legacyDir = 'C:\ProgramData\GISLab\FormBlocker'
+$legacyLauncherPath = Join-Path $legacyDir 'Launcher-GISLabForm.ps1'
+$surveyUrl = 'https://go.umd.edu/lib-GIS-lab'
+$errors = [System.Collections.Generic.List[string]]::new()
+$transcriptStarted = $false
 
-# Stop running launcher instances (any logged-on user) and their kiosk Edge windows
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
+)
+if (-not $isAdmin) {
+    Write-Error 'This script requires administrator or SYSTEM privileges.'
+    exit 1
+}
+
 try {
-    Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop |
-        Where-Object { $_.CommandLine -match 'Launcher-GISLabForm\.ps1' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-
-    Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" -ErrorAction Stop |
-        Where-Object { $_.CommandLine -match '--kiosk' -and $_.CommandLine -match 'lib-GIS-lab' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Path $deploymentLogDir -Force | Out-Null
+    Start-Transcript -Path (Join-Path $deploymentLogDir 'uninstall.log') -Append | Out-Null
+    $transcriptStarted = $true
 } catch {
-    $errors += "Failed to stop running instances: $($_.Exception.Message)"
+    $errors.Add("Unable to start the uninstall log: $($_.Exception.Message)")
 }
 
-# Remove scheduled task (exit code 1 = task doesn't exist, which is fine)
-$taskResult = schtasks.exe /Delete /TN "$TaskName" /F 2>&1
-if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) {
-    $errors += "Failed to remove scheduled task: $taskResult"
+try {
+    $launcherPatterns = @(
+        [regex]::Escape($launcherPath)
+        [regex]::Escape($legacyLauncherPath)
+    )
+    Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+        Where-Object {
+            $commandLine = $_.CommandLine
+            $launcherPatterns.Where({ $commandLine -match $_ }).Count -gt 0
+        } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+} catch {
+    $errors.Add("Failed to stop launcher processes: $($_.Exception.Message)")
 }
 
-# Remove files
-if (Test-Path $BaseDir) {
-    try {
-        Remove-Item -Path $BaseDir -Recurse -Force -ErrorAction Stop
-    } catch {
-        $errors += "Failed to remove directory: $($_.Exception.Message)"
+try {
+    $urlPattern = [regex]::Escape($surveyUrl)
+    $profilePattern = [regex]::Escape('UMDLibraries\GISLabForm\EdgeProfile')
+    Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" |
+        Where-Object { $_.CommandLine -match $urlPattern -or $_.CommandLine -match $profilePattern } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+} catch {
+    $errors.Add("Failed to stop GIS Lab Edge processes: $($_.Exception.Message)")
+}
+
+try {
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($task) {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     }
+} catch {
+    $errors.Add("Failed to remove scheduled task: $($_.Exception.Message)")
 }
 
-# Report results
+try {
+    foreach ($directory in @($appDir, $legacyDir)) {
+        if (Test-Path -LiteralPath $directory) {
+            Remove-Item -LiteralPath $directory -Recurse -Force
+        }
+    }
+} catch {
+    $errors.Add("Failed to remove application files: $($_.Exception.Message)")
+}
+
+# Remove only this application's dedicated Edge data from local user profiles.
+try {
+    Get-ChildItem -LiteralPath 'C:\Users' -Directory -Force | ForEach-Object {
+        $profileData = Join-Path $_.FullName 'AppData\Local\UMDLibraries\GISLabForm'
+        if (Test-Path -LiteralPath $profileData) {
+            Remove-Item -LiteralPath $profileData -Recurse -Force
+        }
+    }
+} catch {
+    $errors.Add("Failed to remove one or more Edge profile directories: $($_.Exception.Message)")
+}
+
 if ($errors.Count -gt 0) {
-    foreach ($err in $errors) {
-        Write-Host "WARNING: $err"
-    }
-    Write-Host 'GIS Lab Check-In Helper uninstalled with warnings.'
+    $errors | ForEach-Object { Write-Host "ERROR: $_" }
+    Write-Host 'GIS Lab Check-In Helper uninstall failed or completed only partially.'
+    $exitCode = 1
 } else {
     Write-Host 'GIS Lab Check-In Helper uninstalled successfully.'
+    $exitCode = 0
 }
-exit 0
+
+if ($transcriptStarted) {
+    try { Stop-Transcript | Out-Null } catch {}
+}
+exit $exitCode
