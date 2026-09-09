@@ -1,93 +1,23 @@
 <#
 .SYNOPSIS
-    Uninstall-AdobeProducts.ps1
-    Silently removes every installed Adobe product on a Windows device. The
-    Creative Cloud desktop app (and the services it depends on) is kept by
-    default; -RemoveCreativeCloud removes it too, and -CleanProgramData clears
-    C:\ProgramData\Adobe.
+    Silently removes Adobe products. Creative Cloud and Genuine Service are
+    kept by default; -RemoveCreativeCloud performs a full wipe.
 
 .DESCRIPTION
-    Enumerates both Uninstall hives, drops anything matching -KeepPattern,
-    removes the rest per installer type (table in README). Four behaviours
-    are load-bearing - do not "simplify" them; each is explained at its site:
-
-      1. The registry UninstallString is NOT run for HD apps (it is a GUI
-         launcher that exits 0 without removing anything under SYSTEM).
-      2. A removal is credited ONLY when the product's Uninstall registry key
-         has disappeared. Adobe exit codes are not trusted.
-      3. --baseVersion is the ORIGINAL install version, not the patched
-         version the registry reports (Photoshop 27.10 -> base 27.0).
-      4. Creative Cloud Uninstaller.exe and AdobeCleanUpUtility.exe return 0
-         in ~2 s and finish in a background child; the key is polled after.
-
-    Runs as a file (-File .\Uninstall-AdobeProducts.ps1) and pasted into the
-    Intune "PowerShell script installer" box. A pasted script gets NO command
-    line - see $ForceFullRemoval in begin{} to select the mode. That box has a
-    50 KB limit; check this file's size before adding prose here.
-
-.PARAMETER LogPath
-    Log directory. Default: C:\ProgramData\LIBR\Logs
-
-.PARAMETER KeepPattern
-    Regex patterns matched (case-insensitive) against DisplayName. Matching
-    products are never touched. Default keeps the Creative Cloud desktop app
-    and Adobe Genuine Service (CC re-installs AGS if it is removed).
-    -RemoveCreativeCloud clears this default (nothing is kept) unless you pass
-    -KeepPattern explicitly.
-
-.PARAMETER RemoveUserPreferences
-    Pass --deleteUserPreferences=true so per-user app settings are wiped too.
-
-.PARAMETER RemovePackageWrappers
-    Also msiexec /x the Admin Console package wrapper MSIs (DisplayVersion
-    1.0.0000). WARNING: a self-service wrapper removes the CC desktop app.
-
-.PARAMETER RemoveCreativeCloud
-    Also remove the Creative Cloud desktop app, last (Adobe's uninstaller
-    declines while any CC app remains). Implies -KeepPattern @() and
-    -CleanProgramData unless passed explicitly. Deactivates device licensing.
-
-.PARAMETER CleanProgramData
-    Clear C:\ProgramData\Adobe (takeown + icacls, then delete). Implied by
-    -RemoveCreativeCloud (-CleanProgramData:$false suppresses). Licensing
-    folders are preserved while a CC desktop app is still installed.
-
-.PARAMETER RemoveLeftoverFolders
-    Delete orphaned folders under "Program Files\Adobe" and "(x86)\Adobe" that
-    no remaining product owns and that do not match -KeepPattern. Never touches
-    Common Files\Adobe (shared Creative Cloud runtime).
-
-.PARAMETER AdobeUninstallerPath
-    Path to AdobeUninstaller.exe. Default: <script folder>\AdobeUninstaller.exe
-    if present, otherwise the per-app HDBox method is used.
-
-.PARAMETER TimeoutMinutes
-    Minutes to wait for any single uninstaller before killing it. Default: 30
+    Uses MSI, HyperDrive, EXE, or package-wrapper removal as appropriate.
+    Success requires the uninstall key to disappear. Supports -File execution
+    and Intune's pasted-script installer. See README for full documentation.
 
 .EXAMPLE
-    .\Uninstall-AdobeProducts.ps1 -WhatIf
-    Lists what would be removed / kept without changing anything.
-
-.EXAMPLE
-    .\Uninstall-AdobeProducts.ps1 -RemoveCreativeCloud -RemoveLeftoverFolders
-    Full removal: every CC app, then the Creative Cloud desktop app, then
-    C:\ProgramData\Adobe and any orphaned Program Files\Adobe folders.
+    .\Uninstall-AdobeProducts.ps1 -PackageWrapperPattern '^AdobeCC2017$'
 
 .NOTES
     Author  : Oji (cmcleod1)
-    Date    : 2026-09-03
-    Version : 1.5.1
+    Date    : 2026-09-08
+    Version : 1.6.0
     Run As  : SYSTEM (Intune) or local Administrator
-    PS      : 5.1+ (7.x compatible). Changelog: README-AdobeUninstall.md
-
-    Exit codes:
-      0    - All targeted products removed
-      1    - Not admin, or one or more products remain
-      3010 - All removed, reboot required
-
-    Intune detection (either):
-      Registry: HKLM\SOFTWARE\LIBR\AdobeUninstall  Value: Completed  DWORD = 1
-      Script  : Detect-AdobeUninstall.ps1
+    PS      : 5.1+ (7.x compatible)
+    Exit    : 0 success; 1 failure; 3010 reboot required
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -96,6 +26,7 @@ param(
     [string[]]$KeepPattern = @('Adobe Creative Cloud', 'Adobe Genuine Service'),
     [switch]$RemoveUserPreferences,
     [switch]$RemovePackageWrappers,
+    [string[]]$PackageWrapperPattern = @(),
     [switch]$RemoveLeftoverFolders,
     [switch]$RemoveCreativeCloud,
     [switch]$CleanProgramData,
@@ -105,7 +36,7 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $ScriptVersion = '1.5.1'
+    $ScriptVersion = '1.6.0'
 
     # Works when run as a file (PSScriptRoot set) AND when pasted into Intune (CWD = unpacked package)
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
@@ -191,6 +122,13 @@ begin {
         return $false
     }
 
+    function Test-PackageWrapperTarget {
+        param([string]$Name)
+        if ($RemovePackageWrappers) { return $true }
+        foreach ($p in $PackageWrapperPattern) { if ($Name -match $p) { return $true } }
+        return $false
+    }
+
     function Test-ProtectedPath {
         # Keep patterns + built-in CC runtime folders; used for processes and leftover folders
         param([string]$Path)
@@ -230,12 +168,25 @@ begin {
                     if ($us -match '--(?:platform|productPlatform)=(\S+)') { $plat = $Matches[1] }
                 }
 
+                # Adobe sometimes creates a friendly alias key beside the real {GUID}
+                # MSI key. Prefer the GUID embedded in UninstallString; Help Manager's
+                # alias (chc.*) otherwise produces msiexec 1619 when used as /x input.
+                $productCode = $null
+                if ($type -in @('MSI', 'Package')) {
+                    if ($us -match '(?i)(?:/x|/i)\s*"?(\{[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\})') {
+                        $productCode = $Matches[1]
+                    }
+                    elseif ([string]$_.PSChildName -match '(?i)^\{[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\}$') {
+                        $productCode = [string]$_.PSChildName
+                    }
+                }
+
                 [pscustomobject]@{
                     Name            = $_.DisplayName
                     Version         = $_.DisplayVersion
                     Publisher       = $_.Publisher
                     Key             = $_.PSPath
-                    ProductCode     = $_.PSChildName
+                    ProductCode     = $productCode
                     Type            = $type
                     UninstallString = $us
                     QuietUninstall  = $qs
@@ -422,7 +373,7 @@ process {
     Write-Log "LIBR Adobe Product Uninstall v$ScriptVersion"
     Write-Log "Computer : $env:COMPUTERNAME   User: $env:USERNAME   Host: $(if ([Environment]::Is64BitProcess) { '64-bit' } else { '32-bit' }) PS $($PSVersionTable.PSVersion)"
     Write-Log "Keep     : $(if ($KeepPattern.Count) { $KeepPattern -join ' | ' } else { '(nothing - full Adobe removal)' })"
-    Write-Log "Options  : RemoveUserPreferences=$RemoveUserPreferences RemovePackageWrappers=$RemovePackageWrappers RemoveLeftoverFolders=$RemoveLeftoverFolders WhatIf=$WhatIfPreference"
+    Write-Log "Options  : RemoveUserPreferences=$RemoveUserPreferences RemovePackageWrappers=$RemovePackageWrappers PackageWrapperPattern=$($PackageWrapperPattern -join '|') RemoveLeftoverFolders=$RemoveLeftoverFolders WhatIf=$WhatIfPreference"
     Write-Log "Full wipe: RemoveCreativeCloud=$RemoveCreativeCloud CleanProgramData=$CleanProgramData" -Level $(if ($RemoveCreativeCloud) { 'WARN' } else { 'INFO' })
     Write-Log "Timeout  : $TimeoutMinutes min per uninstaller"
     Write-Log '=============================================='
@@ -446,7 +397,10 @@ process {
         Write-Log 'No Adobe products found.' -Level SUCCESS
     }
     $wrappers = @($inventory | Where-Object { -not $_.Keep -and $_.Type -eq 'Package' })
-    $targets = @($inventory | Where-Object { -not $_.Keep -and ($_.Type -ne 'Package' -or $RemovePackageWrappers) })
+    $selectedWrappers = @($wrappers | Where-Object { Test-PackageWrapperTarget -Name $_.Name })
+    $targets = @($inventory | Where-Object {
+        -not $_.Keep -and ($_.Type -ne 'Package' -or (Test-PackageWrapperTarget -Name $_.Name))
+    })
     $targetNames = @($targets.Name)
 
     foreach ($p in $inventory) {
@@ -456,8 +410,12 @@ process {
             else                            { 'SKIP  ' }   # package wrapper, not targeted
         Write-Log ("[{0}] [{1,-7}] {2} {3}" -f $tag, $p.Type, $p.Name, $p.Version)
     }
-    if ($wrappers.Count -gt 0 -and -not $RemovePackageWrappers) {
-        Write-Log "Skipping $($wrappers.Count) Admin Console package wrapper(s) (use -RemovePackageWrappers to include): $($wrappers.Name -join '; ')" -Level WARN
+    $ignoredWrappers = @($wrappers | Where-Object { $_.Name -notin $selectedWrappers.Name })
+    if ($ignoredWrappers.Count -gt 0) {
+        Write-Log "Skipping $($ignoredWrappers.Count) Admin Console package wrapper(s): $($ignoredWrappers.Name -join '; ')" -Level WARN
+    }
+    if ($selectedWrappers.Count -gt 0) {
+        Write-Log "Selected package wrapper(s): $($selectedWrappers.Name -join '; ') - this removes every product installed by each package." -Level WARN
     }
     Write-Log "Targets: $($targets.Count)   Kept: $(@($inventory | Where-Object Keep).Count)"
 
@@ -603,6 +561,11 @@ process {
         Write-Log '--- STEP 4: MSI products (Acrobat, Reader, etc.) ---'
         foreach ($p in @($targets | Where-Object { ($_.Type -eq 'MSI' -or $_.Type -eq 'Package') -and $_.Name -notmatch $CreativeCloudPattern })) {
             if (-not (Test-Path $p.Key)) { Write-Log "$($p.Name) already removed by a prior step"; continue }
+            if (-not $p.ProductCode) {
+                Write-Log "$($p.Name): no valid MSI product GUID in the registry key or UninstallString" -Level ERROR
+                $script:failed.Add("$($p.Name) (missing MSI product GUID)")
+                continue
+            }
             if ($PSCmdlet.ShouldProcess($p.Name, 'Uninstall (msiexec)')) {
                 $code = Invoke-Uninstaller -FilePath "$env:SystemRoot\System32\msiexec.exe" `
                     -ArgumentList "/x `"$($p.ProductCode)`" /qn /norestart REBOOT=ReallySuppress" -Label $p.Name
@@ -628,9 +591,14 @@ process {
             }
         }
 
-        # ------------------------------------------------------------ Legacy (cannot be silenced)
+        # ------------------------------------------------------------ Legacy PDApp
         foreach ($p in @($targets | Where-Object Type -eq 'Legacy')) {
-            Write-Log "SKIPPED legacy PDApp-based product (no silent uninstall): $($p.Name) - remove with Creative Cloud Cleaner Tool" -Level WARN
+            if (-not (Test-Path $p.Key)) {
+                Write-Log "Removed: $($p.Name) (went with a selected package wrapper)" -Level SUCCESS
+                $script:removed.Add($p.Name)
+                continue
+            }
+            Write-Log "SKIPPED legacy PDApp product: $($p.Name) - select its original package wrapper with -PackageWrapperPattern or use original deployment media" -Level WARN
             $script:skippedLegacy.Add($p.Name)
         }
 
@@ -810,7 +778,9 @@ process {
 
     # ---------------------------------------------------------------- Summary + sentinel
     $finalInventory = @(Get-AdobeProduct)
-    $remaining = @($finalInventory | Where-Object { -not $_.Keep -and ($_.Type -ne 'Package' -or $RemovePackageWrappers) })
+    $remaining = @($finalInventory | Where-Object {
+        -not $_.Keep -and ($_.Type -ne 'Package' -or (Test-PackageWrapperTarget -Name $_.Name))
+    })
     $kept = @($finalInventory | Where-Object Keep)
     $remainingLabel = if ($WhatIfPreference) { 'Would remove   ' } else { 'Still installed' }
 
@@ -820,8 +790,11 @@ process {
     Write-Log "Failed          : $($script:failed.Count)  $(if ($script:failed.Count) { '- ' + ($script:failed -join '; ') })" -Level $(if ($script:failed.Count) { 'ERROR' } else { 'INFO' })
     Write-Log "Skipped legacy  : $($script:skippedLegacy.Count)  $(if ($script:skippedLegacy.Count) { '- ' + ($script:skippedLegacy -join '; ') })"
     Write-Log "$remainingLabel : $($remaining.Count)  $(if ($remaining.Count) { '- ' + ($remaining.Name -join '; ') })" -Level $(if ($remaining.Count -and -not $WhatIfPreference) { 'WARN' } else { 'INFO' })
-    if ($wrappers.Count -gt 0 -and -not $RemovePackageWrappers) {
-        Write-Log "Package wrappers: $($wrappers.Count) left registered (ignored by detection) - $($wrappers.Name -join '; ')"
+    $ignoredWrappersLeft = @($finalInventory | Where-Object {
+        $_.Type -eq 'Package' -and -not (Test-PackageWrapperTarget -Name $_.Name)
+    })
+    if ($ignoredWrappersLeft.Count -gt 0) {
+        Write-Log "Package wrappers: $($ignoredWrappersLeft.Count) left registered (ignored by detection) - $($ignoredWrappersLeft.Name -join '; ')"
     }
     Write-Log "Kept (by design): $($kept.Count)  $(if ($kept.Count) { '- ' + ($kept.Name -join '; ') })"
     if ($RemoveCreativeCloud -or $CleanProgramData) {

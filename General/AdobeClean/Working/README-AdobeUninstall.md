@@ -23,10 +23,10 @@ Complements `LIB-AdobeInstallerCleanup.ps1`, which targets Acrobat installer-cac
 | Installer type | How it is identified | Command used |
 | --- | --- | --- |
 | Creative Cloud / HyperDrive apps (Photoshop, Illustrator, InDesign, Premiere, After Effects, Lightroom, Bridge, Substance…) | `UninstallString` contains `--sapCode=` / `HDBox\` | 1. `AdobeUninstaller.exe --products=PHSP#25.0,ILST#28.0 --skipNotInstalled` if bundled. 2. Otherwise Adobe's silent engine `HDBox\Setup.exe --uninstall=1 --sapCode=… --baseVersion=… --platform=win64 --deleteUserPreferences=false`, with sapCode/version parsed from the registry string. **The registry `UninstallString` itself is never run** (see *Lessons from the first live run*) |
-| MSI (Acrobat, Reader, Refresh Manager, AIR…) | `WindowsInstaller=1` or `msiexec` in `UninstallString` | `msiexec /x {ProductCode} /qn /norestart REBOOT=ReallySuppress` |
+| MSI (Acrobat, Reader, Refresh Manager, AIR…) | `WindowsInstaller=1` or `msiexec` in `UninstallString` | Extracts the real `{ProductCode}` from `UninstallString` before falling back to the registry-key name, then runs `msiexec /x {ProductCode} /qn /norestart REBOOT=ReallySuppress` |
 | Other EXE (Digital Editions, etc.) | everything else | `QuietUninstallString` if present, else `UninstallString /S` (best effort) |
 | **Admin Console package wrappers** (`AdobeCC_SelfService`, `Adobe.CC.201902`, `LIBR-AcrobatDC`…) | MSI with `DisplayVersion = 1.0.0000` | **Skipped by default** and ignored by detection. These are package registrations, not apps; uninstalling one removes every product in that package, and a self-service package's only product is the CC desktop app. `-RemovePackageWrappers` includes them |
-| Legacy CS5/CS6/early-CC (`PDApp.exe`) | `PDApp.exe` in `UninstallString` | **Skipped with WARN** — no silent mode exists; use the Creative Cloud Cleaner Tool |
+| Legacy CS5/CS6/early-CC (`PDApp.exe`) | `PDApp.exe` in `UninstallString` | Direct PDApp uninstall is not safely silent without the original deployment XML/source. Select the original Admin Console package wrapper with `-PackageWrapperPattern`, or use the original `Set-up.exe` deployment media |
 | **Creative Cloud desktop app** (`-RemoveCreativeCloud` only) | `DisplayName` matches `^Adobe Creative Cloud` | `"…\Adobe\Adobe Creative Cloud\Utils\Creative Cloud Uninstaller.exe" -u`, run **last** (STEP 6). Adobe's uninstaller declines while any CC app is still installed, so the step aborts with an ERROR listing the blockers rather than pretending to succeed |
 | **`C:\ProgramData\Adobe`** (`-CleanProgramData` only) | — | `takeown /F … /A /R /D Y` + `icacls … /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q`, then `Remove-Item -Recurse -Force` per child (STEP 8). Ownership is required: `SLStore` and friends are SYSTEM-owned and deny delete even to Administrators |
 
@@ -45,6 +45,7 @@ Under `-RemoveCreativeCloud` that protection is **still active through STEP 3–
 | `-CleanProgramData` | off (on when `-RemoveCreativeCloud`) | Clears `C:\ProgramData\Adobe`. Suppress with `-CleanProgramData:$false`. If a CC desktop app is still installed when this runs, the licensing children are **preserved** so the retained install is not deactivated: `SLStore`, `SLCache`, `Adobe PCD`, `UPI` (named-user), `OperatingConfigs`, `LicensingToolkit` (Shared Device / Feature Restricted Licensing — **lab machines**), `AAMUpdater`, `OOBE`, `caps`, `Adobe Desktop Common`, `ARM`, `Adobe Notification Client` |
 | `-RemoveUserPreferences` | off | Passes `--deleteUserPreferences=true` to the CC app uninstaller |
 | `-RemovePackageWrappers` | off | Also `msiexec /x` the Admin Console package wrapper MSIs. **A self-service wrapper removes the CC desktop app** — only use on devices where the wrappers are known to contain apps only |
+| `-PackageWrapperPattern` | empty | Regex list selecting only named package wrappers. Preferred legacy path; for the observed device use `'^AdobeCC2017$'`. A wrapper removes every product originally installed by that package, so pilot first |
 | `-RemoveLeftoverFolders` | off | Deletes orphan folders under `Program Files\Adobe` / `(x86)` that no remaining product owns. Never touches `Common Files\Adobe` |
 | `-AdobeUninstallerPath` | `<script dir>\AdobeUninstaller.exe` | Override location of Adobe's tool |
 | `-TimeoutMinutes` | 30 | Per-uninstaller kill timer |
@@ -81,6 +82,20 @@ With the PowerShell script installer, both scripts are stored as app **metadata*
 | Detection | Custom script → `Detect-AdobeUninstall.ps1` (Run as 32-bit: No) — or a registry rule: `HKLM\SOFTWARE\LIBR\AdobeUninstall`, value `Completed`, Integer equals `1` |
 
 Add `-RemoveLeftoverFolders` / `-KeepPattern ...` to the install command as needed. If both variants of the app exist, give them distinct sentinel keys by editing `$SentinelKey` (and the detection script).
+
+To attempt removal of legacy applications installed by the `AdobeCC2017` package without the Cleaner Tool:
+
+```
+%windir%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File Uninstall-AdobeProducts.ps1 -PackageWrapperPattern '^AdobeCC2017$'
+```
+
+This invokes the original package MSI uninstall, which is Adobe's supported enterprise removal route. It can remove every product installed by that package, including items named in `-KeepPattern`; test on one matching device first. Standalone CS5/CS6 products not installed by that wrapper require their original deployment media and `Set-up.exe --mode=silent --deploymentFile=<file> --action=uninstall`.
+
+For Intune's pasted-script installer, parameters cannot be supplied on a command line. Change only the parameter default before pasting:
+
+```powershell
+[string[]]$PackageWrapperPattern = @('^AdobeCC2017$')
+```
 
 ### Full-wipe variant (removes Creative Cloud too)
 
@@ -256,6 +271,8 @@ Get-Process | Where-Object { $_.Path -match '\\Adobe\\' } | Select-Object Proces
 
 Kept here rather than in the script header: the script is pasted into Intune's PowerShell script installer box, which has a **50 KB** limit, and the changelog was 5 KB of it.
 
+**v1.6.0** — MSI product codes are parsed from `UninstallString`, fixing duplicate alias registrations such as Adobe Help Manager (`chc.*` plus the real `{GUID}` key). Added `-PackageWrapperPattern` for explicitly targeted package-wrapper removal; legacy PDApp entries removed by that wrapper are now credited instead of reported as skipped.
+
 **v1.5.1** — `Register-Result` gained `-GraceSeconds` / `-WaitProcess`: Creative Cloud Uninstaller.exe and AdobeCleanUpUtility.exe return 0 in ~2 s and finish in a background child, so the key is polled (EXE 60 s, CC 180 s) before a removal is declared failed. Both were false FAILEDs on the first full-wipe run.
 - Licensing preserve list gained `OperatingConfigs`, `LicensingToolkit` (SDL/FRL), `Adobe PCD`, `UPI` — the first run deleted the SDL folders while claiming to preserve licensing.
 - Process kill: a child that died with its parent is logged as *already exited*, not WARN.
@@ -290,7 +307,7 @@ Kept here rather than in the script header: the script is pasted into Intune's P
 
 ## Keeping the script pasteable
 
-The Intune PowerShell script installer box takes **50 KB**. `Uninstall-AdobeProducts.ps1` currently sits at **49,957 bytes (48.8 KB)** — under the limit on either reading of "50 KB" (50,000 or 51,200 bytes), with ~43 bytes of headroom. Check before every paste:
+The Intune PowerShell script installer box takes **50 KB**. `Uninstall-AdobeProducts.ps1` currently sits at **48,779 bytes (47.6 KB)**, leaving enough headroom for CRLF line endings. Check before every paste:
 
 ```powershell
 '{0:n0} bytes ({1:n1} KB)' -f (Get-Item .\Uninstall-AdobeProducts.ps1).Length, ((Get-Item .\Uninstall-AdobeProducts.ps1).Length / 1KB)
