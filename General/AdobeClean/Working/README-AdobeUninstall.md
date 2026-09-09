@@ -14,6 +14,7 @@ Complements `LIB-AdobeInstallerCleanup.ps1`, which targets Acrobat installer-cac
 | File | Purpose |
 | --- | --- |
 | `Uninstall-AdobeProducts.ps1` | Enumerates Adobe entries in both Uninstall hives, keeps anything matching `-KeepPattern`, silently removes the rest with the right mechanism per installer type. `-RemoveCreativeCloud` / `-CleanProgramData` turn it into a full wipe |
+| `Uninstall-AdobeProducts-FullWipe.ps1` | Paste-ready variant with Creative Cloud removal, ProgramData cleanup, and leftover-folder cleanup enabled by default |
 | `Detect-AdobeUninstall.ps1` | Custom detection: sentinel `Completed=1` **and** a live re-check that no non-kept Adobe product exists. Reads `FullRemoval` so one detection script serves both modes |
 | `Uninstall-AdobeCleanupApp.ps1` | Uninstall action for the Win32 app. Clears the detection sentinel only — adds and removes no Adobe product. See *Company Portal* below for why this is not the removal script |
 | `AdobeUninstaller.exe` *(optional, not in repo)* | Adobe's supported bulk uninstaller. Download from **Admin Console → Packages → Tools → Adobe Uninstaller**. Drop it next to the script before packaging and it is used first for CC apps |
@@ -95,6 +96,16 @@ For Intune's pasted-script installer, parameters cannot be supplied on a command
 
 ```powershell
 [string[]]$PackageWrapperPattern = @('^AdobeCC2017$')
+```
+
+### Full-wipe paste variant
+
+Use `Uninstall-AdobeProducts-FullWipe.ps1` as the Install script when using Intune's PowerShell uploader. It already defaults `-RemoveCreativeCloud`, `-CleanProgramData`, and `-RemoveLeftoverFolders` to enabled, so no command-line switches are required. The existing `Uninstall-AdobeProducts.ps1` remains the keep-Creative-Cloud variant.
+
+Before assigning the full-wipe app broadly, test the copy locally with:
+
+```powershell
+.\Uninstall-AdobeProducts-FullWipe.ps1 -WhatIf
 ```
 
 ### Full-wipe variant (removes Creative Cloud too)
