@@ -14,7 +14,7 @@
 .NOTES
     Author  : Oji (cmcleod1)
     Date    : 2026-09-08
-    Version : 1.6.0
+    Version : 1.6.2
     Run As  : SYSTEM (Intune) or local Administrator
     PS      : 5.1+ (7.x compatible)
     Exit    : 0 success; 1 failure; 3010 reboot required
@@ -36,7 +36,7 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $ScriptVersion = '1.6.0'
+    $ScriptVersion = '1.6.2'
 
     # Works when run as a file (PSScriptRoot set) AND when pasted into Intune (CWD = unpacked package)
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
@@ -611,14 +611,17 @@ process {
         if ($RemoveCreativeCloud -or $ccTargeted) {
             Write-Log '--- STEP 6: Adobe Creative Cloud desktop app ---'
             $ccEntries = @(Get-AdobeProduct | Where-Object { $_.Name -match $CreativeCloudPattern })
-            $ccBlockers = @(Get-AdobeProduct | Where-Object { $_.Type -eq 'HD' -and $_.Name -notmatch $CreativeCloudPattern })
+            # Adobe: CC uninstalls ONLY once every Adobe app is gone - HD, Legacy, MSI or EXE
+            # alike. Counting only HD let legacy CS6 apps through and the uninstaller declined
+            # in ~1 s. Package wrappers are registrations, not apps, so they do not block.
+            $ccBlockers = @(Get-AdobeProduct | Where-Object { $_.Type -ne 'Package' -and $_.Name -notmatch $CreativeCloudPattern })
 
             if ($ccBlockers.Count -gt 0 -and $WhatIfPreference) {
                 # Nothing was actually uninstalled in a dry run, so every app still looks like a blocker.
                 Write-Log "What if: would uninstall the Creative Cloud desktop app here, once STEP 3 has removed $($ccBlockers.Count) CC app(s)."
             }
             elseif ($ccBlockers.Count -gt 0) {
-                Write-Log "Not removing Creative Cloud: $($ccBlockers.Count) CC app(s) still installed - $($ccBlockers.Name -join '; '). Adobe's uninstaller would decline. Fix those first, then re-run." -Level ERROR
+                Write-Log "Not removing Creative Cloud: $($ccBlockers.Count) Adobe product(s) still installed - $($ccBlockers.Name -join '; '). Adobe's uninstaller only runs once every Adobe app is gone; it would decline in ~1 s. Remove these first, then re-run." -Level ERROR
                 foreach ($cc in $ccEntries) { $script:failed.Add("$($cc.Name) (blocked by remaining CC apps)") }
             }
             elseif ($ccEntries.Count -eq 0) {
@@ -770,7 +773,10 @@ process {
             if (-not $WhatIfPreference) {
                 $pdLeft = @(Get-ChildItem -LiteralPath $adobeProgramData -Force -ErrorAction SilentlyContinue |
                     Where-Object { $_.Name -notin $keepChild })
-                if ($pdLeft.Count -eq 0) { Write-Log "Cleared: $adobeProgramData" -Level SUCCESS }
+                if ($pdLeft.Count -eq 0 -and $pdItems.Count -eq 0 -and $keepChild.Count) {
+                    Write-Log "$adobeProgramData holds only preserved licensing state - nothing removed"
+                }
+                elseif ($pdLeft.Count -eq 0) { Write-Log "Cleared: $adobeProgramData" -Level SUCCESS }
                 else { Write-Log "$($pdLeft.Count) item(s) could not be removed from ${adobeProgramData}: $($pdLeft.Name -join '; ')" -Level WARN }
             }
         }

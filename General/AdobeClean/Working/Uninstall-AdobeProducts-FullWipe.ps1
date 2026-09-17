@@ -13,7 +13,7 @@
 .NOTES
     Author  : Oji (cmcleod1)
     Date    : 2026-09-08
-    Version : 1.6.1
+    Version : 1.6.2
     Run As  : SYSTEM (Intune) or local Administrator
     PS      : 5.1+ (7.x compatible)
     Exit    : 0 success; 1 failure; 3010 reboot required
@@ -30,25 +30,20 @@ param(
     [switch]$RemoveCreativeCloud = $true,
     [switch]$CleanProgramData = $true,
     [string]$AdobeUninstallerPath,
+    [string]$CleanerToolPath,
     [int]$TimeoutMinutes = 30
 )
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $ScriptVersion = '1.6.1-fullwipe'
+    $ScriptVersion = '1.6.2-fullwipe'
 
     # Works when run as a file (PSScriptRoot set) AND when pasted into Intune (CWD = unpacked package)
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
     $SentinelKey = 'HKLM:\SOFTWARE\LIBR\AdobeUninstall'
 
-    # PASTE DEPLOYMENTS: $true = full wipe (CC desktop app + ProgramData). Intune's
-    # PowerShell script installer runs this with no command line, so it is the only way
-    # to reach -RemoveCreativeCloud there. $false = remove the apps, keep Creative Cloud.
-    $ForceFullRemoval = $false
-
-    if ($ForceFullRemoval) { $RemoveCreativeCloud = [switch]$true }
-
+    # This variant defaults every full-wipe switch to $true, so a pasted copy needs no edit.
     # -RemoveCreativeCloud is a full wipe: nothing is kept and ProgramData is cleared,
     # unless the caller was explicit about either.
     if ($RemoveCreativeCloud) {
@@ -56,13 +51,11 @@ begin {
         if (-not $PSBoundParameters.ContainsKey('CleanProgramData')) { $CleanProgramData = $true }
     }
 
-    # Registry entries belonging to the CC desktop app itself. Handled in their own step
-    # (after every CC app) rather than by the generic MSI/EXE steps.
+    # The CC desktop app's own entries - handled in STEP 6, not the generic MSI/EXE steps.
     $CreativeCloudPattern = '^Adobe Creative Cloud'
 
-    # Children of C:\ProgramData\Adobe holding licensing/activation state. Deleting these
-    # deactivates a Creative Cloud install, so they survive -CleanProgramData whenever the
-    # desktop app is being kept.
+    # Licensing/activation state under C:\ProgramData\Adobe. Deleting these deactivates a
+    # Creative Cloud install, so they survive -CleanProgramData while CC is still present.
     $ProgramDataLicensingChild = @(
         'SLStore', 'SLCache', 'Adobe PCD', 'UPI',               # named-user activation
         'OperatingConfigs', 'LicensingToolkit',                 # Shared Device / Feature Restricted Licensing
@@ -167,9 +160,8 @@ begin {
                     if ($us -match '--(?:platform|productPlatform)=(\S+)') { $plat = $Matches[1] }
                 }
 
-                # Adobe sometimes creates a friendly alias key beside the real {GUID}
-                # MSI key. Prefer the GUID embedded in UninstallString; Help Manager's
-                # alias (chc.*) otherwise produces msiexec 1619 when used as /x input.
+                # Adobe sometimes creates a friendly alias key beside the real {GUID} MSI key.
+                # Prefer the GUID in UninstallString; an alias (chc.*) gives msiexec 1619.
                 $productCode = $null
                 if ($type -in @('MSI', 'Package')) {
                     if ($us -match '(?i)(?:/x|/i)\s*"?(\{[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\})') {
@@ -320,9 +312,8 @@ begin {
 
     function Register-Result {
         <# Credits a removal ONLY if the Uninstall key is gone - Adobe launchers exit 0 doing
-           nothing. Creative Cloud Uninstaller.exe -u and AdobeCleanUpUtility.exe return 0 in
-           ~2 s and finish in a background child, so -GraceSeconds polls the key first and
-           -WaitProcess waits for that child. #>
+           nothing. CC Uninstaller.exe and AdobeCleanUpUtility.exe return 0 in ~2 s and finish
+           in a background child, so -GraceSeconds polls and -WaitProcess waits for it. #>
         param([string]$Name, [string]$Key, [int]$Code, [int[]]$NotInstalledCodes = @(),
               [int]$GraceSeconds = 0, [string]$WaitProcess)
         $stillRegistered = if ($Key) { Test-Path $Key } else { $false }
@@ -476,11 +467,10 @@ process {
         }
 
         # ------------------------------------------------------------ 3b. Creative Cloud apps (per-app)
-        # The registry UninstallString is deliberately NOT used: on current builds it is
-        # HDBox\Uninstaller.exe --mode=2, a launcher that hands off to the CC desktop app
-        # (sign-in prompt), exits 0 after ~2 s and removes nothing under SYSTEM.
-        # HDBox ships BOTH Setup.exe (~850 KB, the HD engine) and Set-up.exe (~14 MB, the CC
-        # installer bootstrapper); Setup.exe is the one we want, Set-up.exe a last resort.
+        # The registry UninstallString is NOT used: it is HDBox\Uninstaller.exe --mode=2, a
+        # launcher that hands off to the CC desktop app and removes nothing under SYSTEM.
+        # HDBox ships Setup.exe (~850 KB, the HD engine) and Set-up.exe (~14 MB, the CC
+        # bootstrapper); Setup.exe is the one we want, Set-up.exe a last resort.
         $hdSetup = @(
             "${env:ProgramFiles(x86)}\Common Files\Adobe\Adobe Desktop Common\HDBox\Setup.exe",
             "$env:ProgramFiles\Common Files\Adobe\Adobe Desktop Common\HDBox\Setup.exe",
@@ -590,10 +580,29 @@ process {
             }
         }
 
+        # ------------------------------------------------------------ 5b. Cleaner Tool
+        # PDApp CS6/CC2015 apps have no silent uninstall; Adobe's Cleaner Tool is the supported
+        # path. --removeAll=ALL also takes CC and the Adobe ID credentials, so: full wipe only.
+        if (-not $CleanerToolPath) { $CleanerToolPath = Join-Path $ScriptDir 'AdobeCreativeCloudCleanerTool.exe' }
+        $legacyLeft = @($targets | Where-Object { $_.Type -eq 'Legacy' -and (Test-Path $_.Key) })
+        if ($legacyLeft.Count -gt 0 -and $RemoveCreativeCloud) {
+            if (Test-Path -LiteralPath $CleanerToolPath) {
+                Write-Log "--- STEP 5b: Creative Cloud Cleaner Tool ($($legacyLeft.Count) legacy product(s)) ---"
+                if ($PSCmdlet.ShouldProcess('every Adobe product on this device', 'AdobeCreativeCloudCleanerTool --removeAll=ALL')) {
+                    $code = Invoke-Uninstaller -FilePath $CleanerToolPath `
+                        -ArgumentList '--removeAll=ALL --eulaAccepted=1' -Label 'Creative Cloud Cleaner Tool'
+                    foreach ($p in $legacyLeft) { Register-Result -Name $p.Name -Key $p.Key -Code $code -GraceSeconds 120 }
+                }
+            }
+            else {
+                Write-Log "$($legacyLeft.Count) legacy PDApp product(s) and no Cleaner Tool at $CleanerToolPath - these WILL block the Creative Cloud removal. Bundle AdobeCreativeCloudCleanerTool.exe in the package." -Level WARN
+            }
+        }
+
         # ------------------------------------------------------------ Legacy PDApp
         foreach ($p in @($targets | Where-Object Type -eq 'Legacy')) {
             if (-not (Test-Path $p.Key)) {
-                Write-Log "Removed: $($p.Name) (went with a selected package wrapper)" -Level SUCCESS
+                Write-Log "Removed: $($p.Name) (went with an earlier step)" -Level SUCCESS
                 $script:removed.Add($p.Name)
                 continue
             }
@@ -602,22 +611,23 @@ process {
         }
 
         # ------------------------------------------------------------ 6. Creative Cloud desktop app
-        # Deliberately last: "Creative Cloud Uninstaller.exe" refuses to run while any CC
-        # application is still installed, so this only works once STEP 3 has emptied the device.
-        # Also entered when CC ended up in $targets some other way (an explicit
-        # -KeepPattern that no longer covers it) - steps 4/5 skip it, so this step owns it.
+        # Deliberately last: the CC uninstaller declines while any Adobe app remains. Also
+        # entered when CC reached $targets another way (steps 4/5 skip it, so this step owns it).
         $ccTargeted = @($targets | Where-Object { $_.Name -match $CreativeCloudPattern }).Count -gt 0
         if ($RemoveCreativeCloud -or $ccTargeted) {
             Write-Log '--- STEP 6: Adobe Creative Cloud desktop app ---'
             $ccEntries = @(Get-AdobeProduct | Where-Object { $_.Name -match $CreativeCloudPattern })
-            $ccBlockers = @(Get-AdobeProduct | Where-Object { $_.Type -eq 'HD' -and $_.Name -notmatch $CreativeCloudPattern })
+            # Adobe: CC uninstalls ONLY once every Adobe app is gone - HD, Legacy, MSI or EXE
+            # alike. Counting only HD let legacy CS6 apps through and the uninstaller declined
+            # in ~1 s. Package wrappers are registrations, not apps, so they do not block.
+            $ccBlockers = @(Get-AdobeProduct | Where-Object { $_.Type -ne 'Package' -and $_.Name -notmatch $CreativeCloudPattern })
 
             if ($ccBlockers.Count -gt 0 -and $WhatIfPreference) {
                 # Nothing was actually uninstalled in a dry run, so every app still looks like a blocker.
                 Write-Log "What if: would uninstall the Creative Cloud desktop app here, once STEP 3 has removed $($ccBlockers.Count) CC app(s)."
             }
             elseif ($ccBlockers.Count -gt 0) {
-                Write-Log "Not removing Creative Cloud: $($ccBlockers.Count) CC app(s) still installed - $($ccBlockers.Name -join '; '). Adobe's uninstaller would decline. Fix those first, then re-run." -Level ERROR
+                Write-Log "Not removing Creative Cloud: $($ccBlockers.Count) Adobe product(s) still installed - $($ccBlockers.Name -join '; '). Adobe's uninstaller only runs once every Adobe app is gone; it would decline in ~1 s. Remove these first, then re-run." -Level ERROR
                 foreach ($cc in $ccEntries) { $script:failed.Add("$($cc.Name) (blocked by remaining CC apps)") }
             }
             elseif ($ccEntries.Count -eq 0) {
@@ -739,11 +749,9 @@ process {
             }
             foreach ($item in $pdItems) {
                 if (-not $PSCmdlet.ShouldProcess($item.FullName, 'Take ownership and delete')) { continue }
-                # SLStore and friends are SYSTEM-owned with ACLs that deny delete even to
-                # Administrators, so ownership has to be taken before Remove-Item succeeds.
-                # Both tools write to stderr on files they cannot touch; with
-                # $ErrorActionPreference = 'Stop' that becomes a terminating NativeCommandError,
-                # so it is relaxed for the two calls and their output is discarded.
+                # SLStore and friends are SYSTEM-owned and deny delete even to Administrators,
+                # so ownership is taken first. Both tools write to stderr on files they cannot
+                # touch, which under 'Stop' is a terminating NativeCommandError - hence the relax.
                 $prevEap = $ErrorActionPreference
                 $ErrorActionPreference = 'Continue'
                 try {
@@ -769,7 +777,10 @@ process {
             if (-not $WhatIfPreference) {
                 $pdLeft = @(Get-ChildItem -LiteralPath $adobeProgramData -Force -ErrorAction SilentlyContinue |
                     Where-Object { $_.Name -notin $keepChild })
-                if ($pdLeft.Count -eq 0) { Write-Log "Cleared: $adobeProgramData" -Level SUCCESS }
+                if ($pdLeft.Count -eq 0 -and $pdItems.Count -eq 0 -and $keepChild.Count) {
+                    Write-Log "$adobeProgramData holds only preserved licensing state - nothing removed"
+                }
+                elseif ($pdLeft.Count -eq 0) { Write-Log "Cleared: $adobeProgramData" -Level SUCCESS }
                 else { Write-Log "$($pdLeft.Count) item(s) could not be removed from ${adobeProgramData}: $($pdLeft.Name -join '; ')" -Level WARN }
             }
         }
