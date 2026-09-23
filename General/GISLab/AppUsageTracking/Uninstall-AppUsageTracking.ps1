@@ -1,120 +1,112 @@
+#Requires -Version 5.1
+#Requires -RunAsAdministrator
+
 <#
 .SYNOPSIS
-    Removes the Lab App Usage Harvester: unregisters the scheduled task,
-    optionally reverts process auditing, and cleans (or preserves) the
-    collected data.
+    Removes the GIS Lab application-usage harvester.
 
 .DESCRIPTION
-    Companion to Setup-AppUsageTracking.ps1. Idempotent: safe to re-run.
-
-    Default behavior on Intune uninstall:
-      - Unregister the LabAppUsageHarvester scheduled task
-      - Preserve the collected CSV by moving the data folder aside to
-        C:\ProgramData\LabUsage.retained-<timestamp>
-      - Leave process auditing enabled (other tools may depend on it)
-
-    Switches:
-      -PurgeData        Fully delete C:\ProgramData\LabUsage instead of
-                        moving it aside. Use for a hard reset.
-      -DisableAuditing  Revert Process Creation + Process Termination
-                        auditing to "no auditing." Only set this if you
-                        know nothing else on the machine needs 4688/4689.
-      -DisableCmdLine   Also clears the ProcessCreationIncludeCmdLine_Enabled
-                        policy that Setup can optionally set.
+    Removes the scheduled task and detection sentinel. By default, collected
+    data is retained in a timestamped directory and process auditing remains
+    enabled because another security control may depend on it.
 
 .NOTES
-    Run as Administrator or as SYSTEM (Intune Win32 uninstall context).
     Author: UMD Libraries ITFO
+    Date: 2026-09-07
+    Version: 2.0.0
+    Run as Administrator or as SYSTEM through Intune.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [string]$InstallDir  = "$env:ProgramData\LabUsage",
-    [string]$TaskName    = 'LabAppUsageHarvester',
+    [string]$InstallDir,
+    [string]$TaskName = 'LabAppUsageHarvester',
     [switch]$PurgeData,
     [switch]$DisableAuditing,
     [switch]$DisableCmdLine
 )
 
 $ErrorActionPreference = 'Stop'
+$registryPath = 'HKLM:\SOFTWARE\UMDLibraries\LabAppUsageTracking'
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+    $installedPath = (Get-ItemProperty -Path $registryPath -Name InstallDir `
+        -ErrorAction SilentlyContinue).InstallDir
+    $InstallDir = if ($installedPath) { $installedPath } else { "$env:ProgramData\LabUsage" }
+}
 
-# --- 1. Unregister the scheduled task --------------------------------------
-$task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-if ($task) {
-    if ($PSCmdlet.ShouldProcess($TaskName, 'Unregister scheduled task')) {
-        # Kill any in-flight harvest first: a live transcript handle on
-        # harvest.log would make the data-folder move below throw.
-        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+$deploymentLogDir = "$env:ProgramData\UMDLibraries\AppUsage"
+if (-not (Test-Path -LiteralPath $deploymentLogDir)) {
+    New-Item -Path $deploymentLogDir -ItemType Directory -Force | Out-Null
+}
+$uninstallLog = Join-Path $deploymentLogDir 'AppUsageTracking-Uninstall.log'
+Start-Transcript -Path $uninstallLog -Append -ErrorAction SilentlyContinue | Out-Null
+
+try {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($task -and $PSCmdlet.ShouldProcess($TaskName, 'Stop and unregister scheduled task')) {
+        if ($task.State -eq 'Running') {
+            Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+            $deadline = (Get-Date).AddSeconds(15)
+            do {
+                Start-Sleep -Milliseconds 500
+                $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+            } while ($task -and $task.State -eq 'Running' -and (Get-Date) -lt $deadline)
+            if ($task -and $task.State -eq 'Running') {
+                throw "Scheduled task '$TaskName' did not stop within 15 seconds."
+            }
+        }
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
         Write-Host "[-] Scheduled task '$TaskName' removed."
     }
-} else {
-    Write-Host "[=] Scheduled task '$TaskName' not present (already removed)."
-}
 
-# --- 2. Handle the data folder ---------------------------------------------
-if (Test-Path $InstallDir) {
-    if ($PurgeData) {
-        if ($PSCmdlet.ShouldProcess($InstallDir, 'Delete data folder')) {
-            # Restore inheritance so Remove-Item can walk the tree even if
-            # ACLs were tightened during setup.
-            try {
-                $acl = Get-Acl $InstallDir
+    if (Test-Path -LiteralPath $InstallDir) {
+        if ($PurgeData) {
+            if ($PSCmdlet.ShouldProcess($InstallDir, 'Delete application-usage data')) {
+                $acl = Get-Acl -LiteralPath $InstallDir
                 $acl.SetAccessRuleProtection($false, $true)
-                Set-Acl -Path $InstallDir -AclObject $acl
-            } catch {
-                Write-Warning "Could not reset ACL on '$InstallDir': $_"
+                Set-Acl -LiteralPath $InstallDir -AclObject $acl
+                Remove-Item -LiteralPath $InstallDir -Recurse -Force
+                Write-Host "[-] Data purged: $InstallDir"
             }
-            Remove-Item -Path $InstallDir -Recurse -Force
-            Write-Host "[-] Data folder purged: $InstallDir"
-        }
-    } else {
-        $stamp    = Get-Date -Format 'yyyyMMdd-HHmmss'
-        $retained = "$InstallDir.retained-$stamp"
-        if ($PSCmdlet.ShouldProcess($InstallDir, "Rename to $retained (preserve CSV)")) {
-            Move-Item -Path $InstallDir -Destination $retained -Force
-            Write-Host "[+] Data preserved at: $retained"
+        } else {
+            $retainedPath = "$InstallDir.retained-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            if ($PSCmdlet.ShouldProcess($InstallDir, "Retain data at $retainedPath")) {
+                Move-Item -LiteralPath $InstallDir -Destination $retainedPath
+                Write-Host "[+] Data retained: $retainedPath"
+            }
         }
     }
-} else {
-    Write-Host "[=] Data folder '$InstallDir' not present."
-}
 
-# --- 3. Optionally revert audit policy -------------------------------------
-if ($DisableAuditing) {
-    if ($PSCmdlet.ShouldProcess('Process Creation/Termination', 'Disable auditing')) {
-        # Subcategory GUIDs, not names - the names are localized (matches Setup).
-        $sub = @{
-            'Process Creation'    = '{0CCE922B-69AE-11D9-BED3-505054503030}'
-            'Process Termination' = '{0CCE922C-69AE-11D9-BED3-505054503030}'
-        }
-        auditpol /set /subcategory:"$($sub['Process Creation'])"    /success:disable | Out-Null
-        auditpol /set /subcategory:"$($sub['Process Termination'])" /success:disable | Out-Null
-        Write-Host "[-] Process Creation + Termination auditing disabled."
-
-        # Verify - GPO may re-enforce audit policy at next refresh.
-        $check = @(
-            @{ Name = 'Process Creation';    Result = (auditpol /get /subcategory:"$($sub['Process Creation'])"    | Out-String) }
-            @{ Name = 'Process Termination'; Result = (auditpol /get /subcategory:"$($sub['Process Termination'])" | Out-String) }
+    if ($DisableAuditing -and
+        $PSCmdlet.ShouldProcess('Process Creation and Process Termination', 'Disable success auditing')) {
+        $auditGuids = @(
+            '{0CCE922B-69AE-11D9-BED3-505054503030}',
+            '{0CCE922C-69AE-11D9-BED3-505054503030}'
         )
-        foreach ($c in $check) {
-            if ($c.Result -match 'Success') {
-                Write-Warning "'$($c.Name)' still shows Success after disable - likely re-enforced by GPO."
+        foreach ($auditGuid in $auditGuids) {
+            & auditpol.exe /set "/subcategory:$auditGuid" /success:disable | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "auditpol failed for subcategory $auditGuid with exit code $LASTEXITCODE."
             }
         }
+        Write-Host '[-] Process Creation and Process Termination success auditing disabled.'
     }
-} else {
-    Write-Host "[=] Audit policy left enabled (pass -DisableAuditing to revert)."
-}
 
-if ($DisableCmdLine) {
-    $reg = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit'
-    if (Test-Path $reg) {
-        if ($PSCmdlet.ShouldProcess($reg, 'Clear ProcessCreationIncludeCmdLine_Enabled')) {
-            Remove-ItemProperty -Path $reg -Name 'ProcessCreationIncludeCmdLine_Enabled' -Force -ErrorAction SilentlyContinue
-            Write-Host "[-] Command-line capture policy cleared."
+    if ($DisableCmdLine) {
+        $auditRegistry = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit'
+        if ((Test-Path -LiteralPath $auditRegistry) -and
+            $PSCmdlet.ShouldProcess($auditRegistry, 'Remove command-line audit policy value')) {
+            Remove-ItemProperty -Path $auditRegistry -Name 'ProcessCreationIncludeCmdLine_Enabled' `
+                -Force -ErrorAction SilentlyContinue
         }
     }
-}
 
-Write-Host "`nUninstall complete."
+    if ((Test-Path -LiteralPath $registryPath) -and
+        $PSCmdlet.ShouldProcess($registryPath, 'Remove Intune detection sentinel')) {
+        Remove-Item -LiteralPath $registryPath -Recurse -Force
+    }
+
+    Write-Host '[+] App usage tracking uninstall completed.'
+} finally {
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+}
