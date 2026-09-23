@@ -17,20 +17,32 @@ status: Ready
 
 ## Package
 ```powershell
-IntuneWinAppUtil.exe -c ".\MCK_6F_PR4" -s Install-StaffPrinter.ps1 -o ".\_Output" -q
+.\_Build\New-StaffPrinterPackages.ps1 -IntuneWinAppUtil <path>\IntuneWinAppUtil.exe -Name MCK_6F_PR4
 ```
+
+## Company Portal (App information)
+| Setting | Value |
+|---|---|
+| Name | `Printer - McKeldin - Graphics 6115 - Color (MCK_6F_PR4)` |
+| Description | `Adds the MCK_6F_PR4 staff printer (McKeldin - Graphics 6115) to this computer for all users. Prints directly to the device - no print server.` |
+| Publisher | `UMD Libraries IT` |
+| Category | `Printers` |
+| Show as featured app | No |
+| Logo | `_Build\printer-icon.png` (if added) |
+| Notes | `Canon iR-ADV C3935i - MCK_6F_PR4.resource.dyn.umd.edu` |
 
 ## Intune app settings
 | Setting | Value |
 |---|---|
-| Name | `Staff Printer - MCK_6F_PR4` |
-| Install command | `%SystemRoot%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-StaffPrinter.ps1` |
-| Uninstall command | `%SystemRoot%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-StaffPrinter.ps1` |
+| Install command | `powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-StaffPrinter.ps1` |
+| Uninstall command | `powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-StaffPrinter.ps1` |
 | Install behavior | **System** |
-| Return codes | 0 = Success, 1 = Failed |
+| Device restart behavior | No specific action |
+| Return codes | Keep defaults (0 success, 1 fails naturally as "Failed") |
+| Requirements | OS architecture: x64 only; minimum OS: Windows 10 22H2 |
 | Detection | Custom script: `Detect-MCK_6F_PR4.ps1` (32-bit: No, enforce signature: No) |
 | Dependency | `Staff Printer Driver - Canon Generic Plus UFR II` (auto-install: Yes) |
-| Assignment | Device group |
+| Assignment | **Available for enrolled devices** -> Libraries staff **user** group; "Allow available uninstall" = Yes |
 
 ## Verify on a test device
 ```powershell

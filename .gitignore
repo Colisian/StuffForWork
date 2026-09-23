@@ -21,6 +21,9 @@
 *.jpg
 *.cab
 *.pdf
+*.cfg
+*.sys
+*.config
 *.intunewin
 *.intunewin.*
 **/Activate.ini

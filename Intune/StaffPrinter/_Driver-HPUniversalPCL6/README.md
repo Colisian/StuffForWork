@@ -24,18 +24,18 @@ If it differs, change `$DriverName` in all three scripts **and** the `DriverName
 
 ## Package
 ```powershell
-IntuneWinAppUtil.exe -c ".\_Driver-HPUniversalPCL6" -s Install-PrinterDriver.ps1 -o ".\_Output" -q
+.\_Build\New-StaffPrinterPackages.ps1 -IntuneWinAppUtil <path>\IntuneWinAppUtil.exe -Name _Driver-HPUniversalPCL6
 ```
 
 ## Intune app settings
 | Setting | Value |
 |---|---|
 | Name | `Staff Printer Driver - HP Universal Printing PCL 6` |
-| Install command | `%SystemRoot%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-PrinterDriver.ps1` |
-| Uninstall command | `%SystemRoot%\sysnative\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-PrinterDriver.ps1` |
+| Install command | `powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-PrinterDriver.ps1` |
+| Uninstall command | `powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-PrinterDriver.ps1` |
 | Install behavior | System |
 | Detection | Custom script `Detect-PrinterDriver.ps1` |
-| Assignment | None needed - installed automatically as a dependency |
+| Assignment | **None** - Intune installs it automatically as a dependency; it never appears in Company Portal |
 
 ## Verify
 ```powershell
