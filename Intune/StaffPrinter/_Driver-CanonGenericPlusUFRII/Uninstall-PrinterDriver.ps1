@@ -13,7 +13,7 @@
 .NOTES
     Author:  Oji (cmcleod1@umd.edu)
     Date:    2026-09-22
-    Version: 1.0.0
+    Version: 1.1.0
     Log:     C:\ProgramData\StaffPrinters\Driver-Uninstall.log
 #>
 [CmdletBinding(SupportsShouldProcess)]
@@ -26,16 +26,20 @@ begin {
 
     if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess -and $PSCommandPath) {
         $ps64 = Join-Path $env:WINDIR 'SysNative\WindowsPowerShell\v1.0\powershell.exe'
-        & $ps64 -ExecutionPolicy Bypass -NoProfile -File $PSCommandPath -DriverName $DriverName
+        $relaunchArgs = @('-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', $PSCommandPath) + @('-DriverName', $DriverName)
+        if ($WhatIfPreference) { $relaunchArgs += '-WhatIf' }
+        & $ps64 @relaunchArgs
         exit $LASTEXITCODE
     }
+
+    $pnputil = if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) { "$env:WINDIR\Sysnative\pnputil.exe" } else { "$env:WINDIR\System32\pnputil.exe" }
 
     $logDir = 'C:\ProgramData\StaffPrinters'
     if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force -WhatIf:$false | Out-Null }
     $sentinel = 'HKLM:\SOFTWARE\UMDLibraries\StaffPrinters\Driver'
 }
 
-process {
+end {
     $exitCode = 0
     $transcribing = $false
     try {
@@ -53,7 +57,7 @@ process {
             $oem = Get-WindowsDriver -Online | Where-Object { $_.OriginalFileName -eq $infPath } |
                 Select-Object -ExpandProperty Driver -First 1
             if ($oem -and $PSCmdlet.ShouldProcess($oem, 'pnputil /delete-driver')) {
-                & "$env:WINDIR\System32\pnputil.exe" /delete-driver $oem /uninstall | Out-Null
+                & $pnputil /delete-driver $oem /uninstall | Out-Null
                 Write-Output "Deleted driver package $oem (pnputil exit $LASTEXITCODE)."
             }
         } else {

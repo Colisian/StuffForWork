@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Builds .intunewin packages for the staff printer apps and the driver apps.
 
@@ -26,7 +26,7 @@
 .NOTES
     Author:  Oji (cmcleod1@umd.edu)
     Date:    2026-09-22
-    Version: 1.0.0
+    Version: 1.1.0
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -52,7 +52,7 @@ begin {
     Import-Csv (Join-Path $ScriptDir 'StaffPrinters-DirectIP.csv') | ForEach-Object { $status[$_.Name] = $_.Status }
 }
 
-process {
+end {
     $targets = Get-ChildItem -Path $root -Directory | Where-Object {
         (Test-Path (Join-Path $_.FullName 'printer.csv')) -or $_.Name -like '_Driver-*'
     }

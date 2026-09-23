@@ -31,8 +31,10 @@ If it differs, change `$DriverName` in all three scripts **and** the `DriverName
 | Setting | Value |
 |---|---|
 | Name | `Staff Printer Driver - HP Universal Printing PCL 6` |
-| Install command | `powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-PrinterDriver.ps1` |
-| Uninstall command | `powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-PrinterDriver.ps1` |
+| Installer type | **PowerShell script** -> upload `Install-PrinterDriver.ps1` |
+| Uninstaller type | **PowerShell script** -> upload `Uninstall-PrinterDriver.ps1` |
+| Script options | Run as 32-bit: **No** - Enforce signature check: **No** |
+| *(alt) Command line* | `powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-PrinterDriver.ps1` / `...\Uninstall-PrinterDriver.ps1` |
 | Install behavior | System |
 | Detection | Custom script `Detect-PrinterDriver.ps1` |
 | Assignment | **None** - Intune installs it automatically as a dependency; it never appears in Company Portal |

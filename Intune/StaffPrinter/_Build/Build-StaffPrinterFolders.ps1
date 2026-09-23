@@ -23,7 +23,7 @@
 .NOTES
     Author:  Oji (cmcleod1@umd.edu)
     Date:    2026-09-22
-    Version: 1.0.0
+    Version: 1.1.0
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -40,7 +40,7 @@ begin {
     $today = Get-Date -Format 'yyyy-MM-dd'
 }
 
-process {
+end {
     $rows = Import-Csv -Path $MasterCsv
     $detectTemplate = Get-Content -Path (Join-Path $templateDir 'Detect-Printer.ps1.template') -Raw
 
@@ -110,8 +110,10 @@ $statusLine
 ## Intune app settings
 | Setting | Value |
 |---|---|
-| Install command | ``powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-StaffPrinter.ps1`` |
-| Uninstall command | ``powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Uninstall-StaffPrinter.ps1`` |
+| Installer type | **PowerShell script** -> upload ``Install-StaffPrinter.ps1`` (from this folder) |
+| Uninstaller type | **PowerShell script** -> upload ``Uninstall-StaffPrinter.ps1`` |
+| Script options | Run as 32-bit: **No** - Enforce signature check: **No** |
+| *(alt) Command line* | ``powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\Install-StaffPrinter.ps1`` / ``...\Uninstall-StaffPrinter.ps1`` |
 | Install behavior | **System** |
 | Device restart behavior | No specific action |
 | Return codes | Keep defaults (0 success, 1 fails naturally as "Failed") |

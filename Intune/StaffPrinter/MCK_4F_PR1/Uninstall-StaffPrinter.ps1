@@ -16,7 +16,7 @@
 .NOTES
     Author:  Oji (cmcleod1@umd.edu)
     Date:    2026-09-22
-    Version: 1.0.0
+    Version: 1.1.0
     Log:     C:\ProgramData\StaffPrinters\<PrinterName>-Uninstall.log
 #>
 [CmdletBinding(SupportsShouldProcess)]
@@ -31,18 +31,23 @@ begin {
         $ps64 = Join-Path $env:WINDIR 'SysNative\WindowsPowerShell\v1.0\powershell.exe'
         $relaunchArgs = @('-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', $PSCommandPath)
         if ($CsvPath) { $relaunchArgs += @('-CsvPath', $CsvPath) }
+        if ($WhatIfPreference) { $relaunchArgs += '-WhatIf' }
         & $ps64 @relaunchArgs
         exit $LASTEXITCODE
     }
 
-    $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+    # Intune's uploaded-script method may run this from its own temp folder (PSScriptRoot set
+    # but wrong) or with no file at all (PSScriptRoot empty); CWD is the package either way.
+    $ScriptDir = @($PSScriptRoot, (Get-Location).Path) |
+        Where-Object { $_ -and (Test-Path (Join-Path $_ 'printer.csv')) } | Select-Object -First 1
+    if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
     if (-not $CsvPath) { $CsvPath = Join-Path $ScriptDir 'printer.csv' }
 
     $logDir = 'C:\ProgramData\StaffPrinters'
     if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force -WhatIf:$false | Out-Null }
 }
 
-process {
+end {
     $exitCode = 0
     $transcribing = $false
     try {

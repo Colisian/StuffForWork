@@ -43,6 +43,10 @@ Apps > Windows > Add > **Windows app (Win32)**. Use the settings in each `_Drive
 - Detection: `Detect-PrinterDriver.ps1`
 - **No assignments.**
 
+> [!info] Installer type: PowerShell script (default) or command line
+> Every Install/Uninstall script works both ways with no edits. On the **Program** tab, choose **PowerShell script** and upload the `.ps1` from the app's folder, with *Run as 32-bit* = No. Intune runs it with the package contents as its working folder, so `printer.csv` / `Driver\` are still found. The same `.intunewin` works for either method.
+> When you change a script, **re-upload it on the Program tab**. With this method the copy inside the package is not the one that runs.
+
 ## Step 3 - Create each printer app
 Use the settings from `<NAME>\README.md`. It has copy-paste values for Name, Description, commands, detection and dependency.
 - **Dependencies** tab: add the matching driver app, with *Automatically install* = **Yes**.

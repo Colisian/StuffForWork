@@ -23,7 +23,7 @@
 .NOTES
     Author:  Oji (cmcleod1@umd.edu)
     Date:    2026-09-22
-    Version: 1.0.0
+    Version: 1.1.0
 #>
 [CmdletBinding()]
 param(
@@ -49,7 +49,7 @@ begin {
     }
 }
 
-process {
+end {
     $serverQueues = @{}
     $serverPorts  = @{}
     try {

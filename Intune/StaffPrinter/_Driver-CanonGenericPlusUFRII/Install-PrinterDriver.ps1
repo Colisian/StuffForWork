@@ -39,17 +39,25 @@ begin {
 
     if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess -and $PSCommandPath) {
         $ps64 = Join-Path $env:WINDIR 'SysNative\WindowsPowerShell\v1.0\powershell.exe'
-        & $ps64 -ExecutionPolicy Bypass -NoProfile -File $PSCommandPath -DriverName $DriverName -InfName $InfName
+        $relaunchArgs = @('-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', $PSCommandPath) + @('-DriverName', $DriverName, '-InfName', $InfName)
+        if ($WhatIfPreference) { $relaunchArgs += '-WhatIf' }
+        & $ps64 @relaunchArgs
         exit $LASTEXITCODE
     }
 
-    $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+    # Intune's uploaded-script method may run this from its own temp folder (PSScriptRoot set
+    # but wrong) or with no file at all (PSScriptRoot empty); CWD is the package either way.
+    $ScriptDir = @($PSScriptRoot, (Get-Location).Path) |
+        Where-Object { $_ -and (Test-Path (Join-Path $_ 'Driver')) } | Select-Object -First 1
+    if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+    $pnputil = if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) { "$env:WINDIR\Sysnative\pnputil.exe" } else { "$env:WINDIR\System32\pnputil.exe" }
+
     $logDir = 'C:\ProgramData\StaffPrinters'
     if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force -WhatIf:$false | Out-Null }
     $sentinel = 'HKLM:\SOFTWARE\UMDLibraries\StaffPrinters\Driver'
 }
 
-process {
+end {
     $exitCode = 0
     $transcribing = $false
     try {
@@ -61,7 +69,7 @@ process {
         foreach ($inf in $infs) {
             if ($PSCmdlet.ShouldProcess($inf.FullName, 'pnputil /add-driver /install')) {
                 Write-Output "pnputil /add-driver $($inf.FullName)"
-                & "$env:WINDIR\System32\pnputil.exe" /add-driver $inf.FullName /install | Out-Null
+                & $pnputil /add-driver $inf.FullName /install | Out-Null
                 if ($LASTEXITCODE -notin 0, 259, 3010) { Write-Warning "pnputil exit $LASTEXITCODE for $($inf.Name)" }
             }
         }
