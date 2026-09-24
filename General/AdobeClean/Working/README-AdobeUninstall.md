@@ -234,6 +234,65 @@ This run also exposed a cosmetic lie: STEP 8 logged `Cleared: C:\ProgramData\Ado
 > [!tip] Try the package wrappers first
 > `AdobeCC2017` and `AdobeCC_SelfService` are Admin Console wrappers, and uninstalling one removes every product in that package. `-PackageWrapperPattern '^AdobeCC2017$'` may clear the CC2015-era apps with no extra tooling. The CS6-era apps (Fireworks, Flash Builder, Lightroom 6.7) predate those packages and will still need the Cleaner Tool.
 
+**Sixth live run (v1.6.2-fullwipe, 2026-09-24, `LIBRWKSPC248856`).** The widened blocker check worked — STEP 6 refused and named *Adobe Refresh Manager*. Two new problems surfaced.
+
+**msiexec 1603 on both MSI targets** (Adobe Refresh Manager, and the `AdobeCC2017` wrapper). 1603 is [a generic "fatal error during installation"](https://help.pdq.com/hc/en-us/articles/220531027-MSI-Fatal-Error-Error-1603) and says nothing on its own. v1.6.3 adds `/L*v` to every msiexec call, writes `msi-<product>-<timestamp>.log` next to the main log, and greps the last action before `Return value 3` into the run log — so the next failure names the custom action that died.
+
+**"There are still Adobe products on the device" with nothing visible.** The CC uninstaller does not read Programs and Features; it reads [Adobe's own product database](https://community.adobe.com/questions-602/couldn-t-uninstall-creative-cloud-for-desktop-you-still-have-creative-cloud-applications-installed-1217700) under `Common Files\Adobe\caps` and `OOBE`. Stale entries there are invisible in the UI and still block the uninstall. STEP 8 *preserves* `caps`, `OOBE` and `Adobe Desktop Common` whenever a CC desktop app is still installed — correct for keep-CC mode, but in a failed full wipe it is a deadlock: CC will not uninstall because of the stale database, and the database is preserved because CC is installed. The [Creative Cloud Cleaner Tool](https://helpx.adobe.com/id_en/enterprise/kb/cc-cleaner-tool-for-enterprise-users.html) is the only supported way out. v1.6.3 therefore widens **STEP 5b** to fire whenever a full wipe has *anything* left registered — not just legacy PDApp apps — and clears the stale `FAILED` entry for any product the Cleaner Tool does get.
+
+> [!warning] Two 50 KB files, one codebase
+> `Uninstall-AdobeProducts.ps1` and `-FullWipe.ps1` differ by ~13 lines and are both pinned against the paste limit, so every fix has to be made twice and paid for by trimming comments. The blocker bug in v1.6.1 existed in both. Worth collapsing to one script plus a portal-side parameter before the next feature lands.
+
+## MSI 1606 — "Could not access network location"
+
+Seen on `LIBRWKSPC248856` uninstalling **Adobe Refresh Manager**, surfaced by the `/L*v` log v1.6.3 added:
+
+```
+Error 1606. Could not access network location \\libdoc.umd.edu\userhome$\cmcleod1\Documents\
+```
+
+Microsoft: [1606 means a User Shell Folders entry points somewhere the installer cannot reach](https://learn.microsoft.com/en-us/archive/blogs/vsnetsetup/error-1606-could-not-access-network-location). Here it is the signed-in user's **redirected Documents** on the LIBR home share. The Windows Installer *server* process (`MSI (s)` in the log) runs as SYSTEM, which authenticates to `\\libdoc.umd.edu` as the machine account and has no rights to a user's home directory — so the uninstall aborts with 1603.
+
+**This is largely an artifact of testing interactively.** Under Intune there is no signed-in user's hive in play: `HKCU` resolves to the SYSTEM profile, whose `Personal` is a local path. Expect this particular 1606 to disappear under a real SYSTEM deployment — but confirm rather than assume, because any *machine*-level shell folder pointing at a UNC would still trip it.
+
+**v1.7.0 handles this automatically.** When an msiexec failure's log contains `Error 1606`, the script repoints every **UNC-valued** entry in `HKCU\...\User Shell Folders` to its local equivalent, retries the uninstall once, and restores the originals in a `finally`. `HKCU` is the correct hive in both contexts — interactively it is the signed-in user's, under SYSTEM it is the SYSTEM profile's — and Folder Redirection policy reinstates the real values at the next refresh regardless, so the change is reversible even if the restore is missed. Local and `%USERPROFILE%`-style values are never touched. Disable with `-NoShellFolderFix`; `-WhatIf` skips it.
+
+The retry writes its own `msi-<product>-<timestamp>-retry.log`. If the repoint finds nothing to change, the unreachable path is elsewhere — check the machine-level key at `HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders`.
+
+**Manual equivalent**, if you want to do it by hand:
+
+```powershell
+$k   = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
+$old = (Get-ItemProperty $k).Personal          # note this value before changing it
+Set-ItemProperty $k -Name Personal -Value '%USERPROFILE%\Documents' -Type ExpandString
+
+msiexec /x "{AC76BA86-0804-1033-1959-018244601180}" /qn /norestart /L*v C:\Temp\arm2.log
+
+Set-ItemProperty $k -Name Personal -Value $old -Type ExpandString
+```
+
+**Or test the way it will actually be deployed** — as SYSTEM, where the redirected path is never consulted:
+
+```powershell
+psexec64.exe -s -accepteula powershell.exe -ExecutionPolicy Bypass -NoProfile -File C:\Temp\Uninstall-AdobeProducts-FullWipe.ps1
+```
+
+**Seventh live run (2026-09-24, `LIBRWKSPC248856`).** Clearing the stale folder redirections fixed the 1606: **Adobe Refresh Manager uninstalled in 1 second, exit 0.** With it gone, nothing was registered to block Creative Cloud — and the CC uninstaller *still* declined (`exit 0 after 1 s`, no background child, key present).
+
+That is the decisive data point. Programs and Features was clean, so **no amount of ARP enumeration will ever find the blocker.** The CC uninstaller consults Adobe's own product database under `Common Files\Adobe\caps` and `OOBE`, and stale entries there — left by apps removed in earlier runs on this device — are invisible to the script and to the user. Re-running cannot help.
+
+v1.7.1 therefore adds a **Cleaner Tool fallback inside STEP 6**: when the CC uninstaller declines and nothing is registered to blame, the script runs `--removeAll=ALL --eulaAccepted=1` and re-checks, clearing any earlier `FAILED` entry for a product the tool does get. STEP 5b's precondition (something still in ARP) is now known to be insufficient on its own. Without the tool present, the step logs an ERROR saying re-running will not help and naming the path to drop it at.
+
+`$CleanerToolPath` is now resolved once in `begin{}`. It had been set inside STEP 5b, which only the full-wipe variant has — so the new STEP 6 fallback would have hit `Test-Path -LiteralPath $null` in the main script and thrown under `$ErrorActionPreference = 'Stop'`.
+
+**Useful logs when CC declines:**
+
+| What | Where |
+| --- | --- |
+| Cleaner Tool | `%TEMP%\Adobe Creative Cloud Cleaner Tool.log` |
+| CC installer/uninstaller | `%TEMP%\CreativeCloud\ACC\*.log` — see [Adobe's log-file guide](https://helpx.adobe.com/download-install/kb/find-installation-log-files.html) |
+| Adobe's view of what is installed | `AdobeUninstaller.exe --list` (Admin Console → Packages → Tools) — the authoritative list, and the only way to see what the database thinks remains |
+
 ## Runtime — read before assigning
 
 Creative Cloud apps are uninstalled **sequentially**. Measured on `LIBRWKSPC010189`: 18–120 s per app, **14.5 minutes for 14 apps**. Budget more on slower disks, plus ~1 s per wrong baseVersion candidate on apps not in the known-base table. A fully loaded device (18 targets measured on `LIBRWKSPC010189`) can therefore run **30–130 minutes**. Two consequences:
@@ -292,6 +351,18 @@ Get-Process | Where-Object { $_.Path -match '\\Adobe\\' } | Select-Object Proces
 Kept here rather than in the script header: the script is pasted into Intune's PowerShell script installer box, which has a **50 KB** limit, and the changelog was 5 KB of it.
 
 **v1.6.0** — MSI product codes are parsed from `UninstallString`, fixing duplicate alias registrations such as Adobe Help Manager (`chc.*` plus the real `{GUID}` key). Added `-PackageWrapperPattern` for explicitly targeted package-wrapper removal; legacy PDApp entries removed by that wrapper are now credited instead of reported as skipped.
+
+**v1.7.1** — **STEP 6 falls back to the Cleaner Tool** when the CC uninstaller declines with nothing registered to blame: the blocker is then in Adobe's own `caps`/`OOBE` database, which no ARP check can see. Clears the earlier `FAILED` entry for anything the tool removes.
+- `$CleanerToolPath` resolved in `begin{}` instead of inside STEP 5b — the main script has no 5b, so the new fallback would have thrown on `Test-Path -LiteralPath $null`.
+
+**v1.7.0** — **MSI 1606 is now handled, not just diagnosed**: a 1603 whose log names `Error 1606` triggers a repoint of UNC-valued `User Shell Folders` entries, one retry, and a guaranteed restore (`-NoShellFolderFix` opts out). New `Set-ShellFolderLocal` / `Restore-ShellFolderLocal`.
+- **Engineering comments restored.** Rounds 1.5.1–1.6.4 stripped ~2 KB of code-site rationale to stay under Intune's 50 KB paste limit. The scripts are now run manually on the device, so that budget no longer applies and the explanations are back. **If either script is ever pasted into Intune again, it will not fit** — consolidate the two variants first (see the warning above).
+
+**v1.6.4** — A 1603 whose log contains `Error 1606` now gets a named diagnosis in the run log instead of a raw MSI line. See *MSI 1606* above.
+
+**v1.6.3** — msiexec calls now pass `/L*v` and write a per-product log; the last action before `Return value 3` is surfaced in the run log. Both 1603 failures on `LIBRWKSPC248856` were undiagnosable without it.
+- **STEP 5b widened**: the Cleaner Tool now fires whenever a full wipe has any product left registered, not just legacy PDApp apps — it is also the only way to clear Adobe's own `caps`/`OOBE` database, which is what the CC uninstaller actually reads.
+- A product the Cleaner Tool removes has its earlier `FAILED` entry dropped from the summary.
 
 **v1.6.2** — `$ccBlockers` now counts any non-CC, non-wrapper Adobe product, not just `Type -eq 'HD'`. Six legacy PDApp apps on `LIBRWKSPC248869` passed the old check and the CC uninstaller declined in ~1 s.
 - **STEP 5b**: optional `AdobeCreativeCloudCleanerTool.exe --removeAll=ALL --eulaAccepted=1` for PDApp-based legacy apps, gated to full-wipe runs. New `-CleanerToolPath`.
