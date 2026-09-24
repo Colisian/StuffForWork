@@ -293,6 +293,24 @@ v1.7.1 therefore adds a **Cleaner Tool fallback inside STEP 6**: when the CC uni
 | CC installer/uninstaller | `%TEMP%\CreativeCloud\ACC\*.log` — see [Adobe's log-file guide](https://helpx.adobe.com/download-install/kb/find-installation-log-files.html) |
 | Adobe's view of what is installed | `AdobeUninstaller.exe --list` (Admin Console → Packages → Tools) — the authoritative list, and the only way to see what the database thinks remains |
 
+**Eighth live run (v1.7.1-fullwipe, 2026-09-24).** The STEP 6 fallback fired correctly, but the Cleaner Tool returned `exit -1 after 1 s` — Adobe's launcher came back with **no exit code at all**.
+
+An early guess here — that a concurrent manual run held a single-instance lock — was **wrong**: the script's failure happened before any manual run started. The remaining explanation, and the one Adobe's own documentation supports, is that **the tool rejected the command line and opened its GUI**. [Adobe's enterprise guidance](https://helpx.adobe.com/id_en/enterprise/kb/cc-cleaner-tool-for-enterprise-users.html) is that the log records `Mode=Silent` when the switches were accepted, and that seeing the GUI means it did not like what it was given. A GUI launch returns in about a second and detaches, which is exactly the shape observed.
+
+The likely trigger is **argument order**. v1.7.1 passed `--removeAll=ALL --eulaAccepted=1`; the form [reported working in Adobe's own community thread](https://community.adobe.com/t5/enterprise-teams-discussions/creative-cloud-cleaner-command-line-functionality-does-not-work/m-p/10172410) puts the EULA flag **first**, and the failure people hit with the other order is `ERROR: EULA has not been accepted, cannot continue` — printed to stdout, which v1.7.1 discarded. v1.7.3 swaps the order and captures stdout/stderr.
+
+Also worth carrying: that thread reports the Cleaner Tool **does not remove Acrobat**, and a case of `Exit Code=0 but none of the apps are removed`. Judging success by the registry key rather than the exit code — the rule since v1.2.0 — covers both.
+
+Three fixes in v1.7.2 / v1.7.3:
+
+| Problem | Fix |
+| --- | --- |
+| A bare `-1` conflated "no exit code", "timed out", and "launch failed" | `Invoke-Uninstaller` now logs which one, and says plainly that a detached relaunch tells you nothing about what the tool did |
+| Adobe tools explain themselves on stdout and nowhere else | `-CaptureOutput` redirects stdout/stderr to `out-<label>-<timestamp>.log` and echoes the tail into the run log |
+| `Failed: 2 — Adobe Creative Cloud (exit 0); Adobe Creative Cloud (exit -1)` — one product, two verdicts | `Clear-FailedEntry` retires the earlier verdict before any retry, in both STEP 5b and STEP 6 |
+
+`Invoke-CleanerTool` also verifies the tool's log timestamp actually moved, and still declines to start a second instance — cheap insurance, not the diagnosis.
+
 ## Runtime — read before assigning
 
 Creative Cloud apps are uninstalled **sequentially**. Measured on `LIBRWKSPC010189`: 18–120 s per app, **14.5 minutes for 14 apps**. Budget more on slower disks, plus ~1 s per wrong baseVersion candidate on apps not in the known-base table. A fully loaded device (18 targets measured on `LIBRWKSPC010189`) can therefore run **30–130 minutes**. Two consequences:
@@ -351,6 +369,11 @@ Get-Process | Where-Object { $_.Path -match '\\Adobe\\' } | Select-Object Proces
 Kept here rather than in the script header: the script is pasted into Intune's PowerShell script installer box, which has a **50 KB** limit, and the changelog was 5 KB of it.
 
 **v1.6.0** — MSI product codes are parsed from `UninstallString`, fixing duplicate alias registrations such as Adobe Help Manager (`chc.*` plus the real `{GUID}` key). Added `-PackageWrapperPattern` for explicitly targeted package-wrapper removal; legacy PDApp entries removed by that wrapper are now credited instead of reported as skipped.
+
+**v1.7.3** — Cleaner Tool arguments reordered to `--eulaAccepted=1 --removeAll=ALL`; with the EULA flag last the tool has been reported to reject the line and open its GUI. `Invoke-Uninstaller` gained `-CaptureOutput` (stdout/stderr to a file, tail echoed into the run log) and now distinguishes "ended without reporting an exit code" from a timeout or a launch failure.
+
+**v1.7.2** — New `Invoke-CleanerTool`: verifies the tool's log was actually updated, surfaces its `Mode=`/failure lines, and declines to start a second instance.
+- New `Clear-FailedEntry`: a product attempted twice (own uninstaller, then Cleaner Tool) gets one verdict in the summary, not one per attempt.
 
 **v1.7.1** — **STEP 6 falls back to the Cleaner Tool** when the CC uninstaller declines with nothing registered to blame: the blocker is then in Adobe's own `caps`/`OOBE` database, which no ARP check can see. Clears the earlier `FAILED` entry for anything the tool removes.
 - `$CleanerToolPath` resolved in `begin{}` instead of inside STEP 5b — the main script has no 5b, so the new fallback would have thrown on `Test-Path -LiteralPath $null`.

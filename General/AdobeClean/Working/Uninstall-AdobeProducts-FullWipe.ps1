@@ -13,7 +13,7 @@
 .NOTES
     Author  : Oji (cmcleod1)
     Date    : 2026-09-08
-    Version : 1.7.1
+    Version : 1.7.3
     Run As  : SYSTEM (Intune) or local Administrator
     PS      : 5.1+ (7.x compatible)
     Exit    : 0 success; 1 failure; 3010 reboot required
@@ -37,7 +37,7 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
-    $ScriptVersion = '1.7.1-fullwipe'
+    $ScriptVersion = '1.7.3-fullwipe'
 
     # Works when run as a file (PSScriptRoot set) AND when pasted into Intune (CWD = unpacked package)
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
@@ -202,7 +202,8 @@ begin {
         param(
             [Parameter(Mandatory)][string]$FilePath,
             [string]$ArgumentList = '',
-            [Parameter(Mandatory)][string]$Label
+            [Parameter(Mandatory)][string]$Label,
+            [switch]$CaptureOutput
         )
         if (-not (Test-Path -LiteralPath $FilePath)) {
             Write-Log "Uninstaller not found for ${Label}: $FilePath" -Level WARN
@@ -212,6 +213,15 @@ begin {
         try {
             $psi = @{ FilePath = $FilePath; PassThru = $true; NoNewWindow = $true }
             if ($ArgumentList) { $psi.ArgumentList = $ArgumentList }
+            $outFile = $null; $errFile = $null
+            if ($CaptureOutput) {
+                # Some Adobe tools explain themselves on stdout/stderr and nowhere else
+                # (e.g. "ERROR: EULA has not been accepted, cannot continue").
+                $stem = Join-Path $LogPath ("out-{0}-{1}" -f ($Label -replace '[^\w]', '_'), $Timestamp)
+                $outFile = "$stem.log"; $errFile = "$stem.err.log"
+                $psi.RedirectStandardOutput = $outFile
+                $psi.RedirectStandardError  = $errFile
+            }
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             $proc = Start-Process @psi
             $null = $proc.Handle   # cache the handle, otherwise ExitCode is $null after WaitForExit(timeout)
@@ -222,6 +232,22 @@ begin {
             }
             $exit = if ($null -ne $proc.ExitCode) { [int]$proc.ExitCode } else { -1 }
             Write-Log ("  exit {0} after {1:n0} s" -f $exit, $sw.Elapsed.TotalSeconds)
+            if ($null -eq $proc.ExitCode) {
+                # Distinct from a timeout or a launch failure, which also return -1: the process
+                # ran and ended, but reported no code. Typically a stub that relaunched itself
+                # (GUI mode, or a UAC elevation) and detached from the one we were waiting on.
+                Write-Log '  the process ended without reporting an exit code - it most likely relaunched itself and detached (GUI or elevation), so this result says nothing about what it did' -Level WARN
+            }
+            if ($CaptureOutput) {
+                foreach ($f in @($outFile, $errFile)) {
+                    if ($f -and (Test-Path -LiteralPath $f) -and (Get-Item -LiteralPath $f).Length -gt 0) {
+                        Write-Log "  $(Split-Path $f -Leaf):"
+                        foreach ($line in (Get-Content -LiteralPath $f -Tail 15 -ErrorAction SilentlyContinue)) {
+                            if ($line.Trim()) { Write-Log "    $($line.Trim())" }
+                        }
+                    }
+                }
+            }
             return $exit
         }
         catch {
@@ -369,6 +395,62 @@ begin {
             }
             catch { Write-Log "  1606: FAILED to restore '$name' to $($Saved[$name]): $_" -Level ERROR }
         }
+    }
+
+    function Clear-FailedEntry {
+        <# A product can be attempted twice (its own uninstaller, then the Cleaner Tool). Drop
+           the earlier verdict so the summary reports one result per product, not one per
+           attempt - v1.7.1 listed "Adobe Creative Cloud" twice, as exit 0 and exit -1. #>
+        param([string]$Name)
+        @($script:failed | Where-Object { $_ -like "$Name (*" }) | ForEach-Object { $null = $script:failed.Remove($_) }
+    }
+
+    function Invoke-CleanerTool {
+        <# Adobe's Creative Cloud Cleaner Tool - the only supported way to clear Adobe's own
+           product database (Common Files\Adobe\caps + OOBE), which is what the CC uninstaller
+           consults. Hence the last resort when Programs and Features is clean and the
+           uninstaller still declines.
+
+           --removeAll=ALL removes every Adobe product INCLUDING the CC desktop app and the
+           Adobe ID credentials. --eulaAccepted=1 is what keeps it headless: given arguments it
+           does not like, the tool opens its GUI instead, the launcher returns in ~1 s with no
+           exit code, and nothing is removed. It is also effectively single-instance, so a
+           manual run already in progress makes a second one exit immediately. Both failure
+           shapes look identical from the outside, so check for them explicitly and surface the
+           tool's own log rather than reporting a bare -1. #>
+        param([Parameter(Mandatory)][string]$Path)
+
+        $running = @(Get-Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProcessName -like 'Adobe*Creative*Cloud*Cleaner*' })
+        if ($running.Count -gt 0) {
+            Write-Log "Creative Cloud Cleaner Tool is ALREADY RUNNING (PID $($running.Id -join ', ')) - not starting a second instance. Let that run finish, reboot, then re-run this script." -Level ERROR
+            return -1
+        }
+
+        $cleanerLog = Join-Path $env:TEMP 'Adobe Creative Cloud Cleaner Tool.log'
+        $logBefore = if (Test-Path -LiteralPath $cleanerLog) { (Get-Item -LiteralPath $cleanerLog).LastWriteTime } else { [datetime]::MinValue }
+
+        # Argument ORDER matters: Adobe's working example puts --eulaAccepted first. With it
+        # last, the tool has been reported to reject the line and open its GUI instead, which
+        # returns in ~1 s with no exit code and removes nothing.
+        $code = Invoke-Uninstaller -FilePath $Path -CaptureOutput `
+            -ArgumentList '--eulaAccepted=1 --removeAll=ALL' -Label 'Creative Cloud Cleaner Tool'
+
+        if (Test-Path -LiteralPath $cleanerLog) {
+            $touched = (Get-Item -LiteralPath $cleanerLog).LastWriteTime -gt $logBefore
+            Write-Log ("  Cleaner Tool log: $cleanerLog" + $(if (-not $touched) { '   (NOT updated by this run)' } else { '' }))
+            # "Mode=Silent" in the log is Adobe's own confirmation that it accepted the switches
+            foreach ($line in (@(Get-Content -LiteralPath $cleanerLog -Tail 20 -ErrorAction SilentlyContinue) |
+                               Where-Object { $_ -match 'Mode\s*=|fail|error|cannot|unable' })) {
+                Write-Log "    $($line.Trim())"
+            }
+        }
+        else { Write-Log "  Cleaner Tool wrote no log at $cleanerLog - it almost certainly never did any work." -Level WARN }
+
+        if ($code -eq -1) {
+            Write-Log '  The Cleaner Tool returned no exit code. Most often that means it rejected the command line and opened its GUI: its own log records "Mode=Silent" when the switches WERE accepted, so check for that line above. Note also that a reported exit 0 does not prove removal - this script judges by the registry key either way.' -Level ERROR
+        }
+        return $code
     }
 
     function Register-Result {
@@ -693,14 +775,10 @@ process {
             if (Test-Path -LiteralPath $CleanerToolPath) {
                 Write-Log "--- STEP 5b: Creative Cloud Cleaner Tool ($($blocking.Count) product(s) left) ---"
                 if ($PSCmdlet.ShouldProcess('every Adobe product on this device', 'AdobeCreativeCloudCleanerTool --removeAll=ALL')) {
-                    $code = Invoke-Uninstaller -FilePath $CleanerToolPath `
-                        -ArgumentList '--removeAll=ALL --eulaAccepted=1' -Label 'Creative Cloud Cleaner Tool'
+                    $code = Invoke-CleanerTool -Path $CleanerToolPath
                     foreach ($p in $blocking) {
+                        Clear-FailedEntry -Name $p.Name      # this attempt supersedes any earlier verdict
                         Register-Result -Name $p.Name -Key $p.Key -Code $code -GraceSeconds 120
-                        # drop the earlier FAILED entry if the Cleaner Tool got it after all
-                        if ($p.Name -in $script:removed) {
-                            @($script:failed | Where-Object { $_ -like "$($p.Name) (*" }) | ForEach-Object { $null = $script:failed.Remove($_) }
-                        }
                     }
                 }
             }
@@ -813,14 +891,10 @@ process {
                         if (Test-Path -LiteralPath $CleanerToolPath) {
                             Write-Log 'CC uninstaller declined with nothing registered to blame - falling back to the Cleaner Tool.' -Level WARN
                             if ($PSCmdlet.ShouldProcess('every Adobe product on this device', 'AdobeCreativeCloudCleanerTool --removeAll=ALL')) {
-                                $ccCode = Invoke-Uninstaller -FilePath $CleanerToolPath `
-                                    -ArgumentList '--removeAll=ALL --eulaAccepted=1' -Label 'Creative Cloud Cleaner Tool'
-                                Write-Log "  Cleaner Tool log: $env:TEMP\Adobe Creative Cloud Cleaner Tool.log"
+                                $ccCode = Invoke-CleanerTool -Path $CleanerToolPath
                                 foreach ($cc in $ccEntries) {
+                                    Clear-FailedEntry -Name $cc.Name    # supersedes the uninstaller's verdict
                                     Register-Result -Name $cc.Name -Key $cc.Key -Code $ccCode -GraceSeconds 120
-                                    if ($cc.Name -in $script:removed) {
-                                        @($script:failed | Where-Object { $_ -like "$($cc.Name) (*" }) | ForEach-Object { $null = $script:failed.Remove($_) }
-                                    }
                                 }
                                 $script:ccRemoved = -not (@(Get-AdobeProduct | Where-Object { $_.Name -match $CreativeCloudPattern }).Count)
                             }
