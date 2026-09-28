@@ -20,6 +20,8 @@ $PrinterNames = @(
     "ARCH_1F_PR2",
     "ART_1F_PR1",
     "EPL_1F_PR1",
+    "EPL_1F_PR1_BW",
+    "EPL_1F_PR2_CL",
     "HBK_1F_PR1",
     "HBK_1F_PR2",
     "HBK_2F_PR1",
