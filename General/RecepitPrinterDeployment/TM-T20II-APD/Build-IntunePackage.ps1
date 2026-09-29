@@ -25,7 +25,7 @@
 .NOTES
     Author:  Oji
     Date:    2026-09-28
-    Version: 3.0.0
+    Version: 4.0.0
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -67,6 +67,14 @@ end {
         if ($signature.Status -ne 'Valid') { throw 'Epson installer signature is not valid - aborting' }
 
         foreach ($s in $scripts) { Copy-Item (Join-Path $ScriptDir $s) $sourceDir -Force }
+
+        # Epson copy-installation script (.inf) exported from the reference PC - see runbook
+        $copyScripts = @(Get-ChildItem -Path (Join-Path $ScriptDir 'CopyScript') -Filter '*.inf' -File -ErrorAction SilentlyContinue)
+        if ($copyScripts.Count -ne 1) {
+            throw "Expected exactly one Epson copy script in $(Join-Path $ScriptDir 'CopyScript'), found $($copyScripts.Count). Export it from the reference PC first."
+        }
+        Copy-Item $copyScripts[0].FullName $sourceDir -Force
+        Write-Host "Copy script: $($copyScripts[0].Name)"
     }
 
     if ($PSCmdlet.ShouldProcess($outputDir, 'Run IntuneWinAppUtil')) {

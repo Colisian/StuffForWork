@@ -5,7 +5,7 @@
 .DESCRIPTION
     Intune Win32 uninstall script (runs as SYSTEM, non-interactive).
 
-      1. Runs the bundled APD package with /s /uninstall (falls back to the registered
+      1. Runs the bundled APD package with /s /uninstall /rN (documented silent uninstall, no reboot) (falls back to the registered
          UninstallString if the package isn't present).
       2. Removes any leftover TM-T20II queues and the printer driver.
       3. Deletes the EA5INSTMT20II driver package from the driver store.
@@ -25,7 +25,7 @@
 .NOTES
     Author:  Oji
     Date:    2026-09-28
-    Version: 3.1.0
+    Version: 4.0.0
     Log:     C:\ProgramData\EpsonTMT20II\Uninstall.log
 #>
 [CmdletBinding()]
@@ -98,7 +98,7 @@ end {
         $arguments = $null
         if ($installer) {
             $filePath  = $installer.FullName
-            $arguments = '/s /uninstall'
+            $arguments = '/s /uninstall /rN'
         }
         else {
             $entry = Get-ApdUninstallEntry | Select-Object -First 1
@@ -106,6 +106,7 @@ end {
                 $filePath  = $Matches[1]
                 $arguments = ('/s ' + $Matches[2]).Trim()
                 if ($arguments -notmatch '/uninstall') { $arguments += ' /uninstall' }
+                if ($arguments -notmatch '/r[YN]') { $arguments += ' /rN' }
             }
         }
 

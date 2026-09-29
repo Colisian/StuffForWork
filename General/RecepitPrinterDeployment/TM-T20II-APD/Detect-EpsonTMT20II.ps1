@@ -1,16 +1,14 @@
 <#
 .SYNOPSIS
-    Intune custom detection for the Epson TM-T20II APD5 package.
+    Intune custom detection for the Epson TM-T20II APD5 copy-installation package.
 
 .DESCRIPTION
-    Detects the INSTALL STATE, not the physical printer. The v2 detection looked for the
-    printer queue, which only exists while the TM-T20II is plugged in, so Company Portal
-    reported "failed" on any machine where the printer was unplugged at install time.
-
     Installed = all of:
       - Sentinel HKLM:\SOFTWARE\UMDLibraries\Intune\EpsonTMT20II-APD\Version >= 5.13.0.0
       - Printer driver 'EPSON TM-T20II Receipt5' registered
-      - EPSON Port Handler Monitor (ESDPRT ports) registered
+      - EPSON Port Handler Monitor registered
+      - A queue using that driver exists on an ESDPRT### port (created by the copy
+        installation whether or not the printer is plugged in)
 
     Intune rule: exit 0 WITH stdout = detected; anything else = not detected.
     Set "Run script as 32-bit process on 64-bit clients" = No.
@@ -18,7 +16,7 @@
 .NOTES
     Author:  Oji
     Date:    2026-09-28
-    Version: 3.0.0
+    Version: 4.0.0
 #>
 $ErrorActionPreference = 'SilentlyContinue'
 
@@ -34,9 +32,10 @@ if ($raw) { [void][version]::TryParse($raw, [ref]$installedVersion) }
 $hasSentinel = $installedVersion -and ($installedVersion -ge $requiredVersion)
 $hasDriver   = [bool](Get-PrinterDriver -Name $driverName)
 $hasMonitor  = Test-Path $monitorKey
+$queue       = Get-Printer | Where-Object { $_.DriverName -eq $driverName -and $_.PortName -like 'ESDPRT*' } | Select-Object -First 1
 
-if ($hasSentinel -and $hasDriver -and $hasMonitor) {
-    Write-Output "Epson TM-T20II APD $installedVersion detected"
+if ($hasSentinel -and $hasDriver -and $hasMonitor -and $queue) {
+    Write-Output "Epson TM-T20II APD $installedVersion detected: '$($queue.Name)' on $($queue.PortName)"
     exit 0
 }
 exit 1
