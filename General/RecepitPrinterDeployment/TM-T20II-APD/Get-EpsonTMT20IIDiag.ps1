@@ -13,7 +13,7 @@
 .NOTES
     Author:  Oji
     Date:    2026-09-28
-    Version: 1.0.0
+    Version: 1.1.0
 #>
 [CmdletBinding()]
 param(
@@ -67,6 +67,24 @@ end {
         Get-PnpDevice | Where-Object { $_.InstanceId -match 'EPSON|USBPRINT|VID_04B8' -or $_.FriendlyName -match 'EPSON|TM-T20' } |
             Format-Table Status, Present, Class, FriendlyName, InstanceId -AutoSize
     }
+    Add-Section 'Epson USB device driver binding (usbprint = Windows/v2, other = Epson)' {
+        Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match 'VID_04B8|USBPRINT\\EPSON' } | ForEach-Object {
+            $props = Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName 'DEVPKEY_Device_Service', 'DEVPKEY_Device_DriverInfPath', 'DEVPKEY_Device_DriverDesc', 'DEVPKEY_Device_ProblemCode' -ErrorAction SilentlyContinue
+            [pscustomobject]@{
+                InstanceId = $_.InstanceId
+                Status     = $_.Status
+                Service    = ($props | Where-Object KeyName -eq 'DEVPKEY_Device_Service').Data
+                DriverInf  = ($props | Where-Object KeyName -eq 'DEVPKEY_Device_DriverInfPath').Data
+                DriverDesc = ($props | Where-Object KeyName -eq 'DEVPKEY_Device_DriverDesc').Data
+                Problem    = ($props | Where-Object KeyName -eq 'DEVPKEY_Device_ProblemCode').Data
+            }
+        } | Format-Table -AutoSize
+    }
+    Add-Section 'Printer status detail' {
+        Get-CimInstance Win32_Printer -Filter "DriverName='EPSON TM-T20II Receipt5'" |
+            Format-List Name, PortName, PrinterStatus, ExtendedPrinterStatus, DetectedErrorState, WorkOffline, Status
+    }
+    Add-Section 'Last reboot' { (Get-CimInstance Win32_OperatingSystem).LastBootUpTime }
     Add-Section 'Epson services' { Get-Service | Where-Object { $_.DisplayName -match 'EPSON|Port Communication' -or $_.Name -match 'PCSVC|EPSON' } | Format-Table Name, DisplayName, Status, StartType -AutoSize }
     Add-Section 'Spooler' { Get-Service Spooler | Format-Table Name, Status, StartType -AutoSize }
     Add-Section 'TCP 2291 (PCS)' { Get-NetTCPConnection -LocalPort 2291 -ErrorAction SilentlyContinue | Format-Table LocalAddress, LocalPort, State, OwningProcess -AutoSize }

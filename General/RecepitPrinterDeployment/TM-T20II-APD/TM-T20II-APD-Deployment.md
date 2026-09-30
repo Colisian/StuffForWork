@@ -119,6 +119,7 @@ Invoke-CimMethod -InputObject (Get-CimInstance Win32_Printer -Filter "Name='EPSO
 Uninstall test: `.\Uninstall-EpsonTMT20II.ps1`. Detection should then exit 1 with no output.
 
 ## Troubleshooting
+- **Installed OK, printer on ESDPRT001, but it shows "not available":** move the printer to a **different USB port** (fixed LIBRWKMTL237171, 2026-09-29). This PC had been upgraded from v2. Moving ports makes Windows set up the USB connection from scratch, so it's either a bad port or the old v2 driver still attached to the original port. If this becomes common on PCs upgraded from v2, add a USB re-enumeration step (`pnputil /remove-device` + `/scan-devices`) to the install script.
 - **Diagnostics:** run `Get-EpsonTMT20IIDiag.ps1` (read-only) → `C:\ProgramData\EpsonTMT20II\Diag-<PC>-<time>.txt`
 - **Logs:** `Install.log`, `Uninstall.log` in `C:\ProgramData\EpsonTMT20II\`, plus Epson's `CopyInstallLog.txt`
 - **Intune agent log:** `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\AppWorkload.log`
