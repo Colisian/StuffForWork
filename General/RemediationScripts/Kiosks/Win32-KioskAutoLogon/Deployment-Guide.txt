@@ -1,0 +1,155 @@
+UMD Libraries - Kiosk Auto-Logon Win32 Deployment
+Version: 2026.10.06.1 | Prepared: October 6, 2026
+
+PURPOSE
+Repair auto-logon for the existing LibCirc local account. This ports the behavior
+of General\RemediationScripts\Kiosks\LIBR_Kiosk.ps1; it does not configure
+Windows Assigned Access, create accounts, change kiosk app restrictions, restart,
+or sign out the current user. The original script is unchanged.
+
+FILES
+Upload: Output\Install-KioskAutoLogon.intunewin
+Detection upload: Detect-KioskAutoLogon.ps1 (outside the packaged Source folder)
+Source: install/uninstall scripts, NativeAutologon.cs, KioskConfig.json,
+and KioskPassword.txt. The password was carried over from the existing script.
+Authoring copy: C:\Users\cmcleod1\OneDrive - University of Maryland\Documents\Work\StuffForWork\General\RemediationScripts\Kiosks\Win32-KioskAutoLogon
+Build mirror: C:\ProgramData\UMDLibraries\KioskAutoLogon
+
+INTUNE SETUP - DEFAULT COMMAND-LINE METHOD
+1. Apps > Windows > Add > Windows app (Win32).
+2. Upload Output\Install-KioskAutoLogon.intunewin.
+3. Name: UMD Libraries - Kiosk Auto-Logon Repair 2026.10.06.1
+   Publisher: University of Maryland Libraries
+4. Program settings:
+   Install command (one line):
+   %SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\Install-KioskAutoLogon.ps1
+   Uninstall command (one line):
+   %SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\Uninstall-KioskAutoLogon.ps1
+   Install behavior: System
+   Device restart behavior: No specific action
+   Return codes: 0 = Success; 1 = Failed.
+   The scripts do not return 3010 or initiate a restart.
+5. Requirements: x64 Windows 10/11; minimum Windows 10 1607 or your higher
+   organizational baseline. Target supported Windows releases only.
+   Requires the existing LibCirc account to be enabled.
+6. Detection rules: Use a custom detection script.
+   Upload Detect-KioskAutoLogon.ps1.
+   Run script as 32-bit process on 64-bit clients: No.
+   Enforce script signature check: No (scripts are unsigned).
+   Do not add a file/folder detection rule.
+7. Assign Required to a small kiosk DEVICE pilot group, then the kiosk fleet.
+   Remove/exclude the old platform-script assignment for these devices to
+   prevent two mechanisms from managing the same settings.
+8. Sync pilot devices. Confirm installation, then schedule one pilot restart
+   to verify unattended logon before widening the assignment.
+
+OPTIONAL POWERSHELL SCRIPT INSTALLER METHOD
+Upload the same .intunewin package. Where the Intune UI offers PowerShell script
+install/uninstall fields, paste Source\Install-KioskAutoLogon.ps1 and
+Source\Uninstall-KioskAutoLogon.ps1 respectively. Use System and native 64-bit
+execution. Companion files remain bundled in the .intunewin. Both wrappers
+resolve companions using PSScriptRoot or the unpacked package working directory.
+Prefer command-line deployment so the executable scripts stay versioned inside
+the package. Each wrapper is well below the 50 KB pasted-script limit.
+
+HOW REPAIR / DETECTION WORKS
+The first deployment runs even if the old platform script already configured
+auto-logon: it has no matching completion marker for this Win32 deployment.
+The installer updates the existing account password and disables account/password
+expiration, optionally removes DeviceLock keys, stores the password as an LSA
+secret, and configures unlimited local auto-logon. It verifies the basic settings
+before writing DeploymentVersion under:
+HKLM\SOFTWARE\UMDLibraries\KioskAutoLogon
+
+Detection requires the exact deployment version, the expected account, enabled
+account with nonexpiring password and unexpired account, AutoAdminLogon = 1,
+the expected username and local computer domain, no plaintext Winlogon password,
+no AutoLogonCount limit, and a nonempty DefaultPassword LSA secret.
+It exits 0 with output only when detected; otherwise it exits 1 silently.
+Required Win32 apps can be offered again when Intune reevaluates them as missing.
+This is eventual repair, not immediate monitoring or a guaranteed check interval.
+It does not validate the secret against the actual account password, detect all
+policy conflicts, or prove a successful reboot logon.
+
+FORCE A FUTURE REPAIR EVEN IF DETECTION CURRENTLY PASSES
+1. Increment DeploymentVersion in Source\KioskConfig.json, for example:
+   2026.10.06.2
+2. Change requiredVersion in Detect-KioskAutoLogon.ps1 to the same value.
+   If changing the account, also update expectedUser in that detection script.
+3. Rebuild the package with the command below.
+4. Replace the app package AND uploaded detection script in Intune; retain the
+   Required assignment. Old versions will fail the new version check and rerun.
+Merely syncing or replacing content with the same version does not force a rerun
+when detection still passes. For periodic policy repair consider Intune
+Remediations as a separate option.
+
+REBUILD (POWERSHELL)
+After editing the authoring files, refresh the build mirror first:
+Set-Location 'C:\Users\cmcleod1\OneDrive - University of Maryland\Documents\Work\StuffForWork\General\RemediationScripts\Kiosks\Win32-KioskAutoLogon'
+Copy-Item -Path .\Source, .\Detect-KioskAutoLogon.ps1 -Destination 'C:\ProgramData\UMDLibraries\KioskAutoLogon' -Recurse -Force
+& 'C:\ProgramData\UMDLibraries\Tools\IntuneWinAppUtil-1.8.7.exe' -c 'C:\ProgramData\UMDLibraries\KioskAutoLogon\Source' -s 'Install-KioskAutoLogon.ps1' -o 'C:\ProgramData\UMDLibraries\KioskAutoLogon\Output' -q
+Upload the NEW package from the ProgramData Output folder after rebuilding.
+The authoring Output copy is the initial package unless refreshed.
+The -s argument is a required setup-file placeholder for a script package.
+Keep tool/output files outside Source so they are not included in the package.
+
+VERIFICATION ON A PILOT (ELEVATED 64-BIT WINDOWS POWERSHELL)
+Get-ItemProperty 'HKLM:\SOFTWARE\UMDLibraries\KioskAutoLogon'
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' | Select-Object AutoAdminLogon, DefaultUserName, DefaultDomainName, AutoLogonCount
+Get-LocalUser -Name LibCirc | Select-Object Name, Enabled, PasswordExpires, AccountExpires
+Get-Content 'C:\ProgramData\UMDLibraries\KioskAutoLogon\Logs\Install-KioskAutoLogon.log' -Tail 30
+Evaluate uploaded detection through Intune/SYSTEM; a non-elevated manual check
+may fail because accessing LSA secrets requires privileges.
+Test a reboot during a maintenance window. Installation success alone does not
+prove unattended logon works.
+
+LOGS / FAILURE TRIAGE
+Endpoint deployment logs:
+C:\ProgramData\UMDLibraries\KioskAutoLogon\Logs\Install-KioskAutoLogon.log
+C:\ProgramData\UMDLibraries\KioskAutoLogon\Logs\Uninstall-KioskAutoLogon.log
+Intune agent logs:
+C:\ProgramData\Microsoft\IntuneManagementExtension\Logs
+Check account existence/enabled state, password-policy compatibility, native
+64-bit System context, configuration file presence, and conflicting Intune
+DeviceLock, logon-message, or account-management policies. Failure logs identify
+the error type and script line without printing credential-operation exceptions.
+
+SECURITY AND POLICY NOTES
+KioskPassword.txt contains the existing password as plaintext. A SecureString
+conversion protects how the account cmdlet receives it, not the bundled file.
+The .intunewin format is packaging, not a credential vault; administrators and
+endpoint SYSTEM/admin access can recover credentials. This generated package
+directory is restricted to SYSTEM, local Administrators, and the creating user.
+Do not commit the credential/package to Git, attach it to tickets, or distribute
+it broadly. Rotate the existing shared password through your approved process;
+update the bundled file, increment the version, and rebuild for deployment.
+The installer does not copy the password file into endpoint deployment logs.
+Intune's own unpacked content/cache can still contain it.
+Auto-logon grants physical users the kiosk account's access; keep it nonadmin.
+LSA secrets are accessible to local administrators/SYSTEM.
+
+RemoveDeviceLockPolicies is true to match the original working repair. Deleting
+these keys can weaken lock protections. Scope strictly to kiosk devices and
+correct conflicting policy assignments/exclusions in Intune; assigned policies
+can reapply them. Set the flag to false and rebuild if cleanup is unnecessary.
+Do not disable CrowdStrike/Rapid7. If password or LSA changes raise detections,
+review with security staff and use narrowly scoped approved exceptions only.
+
+UNINSTALL
+Remove the Required assignment before assigning Uninstall. Uninstall disables
+auto-logon, removes the LSA password and completion marker, and leaves the local
+account/password and current session in place. It refuses to change a different
+auto-logon username. It does not restore deleted policy keys or the prior password;
+reapply desired DeviceLock settings through Intune.
+
+VALIDATION COMPLETED
+PowerShell syntax checks and compilation of the native LSA helper; successful
+package creation with Microsoft's content preparation tool. No account, password,
+Winlogon, DeviceLock, or LSA change was executed on the authoring computer.
+Live SYSTEM deployment and reboot auto-logon still require pilot validation.
+
+REFERENCES
+https://learn.microsoft.com/en-us/intune/app-management/deployment/add-win32
+https://learn.microsoft.com/en-us/intune/app-management/deployment/create-win32-package
+https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool
+

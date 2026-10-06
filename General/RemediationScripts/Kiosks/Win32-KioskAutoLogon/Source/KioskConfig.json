@@ -1,0 +1,6 @@
+{
+  "UserName": "LibCirc",
+  "PasswordFile": "KioskPassword.txt",
+  "DeploymentVersion": "2026.10.06.2",
+  "RemoveDeviceLockPolicies": true
+}
