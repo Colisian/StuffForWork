@@ -2,24 +2,22 @@
 .SYNOPSIS
 Detects the completed deployment and the current local kiosk auto-logon state.
 .NOTES
-Author: UMD Libraries IT / Oji. Date: 2026-10-06. Version: 1.1.0.
+Author: UMD Libraries IT / Oji. Date: 2026-10-06. Version: 1.2.0.
 Run in 64-bit context as SYSTEM. Intune needs exit 0 plus stdout for detection.
 #>
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
-$requiredVersion = '2026.10.06.2'
+$requiredVersion = '2026.10.06.3'
 $expectedUser = 'LibCirc'
 try {
     if (-not [Environment]::Is64BitProcess) { exit 1 }
     $marker = Get-ItemProperty 'HKLM:\SOFTWARE\UMDLibraries\KioskAutoLogon'
     if ($marker.DeploymentVersion -ne $requiredVersion -or $marker.UserName -ne $expectedUser) { exit 1 }
-    $startupSource = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\AxisTV Engage\Start AxisTV Engage Playback.lnk'
     $startupFolder = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonStartup)
-    $startupShortcut = Join-Path $startupFolder 'UMD-AxisTV Engage Playback.lnk'
-    if (-not (Test-Path -LiteralPath $startupSource -PathType Leaf) -or -not (Test-Path -LiteralPath $startupShortcut -PathType Leaf)) { exit 1 }
-    $startupHash = (Get-FileHash -LiteralPath $startupShortcut -Algorithm SHA256).Hash
-    if ($startupHash -ne (Get-FileHash -LiteralPath $startupSource -Algorithm SHA256).Hash -or $startupHash -ne $marker.StartupShortcutHash) { exit 1 }
+    $startupShortcut = Join-Path $startupFolder 'Start AxisTV Engage Playback.lnk'
+    if (-not (Test-Path -LiteralPath $startupShortcut -PathType Leaf)) { exit 1 }
+    if (Test-Path -LiteralPath (Join-Path $startupFolder 'UMD-AxisTV Engage Playback.lnk')) { exit 1 }
     $path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
     $settings = Get-ItemProperty $path
     if ($settings.AutoAdminLogon -ne '1' -or $settings.DefaultUserName -ne ".\$expectedUser" -or $settings.DefaultDomainName -ne $env:COMPUTERNAME) { exit 1 }
@@ -97,4 +95,5 @@ namespace UMDLibraries {
     Write-Output "UMD kiosk auto-logon $requiredVersion detected"
     exit 0
 } catch { exit 1 }
+
 

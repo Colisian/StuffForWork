@@ -2,7 +2,7 @@
 .SYNOPSIS
 Repairs the existing local kiosk account's automatic logon for Intune Win32 deployment.
 .NOTES
-Author: UMD Libraries IT / Oji. Date: 2026-10-06. Version: 1.1.0.
+Author: UMD Libraries IT / Oji. Date: 2026-10-06. Version: 1.2.0.
 Requires Windows PowerShell 5.1, 64-bit Windows, and SYSTEM or an administrator.
 #>
 [CmdletBinding(SupportsShouldProcess)]
@@ -22,8 +22,8 @@ process {
         if ([string]::IsNullOrWhiteSpace($config.UserName) -or [string]::IsNullOrWhiteSpace($config.DeploymentVersion)) { throw 'Missing username or deployment version.' }
         $startupSource = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\AxisTV Engage\Start AxisTV Engage Playback.lnk'
         $startupFolder = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonStartup)
-        $startupShortcut = Join-Path $startupFolder 'UMD-AxisTV Engage Playback.lnk'
-        if (-not (Test-Path -LiteralPath $startupSource -PathType Leaf)) {
+        $startupShortcut = Join-Path $startupFolder 'Start AxisTV Engage Playback.lnk'
+        if (-not (Test-Path -LiteralPath $startupShortcut -PathType Leaf) -and -not (Test-Path -LiteralPath $startupSource -PathType Leaf)) {
             Write-Output "Required AxisTV shortcut missing: $startupSource. Install AxisTV Engage before this app."
             throw 'AxisTV Engage shortcut missing.'
         }
@@ -33,6 +33,7 @@ process {
         New-Item -ItemType Directory -Path $logDir -Force | Out-Null
         Start-Transcript -Path (Join-Path $logDir 'Install-KioskAutoLogon.log') -Append | Out-Null
         $logStarted = $true
+        $previousMarker = Get-ItemProperty -Path $markerPath -ErrorAction SilentlyContinue
         # Clear completion first so a failed repair cannot leave a successful marker.
         if (Test-Path $markerPath) { Remove-ItemProperty -Path $markerPath -Name 'DeploymentVersion' -ErrorAction SilentlyContinue }
         $credentialPath = Join-Path $ScriptDir $config.PasswordFile
@@ -64,16 +65,38 @@ process {
         Set-ItemProperty -Path $winlogonPath -Name 'AutoAdminLogon' -Value '1' -Force
         $settings = Get-ItemProperty $winlogonPath
         if ($settings.AutoAdminLogon -ne '1' -or $settings.DefaultUserName -ne ".\$($config.UserName)" -or -not [UMDLibraries.AutologonSecret]::Exists()) { throw 'Auto-logon verification failed.' }
-        # Common Startup runs in the signing-in user's session, including LibCirc.
-        # A dedicated filename avoids replacing an existing vendor/user startup entry.
+        # Keep an existing original-name shortcut untouched, even if customized.
         New-Item -ItemType Directory -Path $startupFolder -Force | Out-Null
-        Copy-Item -LiteralPath $startupSource -Destination $startupShortcut -Force
-        $startupHash = (Get-FileHash -LiteralPath $startupSource -Algorithm SHA256).Hash
-        if ((Get-FileHash -LiteralPath $startupShortcut -Algorithm SHA256).Hash -ne $startupHash) {
-            throw 'AxisTV startup shortcut verification failed.'
+        $startupManaged = 0
+        if (Test-Path -LiteralPath $startupShortcut -PathType Leaf) {
+            $startupHash = (Get-FileHash -LiteralPath $startupShortcut -Algorithm SHA256).Hash
+            if ($previousMarker.StartupShortcutName -eq 'Start AxisTV Engage Playback.lnk' -and $previousMarker.StartupShortcutManaged -eq 1 -and $previousMarker.StartupShortcutHash -eq $startupHash) {
+                $startupManaged = 1
+            }
+            Write-Output "AxisTV startup shortcut already exists; preserved without copying: $startupShortcut"
+        } else {
+            Copy-Item -LiteralPath $startupSource -Destination $startupShortcut
+            $startupHash = (Get-FileHash -LiteralPath $startupShortcut -Algorithm SHA256).Hash
+            if ($startupHash -ne (Get-FileHash -LiteralPath $startupSource -Algorithm SHA256).Hash) { throw 'Startup shortcut verification failed.' }
+            $startupManaged = 1
+            Write-Output "Copied AxisTV playback shortcut with its original filename: $startupShortcut"
         }
-        Write-Output "AxisTV Engage playback configured in All Users Startup: $startupShortcut"
+        # Remove the earlier renamed copy to prevent two playback launches.
+        $legacyShortcut = Join-Path $startupFolder 'UMD-AxisTV Engage Playback.lnk'
+        if (Test-Path -LiteralPath $legacyShortcut -PathType Leaf) {
+            $legacyHash = (Get-FileHash -LiteralPath $legacyShortcut -Algorithm SHA256).Hash
+            $sourceHash = if (Test-Path -LiteralPath $startupSource -PathType Leaf) { (Get-FileHash -LiteralPath $startupSource -Algorithm SHA256).Hash } else { $null }
+            if ($legacyHash -eq $previousMarker.StartupShortcutHash -or $legacyHash -eq $sourceHash -or $legacyHash -eq $startupHash) {
+                Remove-Item -LiteralPath $legacyShortcut -Force
+                Write-Output 'Removed earlier UMD-AxisTV Engage Playback.lnk startup copy to prevent duplicate launches.'
+            } else {
+                Write-Output "Renamed startup copy differs from known copies; review and remove it manually: $legacyShortcut"
+                throw 'Unrecognized duplicate AxisTV startup shortcut.'
+            }
+        }
         if (-not (Test-Path $markerPath)) { New-Item -Path $markerPath -Force | Out-Null }
+        Set-ItemProperty -Path $markerPath -Name 'StartupShortcutName' -Value 'Start AxisTV Engage Playback.lnk' -Force
+        Set-ItemProperty -Path $markerPath -Name 'StartupShortcutManaged' -Value $startupManaged -Force
         Set-ItemProperty -Path $markerPath -Name 'StartupShortcutHash' -Value $startupHash -Force
         Set-ItemProperty -Path $markerPath -Name 'UserName' -Value $config.UserName -Force
         Set-ItemProperty -Path $markerPath -Name 'InstalledUtc' -Value ([DateTime]::UtcNow.ToString('o')) -Force
@@ -89,4 +112,5 @@ process {
         if ($logStarted) { Stop-Transcript | Out-Null }
     }
 }
+
 

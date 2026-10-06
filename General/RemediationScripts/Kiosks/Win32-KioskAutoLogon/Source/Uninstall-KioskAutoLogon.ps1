@@ -2,7 +2,7 @@
 .SYNOPSIS
 Disables managed kiosk auto-logon without deleting the account or resetting its password.
 .NOTES
-Author: UMD Libraries IT / Oji. Date: 2026-10-06. Version: 1.1.0.
+Author: UMD Libraries IT / Oji. Date: 2026-10-06. Version: 1.2.0.
 Does not restore deleted DeviceLock policies; Intune policy must reapply them.
 #>
 [CmdletBinding(SupportsShouldProcess)]
@@ -31,15 +31,18 @@ process {
             if ((Get-Item $winlogonPath).GetValueNames() -contains $name) { Remove-ItemProperty -Path $winlogonPath -Name $name }
         }
         $startupFolder = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonStartup)
-        $startupShortcut = Join-Path $startupFolder 'UMD-AxisTV Engage Playback.lnk'
+        $marker = Get-ItemProperty -Path $markerPath -ErrorAction SilentlyContinue
+        $shortcutName = if ($marker.StartupShortcutName) { $marker.StartupShortcutName } else { 'UMD-AxisTV Engage Playback.lnk' }
+        if ($shortcutName -notin @('Start AxisTV Engage Playback.lnk', 'UMD-AxisTV Engage Playback.lnk')) { throw 'Unexpected managed shortcut name.' }
+        $startupShortcut = Join-Path $startupFolder $shortcutName
         if (Test-Path -LiteralPath $startupShortcut -PathType Leaf) {
             $marker = Get-ItemProperty -Path $markerPath -ErrorAction SilentlyContinue
             # Remove only an unchanged shortcut recorded by this deployment.
-            if ($marker.StartupShortcutHash -and (Get-FileHash -LiteralPath $startupShortcut -Algorithm SHA256).Hash -eq $marker.StartupShortcutHash) {
+            if (($shortcutName -eq 'UMD-AxisTV Engage Playback.lnk' -or $marker.StartupShortcutManaged -eq 1) -and $marker.StartupShortcutHash -and (Get-FileHash -LiteralPath $startupShortcut -Algorithm SHA256).Hash -eq $marker.StartupShortcutHash) {
                 Remove-Item -LiteralPath $startupShortcut -Force
                 Write-Output 'Removed managed AxisTV Startup shortcut.'
             } else {
-                Write-Output 'Startup shortcut changed or has no ownership marker; retained for manual review.'
+                Write-Output 'Startup shortcut pre-existing, changed, or untracked; retained.'
             }
         }
         if (Test-Path $markerPath) { Remove-Item -Path $markerPath -Recurse -Force }
@@ -50,4 +53,5 @@ process {
         exit 1
     } finally { if ($logStarted) { Stop-Transcript | Out-Null } }
 }
+
 
