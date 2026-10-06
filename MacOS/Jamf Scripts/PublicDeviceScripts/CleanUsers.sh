@@ -1,11 +1,20 @@
 #!/bin/bash
 # CleanUsers.sh
 # Wipes all non-admin user profiles to recover storage on public macOS devices
+# Also removes leftover /Users/.pending_delete_* folders from earlier deletions
 # Deploy via Jamf Self Service or as a one-time scoped policy
 # Set DRY_RUN=true to preview which profiles would be deleted before running live
 # Author: Oji
-# Date: 2026-02-23
-# Version: 1.1
+# Date: 2026-10-01
+# Version: 1.2
+#
+# Changelog
+# 1.2 - Added cleanup_pending_deletes (runs before the user loop, so it only
+#       removes leftovers from previous runs, never ones still being deleted).
+#     - du calls now end in "|| true" so a permission error can't trip the
+#       ERR trap and stop the script mid-run.
+#     - Summary reports pending-folder results and combined storage freed.
+# 1.1 - Initial Jamf release.
 
 set -u          # Exit on undefined variable
 set -o pipefail # Catch errors in pipelines
@@ -20,17 +29,30 @@ trap 'echo "Error on line $LINENO"; exit 1' ERR
 
 # --- Configuration ---
 DRY_RUN=false   # Set to true to preview deletions without acting
+CLEAN_PENDING=true  # Set to false to skip .pending_delete cleanup
 EXCLUDE_USERS=("cmcleod1" "jssadmin" "libradmin" "_mbsetupuser" "Shared")
+
+# --- Counters for pending-delete cleanup ---
+pending_removed=0
+pending_failed=0
+pending_freed_kb=0
 
 # --- Functions ---
 function main() {
     active_session_guard
     print_header
 
+    if [[ "$CLEAN_PENDING" = true ]]; then
+        cleanup_pending_deletes
+    fi
+
     local deleted=0
     local skipped=0
     local failed=0
     local total_freed_kb=0
+
+    echo ""
+    echo "----- User profiles -----"
 
     for user_home in /Users/*; do
         [[ -e "$user_home" ]] || continue
@@ -70,8 +92,8 @@ function main() {
         # Calculate profile size before deletion (in KB for accurate math)
         local profile_size
         local profile_kb
-        profile_size=$(du -sh "$user_home" 2>/dev/null | awk '{print $1}')
-        profile_kb=$(du -sk "$user_home" 2>/dev/null | awk '{print $1}')
+        profile_size=$(du -sh "$user_home" 2>/dev/null | awk '{print $1}') || true
+        profile_kb=$(du -sk "$user_home" 2>/dev/null | awk '{print $1}') || true
         profile_size="${profile_size:-unknown}"
         profile_kb="${profile_kb:-0}"
 
@@ -91,6 +113,47 @@ function main() {
     done
 
     print_summary "$deleted" "$skipped" "$failed" "$total_freed_kb"
+}
+
+function cleanup_pending_deletes() {
+    # Removes /Users/.pending_delete_* folders left behind by earlier
+    # sysadminctl -deleteUser runs. Called BEFORE the user loop so it
+    # never races a deletion started by this run.
+    local pending
+    local name
+    local kb
+    local size
+    local found=0
+
+    echo "----- Leftover .pending_delete folders -----"
+
+    for pending in /Users/.pending_delete_*; do
+        [[ -d "$pending" ]] || continue
+        found=1
+        name=$(basename "$pending")
+
+        kb=$(du -sk "$pending" 2>/dev/null | awk '{print $1}') || true
+        size=$(du -sh "$pending" 2>/dev/null | awk '{print $1}') || true
+        kb="${kb:-0}"
+        size="${size:-unknown}"
+
+        if [[ "$DRY_RUN" = true ]]; then
+            echo "WOULD REMOVE  $name — Size: $size"
+            ((pending_removed++)) || true
+        else
+            echo "REMOVING  $name — Size: $size"
+            /usr/bin/chflags -R nouchg,noschg "$pending" 2>/dev/null || true
+            if /bin/rm -rf "$pending" 2>&1; then
+                pending_freed_kb=$((pending_freed_kb + kb))
+                ((pending_removed++)) || true
+            else
+                echo "FAILED  Could not remove $name"
+                ((pending_failed++)) || true
+            fi
+        fi
+    done
+
+    [[ "$found" -eq 1 ]] || echo "None found."
 }
 
 function active_session_guard() {
@@ -149,14 +212,17 @@ function print_summary() {
     local skipped="$2"
     local failed="$3"
     local total_freed_kb="$4"
+    local combined_kb=$((total_freed_kb + pending_freed_kb))
 
     echo ""
     echo "===== Summary ====="
-    echo "Profiles deleted   : $deleted"
-    echo "Profiles skipped   : $skipped"
-    echo "Profiles failed    : $failed"
-    if [[ "$DRY_RUN" = false && "$total_freed_kb" -gt 0 ]]; then
-        echo "Storage freed      : $(echo "$total_freed_kb" | awk '{printf "%.2f GB", $1/1048576}')"
+    echo "Profiles deleted        : $deleted"
+    echo "Profiles skipped        : $skipped"
+    echo "Profiles failed         : $failed"
+    echo "Pending folders removed : $pending_removed"
+    echo "Pending folders failed  : $pending_failed"
+    if [[ "$DRY_RUN" = false && "$combined_kb" -gt 0 ]]; then
+        echo "Storage freed           : $(echo "$combined_kb" | awk '{printf "%.2f GB", $1/1048576}')"
     fi
     echo "Completed: $(date)"
 }
