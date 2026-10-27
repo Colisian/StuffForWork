@@ -8,8 +8,8 @@
 
 .NOTES
     Author:  GIS Lab
-    Date:    2026-09-06
-    Version: 2.1
+    Date:    2026-10-27
+    Version: 2.2
     Log:     C:\ProgramData\UMDLibraries\GISLabForm\DeploymentLogs\uninstall.log
 #>
 [CmdletBinding()]

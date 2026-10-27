@@ -4,13 +4,13 @@
 
 .NOTES
     Author:  GIS Lab
-    Date:    2026-09-06
-    Version: 2.1
+    Date:    2026-10-27
+    Version: 2.2
 #>
 [CmdletBinding()]
 param()
 
-$expectedVersion = '2.1'
+$expectedVersion = '2.2'
 $appDir = 'C:\ProgramData\UMDLibraries\GISLabForm\App'
 $launcherPath = Join-Path $appDir 'Launcher-GISLabForm.ps1'
 $versionPath = Join-Path $appDir 'version.txt'

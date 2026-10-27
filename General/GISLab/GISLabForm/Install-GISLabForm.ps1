@@ -8,8 +8,8 @@
 
 .NOTES
     Author:  GIS Lab
-    Date:    2026-09-06
-    Version: 2.1
+    Date:    2026-10-27
+    Version: 2.2
     Log:     C:\ProgramData\UMDLibraries\GISLabForm\DeploymentLogs\install.log
 
 .INTUNE DEPLOYMENT
@@ -37,7 +37,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$appVersion = '2.1'
+$appVersion = '2.2'
 $rootDir = 'C:\ProgramData\UMDLibraries\GISLabForm'
 $appDir = Join-Path $rootDir 'App'
 $runtimeLogDir = Join-Path $rootDir 'Logs'
