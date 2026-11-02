@@ -1,6 +1,6 @@
 # UMD Libraries — Kiosk Auto-Logon Win32 Deployment
 
-**Deployment version:** `2026.10.06.2`  
+**Deployment version:** `2026.10.06.3`  
 **Prepared:** October 6, 2026
 
 ## Table of Contents
@@ -63,7 +63,7 @@ C:\ProgramData\UMDLibraries\KioskAutoLogon
 
 1. Open **Apps → Windows → Add → Windows app (Win32)**.
 2. Upload `Output\Install-KioskAutoLogon.intunewin`.
-3. Set the name to **UMD Libraries - Kiosk Auto-Logon Repair 2026.10.06.2** and publisher to **University of Maryland Libraries**.
+3. Set the name to **UMD Libraries - Kiosk Auto-Logon Repair 2026.10.06.3** and publisher to **University of Maryland Libraries**.
 4. Configure the Program settings below, or use [[#PowerShell Script Installer Method]].
 
 | Program setting | Value |
@@ -124,22 +124,24 @@ The command-line method keeps the executable scripts versioned inside the packag
 ## AxisTV Startup
 > [[#Table of Contents|↑ Back to TOC]]
 
-Version **2026.10.06.2** adds the existing AxisTV playback shortcut to **All Users Startup**.
+Version **2026.10.06.3** ensures an AxisTV playback shortcut exists in **All Users Startup**, using its original filename. If it already exists, installation skips copying and preserves the existing file.
 
 | Setting | Path |
 |---|---|
 | Existing vendor shortcut | `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\AxisTV Engage\Start AxisTV Engage Playback.lnk` |
-| Managed startup copy | `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\UMD-AxisTV Engage Playback.lnk` |
+| Startup shortcut | `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\Start AxisTV Engage Playback.lnk` |
 
-The installer resolves Windows' Common Startup folder and copies the complete shortcut, preserving its target, arguments, and working directory. Windows launches it in the signing-in user's session, including when **LibCirc** logs in automatically. All Users Startup also applies to other interactive users on the kiosk.
+The installer resolves Windows' Common Startup folder. When the original-name startup shortcut is missing, it copies the complete vendor shortcut without renaming it, preserving its target, arguments, and working directory. Windows launches it in the signing-in user's session, including when **LibCirc** logs in automatically. All Users Startup also applies to other interactive users on the kiosk.
 
-**Prerequisite:** AxisTV Engage and the vendor shortcut must already be installed. A missing shortcut fails installation before account or auto-logon changes. If AxisTV is separately deployed as a Win32 app, consider configuring it as an Intune dependency.
+**Prerequisite:** AxisTV Engage must be installed. If neither the original-name startup shortcut nor the vendor shortcut exists, installation fails before account or auto-logon changes. If the startup shortcut already exists, a missing vendor shortcut does not block installation. Consider an Intune dependency if AxisTV is separately deployed as a Win32 app.
 
-Detection requires the source and startup copies to exist and match by SHA-256 hash, and to match the ownership hash recorded in the deployment marker. A removed or altered startup shortcut fails detection.
+Detection requires the original-name startup shortcut to exist and the earlier renamed `UMD-AxisTV Engage Playback.lnk` copy to be absent. It accepts an existing original-name shortcut without requiring it to match the vendor file, so customizations do not cause repeated repair.
 
-Uninstall removes the startup copy only when its hash matches the recorded deployment hash. A modified or untracked shortcut is retained with a log message. The original vendor shortcut and AxisTV application remain in place.
+Installation removes the earlier renamed copy when it matches the previous recorded hash, the vendor file, or the retained original-name startup file. If it differs from all known copies, installation fails with a message requesting manual review instead of deleting an unrecognized file. This prevents a successful installation from leaving the known duplicate startup entry.
 
-**Deploy the update:** replace the Intune app package and custom detection script with version **2026.10.06.2**. If using the PowerShell script installer fields, also replace the install and uninstall scripts. Keep the Required device assignment; the new version makes the previous deployment fail detection.
+Uninstall preserves pre-existing startup shortcuts. It removes an original-name shortcut only when this deployment created it and its hash still matches the recorded hash. Modified or untracked shortcuts are retained. The original vendor shortcut and AxisTV application remain in place.
+
+**Deploy the update:** replace the Intune app package and custom detection script with version **2026.10.06.3**. If using the PowerShell script installer fields, also replace the install and uninstall scripts. Updating package content alone does not replace separately uploaded installer scripts. Keep the Required device assignment; the new version makes the previous deployment fail detection.
 
 **Pilot check:** confirm the managed startup shortcut exists, then sign in as LibCirc or restart during a maintenance window and confirm playback opens. Check Windows Startup Apps if startup entries were disabled. Remove a redundant AxisTV startup mechanism if it causes duplicate launches. File detection does not prove playback started or that Windows allowed the startup entry.
 
@@ -163,7 +165,7 @@ Detection checks:
 - `AutoAdminLogon = 1`, expected username, and local computer domain.
 - No plaintext Winlogon `DefaultPassword` and no `AutoLogonCount` limit.
 - A nonempty `DefaultPassword` LSA secret.
-- Matching source and managed AxisTV startup shortcuts, with a recorded ownership hash.
+- The original-name AxisTV startup shortcut exists and the earlier renamed duplicate is absent.
 
 Detection exits `0` with output when installed; otherwise, it exits `1` silently. Required Win32 apps can be offered again when Intune reevaluates them as missing. Repair is eventual; this does not provide immediate monitoring or a guaranteed check interval.
 
@@ -174,7 +176,7 @@ Detection does not validate the secret against the actual account password, dete
 ## Force a Future Repair
 > [[#Table of Contents|↑ Back to TOC]]
 
-1. Increment `DeploymentVersion` in `Source\KioskConfig.json`, for example to `2026.10.06.3`.
+1. Increment `DeploymentVersion` in `Source\KioskConfig.json`, for example to `2026.10.06.4`.
 2. Set `$requiredVersion` in `Detect-KioskAutoLogon.ps1` to the same value. If changing the account, also update `$expectedUser`.
 3. Follow [[#Rebuild the Package]].
 4. Replace **both the app package and the uploaded detection script** in Intune, keeping the Required assignment. The old deployment version will fail detection and trigger another install when evaluated.
@@ -274,7 +276,7 @@ Keep CrowdStrike and Rapid7 enabled. If account-password or LSA changes raise de
 
 Remove the **Required** assignment before assigning **Uninstall**.
 
-Uninstall removes the unchanged managed AxisTV startup shortcut, disables auto-logon, removes the LSA password and completion marker, and retains the local account, its password, and the current session. It refuses to change a different configured auto-logon username.
+Uninstall preserves pre-existing startup shortcuts and removes an unchanged AxisTV startup shortcut only when this deployment created it. It disables auto-logon, removes the LSA password and completion marker, and retains the local account, its password, and the current session. It refuses to change a different configured auto-logon username.
 
 It does not restore deleted policy keys or the prior password. Reapply desired DeviceLock settings through Intune.
 
@@ -299,4 +301,5 @@ Live SYSTEM deployment and reboot auto-logon still require pilot validation.
 - [Add and assign Win32 apps in Microsoft Intune](https://learn.microsoft.com/en-us/intune/app-management/deployment/add-win32)
 - [Prepare a Win32 app for upload](https://learn.microsoft.com/en-us/intune/app-management/deployment/create-win32-package)
 - [Microsoft Win32 Content Prep Tool](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool)
+
 
