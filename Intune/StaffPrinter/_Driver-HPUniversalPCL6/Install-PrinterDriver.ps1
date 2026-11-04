@@ -24,7 +24,7 @@
 .NOTES
     Author:  Oji (cmcleod1@umd.edu)
     Date:    2026-09-22
-    Version: 1.1.0
+    Version: 1.2.0
     Log:     C:\ProgramData\StaffPrinters\Driver-Install.log
     Sentinel: HKLM\SOFTWARE\UMDLibraries\StaffPrinters\Driver  (Name, Version)
 #>
@@ -55,6 +55,13 @@ begin {
     $logDir = 'C:\ProgramData\StaffPrinters'
     if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force -WhatIf:$false | Out-Null }
     $sentinel = 'HKLM:\SOFTWARE\UMDLibraries\StaffPrinters\Driver'
+
+    function ConvertTo-DriverVersion {
+        # DriverVersion is a packed UInt64 (16 bits per part) - return it as [version]
+        [CmdletBinding()]
+        param([uint64]$Value)
+        [version]('{0}.{1}.{2}.{3}' -f ($Value -shr 48), (($Value -shr 32) -band 0xFFFF), (($Value -shr 16) -band 0xFFFF), ($Value -band 0xFFFF))
+    }
 }
 
 end {
@@ -63,29 +70,39 @@ end {
     try {
         try { Start-Transcript -Path (Join-Path $logDir 'Driver-Install.log') -Append -WhatIf:$false | Out-Null; $transcribing = $true } catch { }
 
-        $infs = Get-ChildItem -Path (Join-Path $ScriptDir 'Driver') -Filter $InfName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $infs) { throw "$InfName not found under $ScriptDir\Driver" }
+        $inf = Get-ChildItem -Path (Join-Path $ScriptDir 'Driver') -Filter $InfName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $inf) { throw "$InfName not found under $ScriptDir\Driver" }
 
-        foreach ($inf in $infs) {
-            if ($PSCmdlet.ShouldProcess($inf.FullName, 'pnputil /add-driver /install')) {
-                Write-Output "pnputil /add-driver $($inf.FullName)"
-                & $pnputil /add-driver $inf.FullName /install | Out-Null
-                if ($LASTEXITCODE -notin 0, 259, 3010) { Write-Warning "pnputil exit $LASTEXITCODE for $($inf.Name)" }
-            }
+        # Packaged version = first DriverVer= line of the INF ([Version] section)
+        $verLine = Select-String -Path $inf.FullName -Pattern '^\s*DriverVer\s*=\s*[^,]+,\s*([\d.]+)' | Select-Object -First 1
+        if (-not $verLine) { throw "No DriverVer found in $($inf.Name)" }
+        $packagedVersion = [version]$verLine.Matches[0].Groups[1].Value
+        Write-Output "Packaged: '$DriverName' $packagedVersion ($($inf.Name))"
+
+        $current = Get-PrinterDriver -Name $DriverName -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($current) { Write-Output "Currently registered: $(ConvertTo-DriverVersion $current.DriverVersion) from $($current.InfPath)" }
+
+        if ($PSCmdlet.ShouldProcess($inf.FullName, 'pnputil /add-driver /install')) {
+            & $pnputil /add-driver $inf.FullName /install | Out-Null
+            # 259 = staged, no matching PnP device - expected for printers
+            if ($LASTEXITCODE -notin 0, 259, 3010) { Write-Warning "pnputil exit $LASTEXITCODE for $($inf.Name)" }
         }
 
-        if ($PSCmdlet.ShouldProcess($DriverName, 'Add-PrinterDriver')) {
-            Add-PrinterDriver -Name $DriverName
+        # Register THIS package explicitly. Add-PrinterDriver -Name alone keeps an older
+        # same-name driver already on the PC (e.g. v3.20 pulled down by print-server connections).
+        if ($PSCmdlet.ShouldProcess($DriverName, "Add-PrinterDriver $packagedVersion")) {
+            $staged = Get-WindowsDriver -Online | Where-Object {
+                (Split-Path $_.OriginalFileName -Leaf) -eq $inf.Name -and [version]$_.Version -eq $packagedVersion
+            } | Select-Object -First 1
+            if (-not $staged) { throw "pnputil did not stage $($inf.Name) $packagedVersion into the driver store." }
+            Write-Output "Add-PrinterDriver -InfPath $($staged.OriginalFileName)"
+            Add-PrinterDriver -Name $DriverName -InfPath $staged.OriginalFileName
         }
 
         if (-not $WhatIfPreference) {
-            $installed = Get-PrinterDriver -Name $DriverName -ErrorAction Stop
-            $version = $installed.DriverVersion
-            # DriverVersion is a packed UInt64 - render it as a.b.c.d
-            if ($version -is [uint64] -or $version -is [long]) {
-                $v = [uint64]$version
-                $version = '{0}.{1}.{2}.{3}' -f (($v -shr 48) -band 0xFFFF), (($v -shr 32) -band 0xFFFF), (($v -shr 16) -band 0xFFFF), ($v -band 0xFFFF)
-            }
+            $installed = Get-PrinterDriver -Name $DriverName -ErrorAction Stop | Select-Object -First 1
+            $version = ConvertTo-DriverVersion $installed.DriverVersion
+            if ($version -lt $packagedVersion) { throw "'$DriverName' is still $version after install (expected $packagedVersion)." }
             if (-not (Test-Path $sentinel)) { New-Item -Path $sentinel -Force | Out-Null }
             Set-ItemProperty -Path $sentinel -Name 'Name' -Value $DriverName -Force
             Set-ItemProperty -Path $sentinel -Name 'Version' -Value "$version" -Force

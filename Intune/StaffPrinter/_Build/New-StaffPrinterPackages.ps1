@@ -68,6 +68,11 @@ end {
         if (-not $isDriver -and $status[$dir.Name] -ne 'Ready' -and -not $IncludeNotReady) {
             Write-Warning "$($dir.Name): status '$($status[$dir.Name])' - skipped (use -IncludeNotReady)."; continue
         }
+        # IntuneWinAppUtil packages the whole folder - an old package inside it doubles the size
+        $stray = Get-ChildItem $dir.FullName -Recurse -Filter *.intunewin -ErrorAction SilentlyContinue
+        if ($stray) {
+            Write-Warning "$($dir.Name): contains $($stray.Name -join ', ') - move it out of the source folder. Skipped."; continue
+        }
         if (-not $PSCmdlet.ShouldProcess($dir.Name, 'IntuneWinAppUtil package')) { continue }
 
         $final = Join-Path $OutputPath "$($dir.Name).intunewin"
