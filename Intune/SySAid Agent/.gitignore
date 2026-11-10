@@ -1,0 +1,8 @@
+SysAidConfig.json
+Source/*.msi
+Source/*.mst
+Source/Deployment.json
+Output/
+Build/
+Review/
+Tests/Artifacts/

@@ -1,0 +1,10 @@
+{
+  "MsiFile": "SysAidAgentx64_WIX.msi",
+  "ProductCode": "{18D93098-07C7-46E6-97DB-188335C3EB3F}",
+  "UpgradeCode": "{6B13449A-B56F-4919-BFD8-4B5F4B68468B}",
+  "MinimumVersion": "24.4.60.68",
+  "MsiSha256": "8A3A973ACA0689C4965E4ED4C0EA5C8B52A78ECAE3B173FC8F6A263910CEB55F",
+  "ServerUrl": "https://ticketing.lib.umd.edu",
+  "AccountId": "umlibraryitd",
+  "PackageRevision": 1
+}
