@@ -1,0 +1,141 @@
+﻿OPENREFINE 3.10.0 - UMD LIBRARIES INTUNE WIN32 PACKAGE
+Prepared: November 17, 2026
+
+PACKAGE AND FILES
+Upload Output\Install-OpenRefine.intunewin.
+Upload Detect-OpenRefine.ps1 separately as the custom detection script.
+The root scripts are the editable originals. Package\ is the build staging folder.
+Output\ contains the package, build log, and checksum receipt.
+Existing root install.cmd/uninstall.cmd were backed up under Legacy\ before updating.
+The original installer folder and its CMD files were left unchanged.
+
+INTUNE SETTINGS
+App type: Windows app (Win32)
+Name: OpenRefine 3.10.0
+Publisher: OpenRefine
+App version: 3.10.0
+Install behavior: System
+Device restart behavior: Determine behavior based on return codes
+Architecture: x64 (the bundled Java runtime is x64)
+Minimum operating system: Windows 11, version 24H2 for the initial pilot;
+adjust to your supported fleet baseline if needed.
+Installation time required: 30 minutes
+
+Install command:
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\Install-OpenRefine.ps1
+
+Uninstall command:
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\Uninstall-OpenRefine.ps1
+
+Return codes:
+0 = Success
+1 = Failed
+3010 = Soft reboot
+Retain other Intune default mappings. Native Inno Setup errors are logged and
+mapped to 1 so they cannot be mistaken for Windows Installer retry codes.
+
+Detection rules:
+- Use a custom detection script: Detect-OpenRefine.ps1
+- Run script as 32-bit process on 64-bit clients: No
+- Enforce script signature check: No, unless you sign this script internally
+- Detection requires machine registration at version 3.10.0 or newer, the launcher,
+  bundled Java, and the server JAR corresponding to the registered version.
+- Registry32 and Registry64 are queried explicitly. No user-profile installs qualify.
+- Success emits one line of stdout and exit 0; absent/broken install exits 1.
+
+OPTIONAL POWERSHELL SCRIPT INSTALLER
+The install and uninstall scripts also support being pasted into Intune's
+PowerShell script installer fields. Paste each complete corresponding script.
+Keep the same .intunewin: its companion .ps1/.json files and installer are required.
+Both wrappers resolve bundled files using PSScriptRoot with current-directory fallback.
+Use the command-line method above by default to keep scripts versioned in the package.
+
+WHAT THE PACKAGE DOES
+Uses the official 3.10.0 Windows installer with embedded Java.
+Installs silently for all users; creates the vendor Start Menu shortcuts.
+Does not request a desktop shortcut or launch OpenRefine during silent setup.
+Uses the vendor default directory and registered uninstaller rather than assuming
+C:\Program Files or C:\Program Files (x86).
+Returns failure when a registered OpenRefine installation is running, preserving
+unsaved work. Close OpenRefine and retry. Generic Java processes are not terminated.
+Accepts an already complete equal/newer installation and prevents downgrades.
+Uninstall removes all machine registrations with the vendor AppId, including a
+newer version if present; scope uninstall assignments accordingly.
+Per-user/portable copies are outside the package's management scope.
+Uninstall does not explicitly delete projects in user profiles. Back up workspaces
+before upgrades; custom files saved inside the application folder may be removed
+by the vendor installer/uninstaller.
+
+ENDPOINT LOGS
+C:\ProgramData\UMDLibraries\OpenRefine\Install-OpenRefine.log
+C:\ProgramData\UMDLibraries\OpenRefine\OpenRefine-Setup.log
+C:\ProgramData\UMDLibraries\OpenRefine\Uninstall-OpenRefine.log
+C:\ProgramData\UMDLibraries\OpenRefine\OpenRefine-Uninstall-Registry32.log
+C:\ProgramData\UMDLibraries\OpenRefine\OpenRefine-Uninstall-Registry64.log
+Wrapper transcripts append; native setup logs overwrite on the next run.
+Intune operational logs:
+C:\ProgramData\Microsoft\IntuneManagementExtension\Logs
+
+REBUILD
+Run PowerShell from this packaging folder:
+.\Build-OpenRefine.ps1 -WhatIf
+.\Build-OpenRefine.ps1
+
+The build script has parameters for InstallerPath and ContentPrepTool if moved.
+Only five deployment files are staged, and Output is outside the content folder.
+Do not put an .intunewin in Package\. Output names are stable and overwritten on rebuild.
+
+PILOT VERIFICATION (ON A DISPOSABLE TEST DEVICE)
+Run the following from the staged Package folder in an elevated PowerShell window:
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-OpenRefine.ps1
+$LASTEXITCODE
+
+Run detection from the root packaging folder:
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Detect-OpenRefine.ps1
+$LASTEXITCODE
+Expected: one detected-version line and exit 0 after installation.
+
+Launch OpenRefine from Start as a standard user, not SYSTEM.
+Confirm its local browser interface opens, create/import a small project, exit,
+and reopen to confirm persistence. OpenRefine runs a local server at port 3333.
+Optional localhost check while running:
+Get-NetTCPConnection -State Listen -LocalPort 3333 | Select-Object LocalAddress,LocalPort,OwningProcess
+Confirm the service is accessible only through loopback; do not create an inbound rule.
+
+Close OpenRefine, then run from Package:
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Uninstall-OpenRefine.ps1
+$LASTEXITCODE
+Run detection again: expected exit 1 and no success output.
+Confirm user projects remain. Then pilot the same install/uninstall through Intune
+to validate actual SYSTEM execution, assignment, and Company Portal behavior.
+Also test an upgrade from the currently deployed version and a running-app retry.
+
+SECURITY AND VERSION NOTES
+The provided installer is unsigned. Its exact bytes match the official release:
+SHA256 2E979E4A301D5E4173FF8A5CBF4E24D0D0014A0BC3E42737DF703823A42F8C76
+Both build and install check that hash. No credentials or exclusions are included.
+Preserve loopback-only access. Do not open port 3333 to the campus network.
+Pilot with CrowdStrike and Rapid7 in place. Investigate blocks and bundled Java
+findings; avoid blanket security exclusions. Deploy 3.10.0 as supplied; it is not
+a claim that this is the newest or vulnerability-free release.
+Before broad deployment, review current vendor security notices and any bundled
+Java findings with your normal patch review.
+
+VALIDATION LIMITS
+See Output\Validation-Results.txt for checks performed during package preparation.
+A real install, standard-user launch, upgrade, and Intune SYSTEM test must be
+completed on a pilot endpoint before production assignment.
+
+REFERENCES
+Official supplied-version release and SHA-256 asset digest:
+https://github.com/OpenRefine/OpenRefine/releases/tag/3.10.0
+https://api.github.com/repos/OpenRefine/OpenRefine/releases/tags/3.10.0
+Version-specific installer source (AppId, directories, shortcuts, silent launch):
+https://github.com/OpenRefine/OpenRefine/blob/3.10.0/packaging/openrefine.iss
+Bundled runtime/server layout:
+https://github.com/OpenRefine/OpenRefine/blob/3.10.0/packaging/windows-with-jre.xml
+Silent setup and uninstall:
+https://jrsoftware.org/ishelp/topic_setupcmdline.htm
+https://jrsoftware.org/ishelp/topic_uninstcmdline.htm
+Intune Win32 app setup and detection:
+https://learn.microsoft.com/en-us/intune/app-management/deployment/add-win32

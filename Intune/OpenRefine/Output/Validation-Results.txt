@@ -1,0 +1,13 @@
+OpenRefine packaging validation - November 17, 2026
+PASS: All five PowerShell files parse in Windows PowerShell 5.1.
+PASS: Simulated detection 'Absent' returned exit 1 with expected stdout.
+PASS: Simulated detection 'Older' returned exit 1 with expected stdout.
+PASS: Simulated detection 'Exact version' returned exit 0 with expected stdout.
+PASS: Simulated detection 'Newer version' returned exit 0 with expected stdout.
+PASS: Simulated detection 'Missing runtime or application' returned exit 1 with expected stdout.
+PASS: Simulated detection 'Registry read failure' returned exit 1 with expected stdout.
+PASS: Install-OpenRefine.ps1 resolves companion files with an empty PSScriptRoot in paste-mode WhatIf.
+PASS: Uninstall-OpenRefine.ps1 resolves companion files with an empty PSScriptRoot in paste-mode WhatIf.
+PASS: Staging contains exactly five expected files; scripts/config match originals; installer SHA-256 matches official release.
+PASS: Generated .intunewin opens as a valid container and metadata points to Install-OpenRefine.ps1.
+NOT RUN: Actual installation/uninstallation, standard-user launch, upgrade, and Intune SYSTEM deployment. Complete on a pilot device.

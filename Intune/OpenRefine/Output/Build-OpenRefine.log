@@ -1,0 +1,26 @@
+**********************
+PowerShell transcript start
+Start time: 20261117183530
+Username: AD\cmcleod1
+RunAs User: AD\cmcleod1
+Configuration Name: 
+Machine: LIBRWK93ZMR74 (Microsoft Windows NT 10.0.26300.0)
+Host Application: C:\Program Files\WindowsApps\OpenAI.CodexPrimaryRuntime.v26-1111-574-0_26.1111.574.0_x64__3k8sg7r9htsxt\dependencies\native\powershell\pwsh.dll -Command try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}
+$ErrorActionPreference='Stop'; $root='C:\Users\cmcleod1\OneDrive - University of Maryland\Documents\Work\StuffForWork\Intune\OpenRefine'; foreach ($name in @('install.cmd','uninstall.cmd')) { $file=Join-Path $root $name; [IO.File]::WriteAllText($file, [IO.File]::ReadAllText($file), [Text.ASCIIEncoding]::new()) }; $failures=@(); foreach ($file in Get-ChildItem -LiteralPath $root -Filter '*.ps1') { $tokens=$null; $errors=$null; $null=[Management.Automation.Language.Parser]::ParseFile($file.FullName,[ref]$tokens,[ref]$errors); if ($errors.Count) { $failures += $errors }; Write-Output "$($file.Name): $($errors.Count) syntax errors" }; if ($failures.Count) { $failures | Format-List; throw 'Syntax validation failed.' }; & (Join-Path $root 'Install-OpenRefine.ps1') -WhatIf; & (Join-Path $root 'Uninstall-OpenRefine.ps1') -WhatIf; & (Join-Path $root 'Build-OpenRefine.ps1') -WhatIf; & (Join-Path $root 'Build-OpenRefine.ps1')
+Process ID: 964
+PSVersion: 7.6.9
+PSEdition: Core
+GitCommitId: 7.6.9
+OS: Microsoft Windows 10.0.26300
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+Created C:\Users\cmcleod1\OneDrive - University of Maryland\Documents\Work\StuffForWork\Intune\OpenRefine\Output\Install-OpenRefine.intunewin
+**********************
+PowerShell transcript end
+End time: 20261117183538
+**********************

@@ -1,4 +1,3 @@
 @echo off
-start /wait "" "%~dp0openrefine.exe" /VERYSILENT /LANG=english /NORESTART /AllUSERS
-
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0Install-OpenRefine.ps1"
 exit /b %errorlevel%

@@ -1,3 +1,3 @@
 @echo off
-start /wait "" "C:\Program Files (x86)\OpenRefine\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /ALLUSERS /NORESTART
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0Uninstall-OpenRefine.ps1"
 exit /b %errorlevel%
